@@ -170,7 +170,7 @@ class PostgresStore:
         except ImportError:
             raise ImportError(
                 "psycopg2-binary is required for PostgresStore. "
-                "Install with: pip install sigil-ml[postgres]"
+                "Install with: pip install kameas-ml[postgres]"
             ) from None
 
         self._connection_url = connection_url

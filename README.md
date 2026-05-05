@@ -1,13 +1,13 @@
-<h1 align="center">sigil-ml</h1>
+<h1 align="center">kameas-ml</h1>
 
 <p align="center">
-  <strong>ML prediction sidecar for <a href="https://github.com/sigil-tech/sigil">Sigil</a>.</strong><br />
+  <strong>ML prediction sidecar for <a href="https://github.com/kameas-ai/sigil">Sigil</a>.</strong><br />
   Learns your workflow patterns. Predicts when you're stuck. Suggests what to do next.
 </p>
 
 <p align="center">
-  <a href="https://github.com/sigil-tech/sigil-ml/actions/workflows/ci.yml"><img src="https://github.com/sigil-tech/sigil-ml/actions/workflows/ci.yml/badge.svg" alt="Tests" /></a>
-  <a href="https://github.com/sigil-tech/sigil-ml/actions/workflows/release.yml"><img src="https://github.com/sigil-tech/sigil-ml/actions/workflows/release.yml/badge.svg" alt="Release" /></a>
+  <a href="https://github.com/kameas-ai/kameas-ml/actions/workflows/ci.yml"><img src="https://github.com/kameas-ai/kameas-ml/actions/workflows/ci.yml/badge.svg" alt="Tests" /></a>
+  <a href="https://github.com/kameas-ai/kameas-ml/actions/workflows/release.yml"><img src="https://github.com/kameas-ai/kameas-ml/actions/workflows/release.yml/badge.svg" alt="Release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+" /></a>
 </p>
@@ -16,9 +16,9 @@
 
 ## Philosophy
 
-Sigil's intelligence works in layers. The [core daemon](https://github.com/sigil-tech/sigil) watches what you do — file edits, terminal commands, git activity, test results — and runs 20+ heuristic pattern detectors written in pure Go. These heuristics are fast and always available, but they only look at the present.
+Sigil's intelligence works in layers. The [core daemon](https://github.com/kameas-ai/sigil) watches what you do — file edits, terminal commands, git activity, test results — and runs 20+ heuristic pattern detectors written in pure Go. These heuristics are fast and always available, but they only look at the present.
 
-**sigil-ml adds memory.** It learns from your history to predict what's coming next: when you're about to get stuck, how long a task will take, and which nudge will actually help. The models start simple and get sharper as they observe more of your work.
+**kameas-ml adds memory.** It learns from your history to predict what's coming next: when you're about to get stuck, how long a task will take, and which nudge will actually help. The models start simple and get sharper as they observe more of your work.
 
 The system earns trust in stages. At Level 2 (ambient), it shows passive toasts. At Level 3 (conversational), it offers action buttons. At Level 4 (autonomous), it acts on your behalf — but only after the models have demonstrated calibrated, high-confidence predictions over time. **No model skips the line.** Autonomy is earned, not assumed.
 
@@ -26,10 +26,10 @@ Everything runs locally. No data leaves your machine. The models are lightweight
 
 ## How It Works
 
-sigil-ml runs alongside `sigild` as a local sidecar service. They share a SQLite database — the daemon writes events, sigil-ml reads them, runs predictions, and writes results back for the daemon to surface.
+kameas-ml runs alongside `sigild` as a local sidecar service. They share a SQLite database — the daemon writes events, kameas-ml reads them, runs predictions, and writes results back for the daemon to surface.
 
 ```
-sigild (Go)                          sigil-ml (Python)
+sigild (Go)                          kameas-ml (Python)
   │                                      │
   ├── writes events ─────────────────────┤ polls for new events
   ├── writes tasks  ─────────────────────┤ extracts features
@@ -66,8 +66,8 @@ Weighted scoring model that computes a rolling 30-minute work quality score (0�
 ### Homebrew
 
 ```bash
-brew tap sigil-tech/sigil
-brew install sigil-ml
+brew tap kameas-ai/sigil
+brew install kameas-ml
 ```
 
 ### From source
@@ -75,7 +75,7 @@ brew install sigil-ml
 Requires Python 3.10+.
 
 ```bash
-git clone https://github.com/sigil-tech/sigil-ml.git && cd sigil-ml
+git clone https://github.com/kameas-ai/kameas-ml.git && cd kameas-ml
 pip install -e ".[dev]"
 ```
 
@@ -84,18 +84,18 @@ pip install -e ".[dev]"
 ### Start the sidecar
 
 ```bash
-sigil-ml serve
+kameas-ml serve
 ```
 
 The server starts on `127.0.0.1:7774` and immediately begins polling the sigild database for events. Predictions are written back automatically.
 
-If `sigild` manages the sidecar lifecycle (the default), you don't need to start it manually — the daemon launches `sigil-ml serve` as a subprocess and monitors its health.
+If `sigild` manages the sidecar lifecycle (the default), you don't need to start it manually — the daemon launches `kameas-ml serve` as a subprocess and monitors its health.
 
 ### Train models manually
 
 ```bash
-sigil-ml train                    # from default sigild database
-sigil-ml train --db /path/to.db   # from a specific database
+kameas-ml train                    # from default sigild database
+kameas-ml train --db /path/to.db   # from a specific database
 ```
 
 Models retrain automatically in the background after 10 completed tasks (minimum 1-hour interval). Manual training is useful for bootstrapping or after a fresh install.
@@ -103,7 +103,7 @@ Models retrain automatically in the background after 10 completed tasks (minimum
 ### Health check
 
 ```bash
-sigil-ml health-check
+kameas-ml health-check
 ```
 
 ## API
@@ -121,7 +121,7 @@ sigil-ml health-check
 ## Architecture
 
 ```
-sigil-ml/
+kameas-ml/
   src/sigil_ml/
     config.py              # XDG-aware path discovery
     schema.py              # Database table bootstrap
@@ -164,9 +164,9 @@ Tests use temporary SQLite databases and isolated model directories — no sigil
 
 ## Privacy
 
-sigil-ml reads from and writes to a local SQLite database. It makes no network calls. No telemetry. No external APIs. Your workflow data never leaves your machine.
+kameas-ml reads from and writes to a local SQLite database. It makes no network calls. No telemetry. No external APIs. Your workflow data never leaves your machine.
 
-See the [Sigil privacy policy](https://github.com/sigil-tech/sigil/blob/main/PRIVACY.md) for the full data inventory.
+See the [Sigil privacy policy](https://github.com/kameas-ai/sigil/blob/main/PRIVACY.md) for the full data inventory.
 
 ## License
 

@@ -3,16 +3,16 @@
 ## Prerequisites
 
 - Python 3.10+
-- sigil-ml installed: `pip install -e ".[dev]"`
+- kameas-ml installed: `pip install -e ".[dev]"`
 
 ## Running in Cloud Mode
 
 ```bash
-# Start sigil-ml in cloud mode
-sigil-ml serve --mode cloud --host 0.0.0.0 --port 7774
+# Start kameas-ml in cloud mode
+kameas-ml serve --mode cloud --host 0.0.0.0 --port 7774
 
 # Or via environment variable
-SIGIL_ML_MODE=cloud sigil-ml serve --host 0.0.0.0 --port 7774
+SIGIL_ML_MODE=cloud kameas-ml serve --host 0.0.0.0 --port 7774
 ```
 
 Cloud mode starts without:
@@ -130,10 +130,10 @@ If no model exists for a tenant, all endpoints return rule-based fallback predic
 
 ```bash
 # Default behavior - identical to current
-sigil-ml serve
+kameas-ml serve
 
 # Explicit local mode
-sigil-ml serve --mode local
+kameas-ml serve --mode local
 ```
 
 Local mode requires the sigild SQLite database and behaves identically to the current implementation.

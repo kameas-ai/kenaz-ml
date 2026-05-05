@@ -134,7 +134,7 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
             ms = model_store_factory()
             state.model_store = ms
 
-            logger.info("sigil-ml: using %s data backend, %s model backend", type(store).__name__, type(ms).__name__)
+            logger.info("kameas-ml: using %s data backend, %s model backend", type(store).__name__, type(ms).__name__)
 
             try:
                 store.ensure_tables()
@@ -191,7 +191,7 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
 
             asyncio.create_task(_schedule_loop())
 
-            logger.info("sigil-ml: local mode -- models loaded, poller started, scheduler active")
+            logger.info("kameas-ml: local mode -- models loaded, poller started, scheduler active")
         else:
             # Cloud mode: no SQLite, no poller, no scheduler.
             # Models loaded lazily per-tenant via cache + loader.
@@ -200,7 +200,7 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
 
             state.model_cache = create_model_cache()
             state.model_loader = FilesystemModelLoader()
-            logger.info("sigil-ml: cloud mode -- stateless serving, cache and loader initialized")
+            logger.info("kameas-ml: cloud mode -- stateless serving, cache and loader initialized")
 
         yield
 
@@ -213,7 +213,7 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
             logger.info("store connection closed")
 
     application = FastAPI(
-        title="sigil-ml",
+        title="kameas-ml",
         version="0.1.0",
         description=f"Sigil ML sidecar ({mode.value} mode)",
         lifespan=lifespan,

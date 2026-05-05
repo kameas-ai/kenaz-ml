@@ -1,12 +1,12 @@
 {
-  "project": "sigil-ml",
+  "project": "kameas-ml",
   "branchName": "ralph/classify-predict-pipeline",
   "description": "Replace hardcoded Thompson Sampling suggestions with a classify → predict → LLM pipeline. Add ActivityClassifier (8 semantic event categories) and WorkflowStatePredictor (flow state probability distribution). Remove all hardcoded suggestion actions and text. System starts rule-based and upgrades to ML as data accumulates.",
   "userStories": [
     {
       "id": "US-001",
       "title": "Create ActivityClassifier with rule-based cold start",
-      "description": "As a sigil-ml developer, I need an ActivityClassifier model that categorizes raw events into semantic activity categories so that downstream models and the LLM understand what the user is doing.",
+      "description": "As a kameas-ml developer, I need an ActivityClassifier model that categorizes raw events into semantic activity categories so that downstream models and the LLM understand what the user is doing.",
       "acceptanceCriteria": [
         "New file src/sigil_ml/models/activity.py with ActivityClassifier class",
         "CATEGORIES constant defines 8 categories: creating, refining, verifying, navigating, researching, integrating, communicating, idle",
@@ -25,7 +25,7 @@
     {
       "id": "US-002",
       "title": "Add activity feature extraction for ML training",
-      "description": "As a sigil-ml developer, I need feature extraction for the ActivityClassifier so that ML training has proper input features derived from event kind and payload.",
+      "description": "As a kameas-ml developer, I need feature extraction for the ActivityClassifier so that ML training has proper input features derived from event kind and payload.",
       "acceptanceCriteria": [
         "New function extract_activity_features(event: dict) -> dict in features.py",
         "Features extracted from event kind, source, and payload fields",
@@ -40,7 +40,7 @@
     {
       "id": "US-003",
       "title": "Create WorkflowStatePredictor with rule-based cold start",
-      "description": "As a sigil-ml developer, I need a WorkflowStatePredictor that assesses the user's current workflow state from classified events, replacing the hardcoded SuggestionPolicy.",
+      "description": "As a kameas-ml developer, I need a WorkflowStatePredictor that assesses the user's current workflow state from classified events, replacing the hardcoded SuggestionPolicy.",
       "acceptanceCriteria": [
         "New file src/sigil_ml/models/workflow.py with WorkflowStatePredictor class",
         "FLOW_STATES constant: deep_work, shallow_work, exploring, blocked, winding_down",
@@ -60,7 +60,7 @@
     {
       "id": "US-004",
       "title": "Add workflow state feature extraction for ML training",
-      "description": "As a sigil-ml developer, I need feature extraction for the WorkflowStatePredictor so that ML training has proper window-level features.",
+      "description": "As a kameas-ml developer, I need feature extraction for the WorkflowStatePredictor so that ML training has proper window-level features.",
       "acceptanceCriteria": [
         "New function extract_workflow_features(classified_events: list[dict], session_info: dict) -> dict in features.py",
         "Features include: 8 normalized category counts, category entropy, event rate (events/min), category transition count, time in dominant category fraction, recent bias weight",
@@ -75,7 +75,7 @@
     {
       "id": "US-005",
       "title": "Add synthetic data generators for new models",
-      "description": "As a sigil-ml developer, I need synthetic data generators for the new models to support cold-start ML training.",
+      "description": "As a kameas-ml developer, I need synthetic data generators for the new models to support cold-start ML training.",
       "acceptanceCriteria": [
         "generate_activity_data(n=500) added to training/synthetic.py",
         "Generates events with realistic kind/payload distributions and corresponding category labels",
@@ -91,7 +91,7 @@
     {
       "id": "US-006",
       "title": "Remove hardcoded suggestion strings from QualityEstimator",
-      "description": "As a sigil-ml developer, I want to remove hardcoded suggestion text from the QualityEstimator so that suggestion generation is entirely the LLM's responsibility.",
+      "description": "As a kameas-ml developer, I want to remove hardcoded suggestion text from the QualityEstimator so that suggestion generation is entirely the LLM's responsibility.",
       "acceptanceCriteria": [
         "_suggest_for_degraded() function deleted from quality.py (currently at line 196)",
         "suggestion key removed from predict() return dict in quality.py",
@@ -107,7 +107,7 @@
     {
       "id": "US-007",
       "title": "Integrate ActivityClassifier into poller event processing",
-      "description": "As a sigil-ml user, I want every event classified as it enters the poller buffer so that downstream predictions have semantic activity context.",
+      "description": "As a kameas-ml user, I want every event classified as it enters the poller buffer so that downstream predictions have semantic activity context.",
       "acceptanceCriteria": [
         "Poller constructor accepts models['activity'] (ActivityClassifier instance)",
         "Each event is classified as it enters the buffer in _poll_once()",
@@ -124,7 +124,7 @@
     {
       "id": "US-008",
       "title": "Replace suggest prediction in poller with workflow state",
-      "description": "As a sigil-ml user, I want the poller to write workflow state assessments instead of hardcoded suggestion actions.",
+      "description": "As a kameas-ml user, I want the poller to write workflow state assessments instead of hardcoded suggestion actions.",
       "acceptanceCriteria": [
         "Poller constructor accepts models['workflow'] (WorkflowStatePredictor) instead of models['suggest'] (SuggestionPolicy)",
         "_predict_and_write() calls self.workflow.predict() instead of self.suggest.predict()",
@@ -141,7 +141,7 @@
     {
       "id": "US-009",
       "title": "Delete SuggestionPolicy and related code",
-      "description": "As a sigil-ml developer, I want to remove all Thompson Sampling bandit code and hardcoded action strings so the codebase reflects the new architecture.",
+      "description": "As a kameas-ml developer, I want to remove all Thompson Sampling bandit code and hardcoded action strings so the codebase reflects the new architecture.",
       "acceptanceCriteria": [
         "src/sigil_ml/models/suggest.py file deleted",
         "ACTIONS list no longer exists anywhere in codebase",
@@ -157,7 +157,7 @@
     {
       "id": "US-010",
       "title": "Add /predict/activity API endpoint",
-      "description": "As a sigil-ml API consumer, I want a /predict/activity endpoint so I can query event classifications on demand.",
+      "description": "As a kameas-ml API consumer, I want a /predict/activity endpoint so I can query event classifications on demand.",
       "acceptanceCriteria": [
         "POST /predict/activity endpoint added to server.py",
         "Request accepts optional events list or uses current poller buffer",
@@ -172,7 +172,7 @@
     {
       "id": "US-011",
       "title": "Replace /predict/suggest endpoint with workflow state response",
-      "description": "As a sigil-ml API consumer, I want the /predict/suggest endpoint to return workflow state assessments in the new format.",
+      "description": "As a kameas-ml API consumer, I want the /predict/suggest endpoint to return workflow state assessments in the new format.",
       "acceptanceCriteria": [
         "/predict/suggest endpoint returns new schema: flow_state, dominant_state, momentum, focus_score, dominant_activity, activity_distribution, session_elapsed_min, method, confidence",
         "Old SuggestRequest/SuggestResponse replaced with WorkflowStateRequest/WorkflowStateResponse Pydantic models",
@@ -187,14 +187,14 @@
     {
       "id": "US-012",
       "title": "Update server startup and model wiring",
-      "description": "As a sigil-ml developer, I need the server startup to load and wire the new models correctly.",
+      "description": "As a kameas-ml developer, I need the server startup to load and wire the new models correctly.",
       "acceptanceCriteria": [
         "ActivityClassifier instantiated and loaded at startup alongside other models",
         "WorkflowStatePredictor instantiated and loaded at startup alongside other models",
         "Old SuggestionPolicy import and instantiation removed",
         "Models dict passed to poller includes 'activity' and 'workflow' keys instead of 'suggest'",
         "/health endpoint reports status of all models including activity and workflow",
-        "sigil-ml serve starts without errors",
+        "kameas-ml serve starts without errors",
         "pytest tests/ passes"
       ],
       "priority": 12,
@@ -204,7 +204,7 @@
     {
       "id": "US-013",
       "title": "Add ML training path for ActivityClassifier",
-      "description": "As a sigil-ml developer, I need ML training for the ActivityClassifier so it upgrades from rules to learned classification after sufficient data.",
+      "description": "As a kameas-ml developer, I need ML training for the ActivityClassifier so it upgrades from rules to learned classification after sufficient data.",
       "acceptanceCriteria": [
         "ActivityClassifier.train(X, y) fits an SGDClassifier with partial_fit()",
         "partial_fit() used for incremental learning (no full retrain needed)",
@@ -223,7 +223,7 @@
     {
       "id": "US-014",
       "title": "Add ML training path for WorkflowStatePredictor",
-      "description": "As a sigil-ml developer, I need ML training for the WorkflowStatePredictor so it upgrades from rules to learned state prediction after sufficient task data.",
+      "description": "As a kameas-ml developer, I need ML training for the WorkflowStatePredictor so it upgrades from rules to learned state prediction after sufficient task data.",
       "acceptanceCriteria": [
         "WorkflowStatePredictor.train(X, y) fits a GradientBoostingClassifier",
         "New method _train_workflow() added to training/trainer.py",
@@ -241,7 +241,7 @@
     {
       "id": "US-015",
       "title": "Update training scheduler for new feedback signals",
-      "description": "As a sigil-ml developer, I want the training scheduler to trigger retraining based on new feedback events, not just completed tasks.",
+      "description": "As a kameas-ml developer, I want the training scheduler to trigger retraining based on new feedback events, not just completed tasks.",
       "acceptanceCriteria": [
         "Scheduler tracks ml_feedback event count since last retrain",
         "Scheduler tracks ml_correction event count since last retrain",

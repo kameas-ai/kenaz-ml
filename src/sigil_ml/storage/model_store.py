@@ -89,7 +89,7 @@ class S3ModelStore:
             from botocore.config import Config as BotoConfig
         except ImportError:
             raise ImportError(
-                "boto3 is required for S3 model storage. Install with: pip install sigil-ml[cloud]"
+                "boto3 is required for S3 model storage. Install with: pip install kameas-ml[cloud]"
             ) from None
 
         boto_config = BotoConfig(

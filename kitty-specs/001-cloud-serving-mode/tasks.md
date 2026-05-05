@@ -14,7 +14,7 @@
 ## Work Package WP01: ServingMode Enum, Config, and CLI Flag (Priority: P0)
 
 **Goal**: Introduce the `ServingMode` enum (`local` / `cloud`), thread it through configuration, and wire the `--mode` CLI flag into the `serve` command so that downstream code can branch on the active mode.
-**Independent Test**: Run `sigil-ml serve --mode cloud --port 0` and verify the process starts without attempting to open SQLite. Run `sigil-ml serve` (no flag) and confirm default local behavior is unchanged.
+**Independent Test**: Run `kameas-ml serve --mode cloud --port 0` and verify the process starts without attempting to open SQLite. Run `kameas-ml serve` (no flag) and confirm default local behavior is unchanged.
 **Prompt**: `/tasks/WP01-serving-mode-enum-cli.md`
 **Estimated prompt size**: ~350 lines
 

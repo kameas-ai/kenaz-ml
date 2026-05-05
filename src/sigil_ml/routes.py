@@ -385,7 +385,7 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
     @fastapi_app.get("/")
     async def root() -> dict:
         return {
-            "service": "sigil-ml",
+            "service": "kameas-ml",
             "mode": state.mode.value,
             "version": "0.1.0",
         }
