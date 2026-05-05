@@ -1,13 +1,13 @@
 # OpenAPI contract extensions for Cloud Serving Mode
-# These describe changes and additions to the existing sigil-ml API
+# These describe changes and additions to the existing kameas-ml API
 # when running in cloud mode (--mode cloud).
 
 openapi: "3.1.0"
 info:
-  title: sigil-ml Cloud Mode API Extensions
+  title: kameas-ml Cloud Mode API Extensions
   version: "0.2.0"
   description: |
-    Extensions to the sigil-ml API for cloud (stateless, multi-tenant) serving.
+    Extensions to the kameas-ml API for cloud (stateless, multi-tenant) serving.
     All existing endpoints remain; this document describes behavioral changes
     and new fields when mode=cloud.
 

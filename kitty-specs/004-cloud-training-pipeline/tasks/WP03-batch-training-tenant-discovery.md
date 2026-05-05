@@ -259,7 +259,7 @@ Depends on WP02 (per-tenant training logic -- `train_tenant()` must be fully fun
 - **Files**: `src/sigil_ml/cli.py` (modify, ~10 lines)
 - **Parallel?**: No -- depends on T014.
 - **Validation**:
-  - [ ] `sigil-ml train --mode cloud --all-tenants` prints JSON to stdout
+  - [ ] `kameas-ml train --mode cloud --all-tenants` prints JSON to stdout
   - [ ] Exit code 0 when all succeed or skip
   - [ ] Exit code 1 when any tenant fails
   - [ ] `--max-tenants 5` limits batch to 5 tenants

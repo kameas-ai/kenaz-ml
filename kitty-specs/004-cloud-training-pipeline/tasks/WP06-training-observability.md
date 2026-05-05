@@ -81,7 +81,7 @@ Depends on WP01 (TrainingRun/TrainingSummary dataclasses) and WP03 (batch traini
 - **WP01 artifacts**: `TrainingRun` and `TrainingBatch` dataclasses with `to_dict()` and `to_json()` methods.
 - **WP03 artifacts**: `train_all_tenants()` returns a `TrainingBatch`.
 - **Existing pattern**: `TrainingScheduler._log_retrain()` in `training/scheduler.py` records audit events to the `ml_events` table. Cloud training should follow a compatible pattern.
-- **Output strategy**: Structured JSON goes to stdout; log/diagnostic messages go to stderr. This allows piping: `sigil-ml train ... | jq .` while still seeing operational logs.
+- **Output strategy**: Structured JSON goes to stdout; log/diagnostic messages go to stderr. This allows piping: `kameas-ml train ... | jq .` while still seeing operational logs.
 - **JSON Lines**: For K8s log collection, cloud training should emit JSON Lines format (one JSON object per line) for real-time streaming events.
 
 ---
@@ -174,7 +174,7 @@ Depends on WP01 (TrainingRun/TrainingSummary dataclasses) and WP03 (batch traini
   - [ ] Output is valid JSON (parseable by `jq`)
   - [ ] Contains all FR-008 fields
   - [ ] Pretty-printed when running in terminal
-  - [ ] Compact when piped: `sigil-ml train ... | jq .`
+  - [ ] Compact when piped: `kameas-ml train ... | jq .`
   - [ ] `--json` flag forces compact JSON even in terminal
 
 ### Subtask T031 -- Structured JSON Summary for Batch Training
@@ -317,7 +317,7 @@ Depends on WP01 (TrainingRun/TrainingSummary dataclasses) and WP03 (batch traini
 
 ## Review Guidance
 
-- **Valid JSON**: Run `sigil-ml train --mode cloud --all-tenants | jq .` and verify parseable output.
+- **Valid JSON**: Run `kameas-ml train --mode cloud --all-tenants | jq .` and verify parseable output.
 - **TTY detection**: Verify pretty-print in terminal, compact for pipes.
 - **`--json` flag**: Verify it forces compact JSON even in terminal.
 - **FR-008 completeness**: Verify per-tenant details include ALL required fields: tenant_id, status, sample_count, models_trained, duration_ms.

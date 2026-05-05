@@ -60,7 +60,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
 - In cloud mode (`SIGIL_MODE=cloud`): models load from S3 via `CachedModelStore(S3ModelStore(...))`.
 - `Trainer` saves weights through `ModelStore`, not directly to disk.
 - `/train` endpoint uses the app's configured `ModelStore`.
-- CLI `sigil-ml train` creates the correct `ModelStore` and passes to `Trainer`.
+- CLI `kameas-ml train` creates the correct `ModelStore` and passes to `Trainer`.
 - Cloud mode startup validates S3 connectivity; fails with clear error if misconfigured.
 - No model class, trainer, route, or CLI handler directly accesses the filesystem for model weights.
 
@@ -171,7 +171,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
              logger.error(
                  "FATAL: Failed to initialize model store (%s backend): %s. "
                  "Check SIGIL_S3_BUCKET, AWS credentials, and ensure "
-                 "sigil-ml[cloud] is installed for cloud mode.",
+                 "kameas-ml[cloud] is installed for cloud mode.",
                  backend, e,
              )
              raise SystemExit(1) from e
@@ -211,7 +211,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
          asyncio.create_task(_schedule_loop())
 
          logger.info(
-             "sigil-ml: mode=%s, backend=%s, models loaded, poller started",
+             "kameas-ml: mode=%s, backend=%s, models loaded, poller started",
              config.serving_mode(), backend,
          )
      ```
@@ -259,7 +259,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
 
 
      class Trainer:
-         """Orchestrates training of all sigil-ml models from local data."""
+         """Orchestrates training of all kameas-ml models from local data."""
 
          def __init__(self, db_path: str | Path, model_store: "ModelStore | None" = None) -> None:
              self.db_path = Path(db_path)
@@ -405,7 +405,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
 
 ### Subtask T028 -- Update CLI train subcommand
 
-- **Purpose**: The `sigil-ml train` CLI command must create the appropriate `ModelStore` via factory and pass it to `Trainer`, matching the server's behavior.
+- **Purpose**: The `kameas-ml train` CLI command must create the appropriate `ModelStore` via factory and pass it to `Trainer`, matching the server's behavior.
 
 - **Steps**:
   1. Modify `src/sigil_ml/cli.py`:
@@ -451,7 +451,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
          logger.error(
              "FATAL: Failed to initialize model store (%s backend): %s. "
              "Check SIGIL_S3_BUCKET, AWS credentials, and ensure "
-             "sigil-ml[cloud] is installed for cloud mode.",
+             "kameas-ml[cloud] is installed for cloud mode.",
              backend, e,
          )
          raise SystemExit(1) from e

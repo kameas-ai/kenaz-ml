@@ -3,12 +3,12 @@
 **Feature**: 004-cloud-training-pipeline
 **Date**: 2026-03-30
 
-## Command: `sigil-ml train`
+## Command: `kameas-ml train`
 
 ### Synopsis
 
 ```
-sigil-ml train [--db PATH] [--mode {local,cloud}] [--tenant ID] [--all-tenants] [--aggregate]
+kameas-ml train [--db PATH] [--mode {local,cloud}] [--tenant ID] [--all-tenants] [--aggregate]
                [--min-interval SECONDS] [--min-tasks COUNT] [--max-tasks-per-tenant COUNT]
 ```
 
@@ -29,8 +29,8 @@ sigil-ml train [--db PATH] [--mode {local,cloud}] [--tenant ID] [--all-tenants] 
 
 ```bash
 # Train from local SQLite (existing behavior, no changes)
-sigil-ml train
-sigil-ml train --db /path/to/data.db
+kameas-ml train
+kameas-ml train --db /path/to/data.db
 ```
 
 **Output**: Plain text summary to stdout.
@@ -47,7 +47,7 @@ Done: {'trained': ['stuck', 'duration'], 'samples': 150, 'duration_sec': 2.34}
 ### Mode: Cloud -- Single Tenant
 
 ```bash
-sigil-ml train --mode cloud --tenant abc123
+kameas-ml train --mode cloud --tenant abc123
 ```
 
 **Required environment variables**:
@@ -69,8 +69,8 @@ sigil-ml train --mode cloud --tenant abc123
 ### Mode: Cloud -- All Tenants
 
 ```bash
-sigil-ml train --mode cloud --all-tenants
-sigil-ml train --mode cloud --all-tenants --min-interval 7200 --min-tasks 20
+kameas-ml train --mode cloud --all-tenants
+kameas-ml train --mode cloud --all-tenants --min-interval 7200 --min-tasks 20
 ```
 
 **Output**: Structured JSON to stdout, one line per event.
@@ -92,8 +92,8 @@ sigil-ml train --mode cloud --all-tenants --min-interval 7200 --min-tasks 20
 ### Mode: Cloud -- Aggregate
 
 ```bash
-sigil-ml train --mode cloud --aggregate
-sigil-ml train --mode cloud --aggregate --max-tasks-per-tenant 500
+kameas-ml train --mode cloud --aggregate
+kameas-ml train --mode cloud --aggregate --max-tasks-per-tenant 500
 ```
 
 **Output**: Structured JSON to stdout.

@@ -1,14 +1,14 @@
-# CLAUDE.md — sigil-ml
+# CLAUDE.md — kameas-ml
 
-## What sigil-ml Is
+## What kameas-ml Is
 
-`sigil-ml` is the ML sidecar for [`sigil`](https://github.com/wambozi/sigil) — a background daemon that observes developer workflow signals and surfaces productivity suggestions. The ML service runs locally on the user's laptop.
+`kameas-ml` is the ML sidecar for [`sigil`](https://github.com/wambozi/sigil) — a background daemon that observes developer workflow signals and surfaces productivity suggestions. The ML service runs locally on the user's laptop.
 
 **Core principle: security-first, local-only.** No data leaves the machine.
 
 ## The Shared Database
 
-`sigild` and `sigil-ml` communicate **exclusively through SQLite** at `~/.local/share/sigild/data.db` in WAL mode.
+`sigild` and `kameas-ml` communicate **exclusively through SQLite** at `~/.local/share/sigild/data.db` in WAL mode.
 
 ### Table Ownership
 
@@ -35,6 +35,6 @@
 
 ```bash
 pip install -e ".[dev]"
-sigil-ml serve           # start server with poller
+kameas-ml serve           # start server with poller
 pytest tests/            # run tests
 ```

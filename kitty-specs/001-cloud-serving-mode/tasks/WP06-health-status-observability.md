@@ -245,14 +245,14 @@ Use language identifiers in code blocks: ````python`, ````bash`
 - **Steps**:
   1. The startup log lines were already updated in WP01 T005. Verify they clearly state the mode:
      ```python
-     logger.info("sigil-ml: local mode -- models loaded, poller started, scheduler active")
+     logger.info("kameas-ml: local mode -- models loaded, poller started, scheduler active")
      # and
-     logger.info("sigil-ml: cloud mode -- cache and loader initialized")
+     logger.info("kameas-ml: cloud mode -- cache and loader initialized")
      ```
   2. Optionally, update the FastAPI app description to include mode:
      ```python
      application = FastAPI(
-         title="sigil-ml",
+         title="kameas-ml",
          version="0.1.0",
          description=f"Sigil ML sidecar ({mode.value} mode)",
      )
@@ -262,7 +262,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
      @fastapi_app.get("/")
      async def root() -> dict:
          return {
-             "service": "sigil-ml",
+             "service": "kameas-ml",
              "mode": state.mode.value,
              "version": "0.1.0",
          }

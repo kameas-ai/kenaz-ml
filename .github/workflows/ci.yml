@@ -98,7 +98,7 @@ jobs:
 
       - name: Smoke test — server + API endpoints
         run: |
-          sigil-ml serve --port 7799 &
+          kameas-ml serve --port 7799 &
           SERVER_PID=$!
           sleep 3
 
@@ -133,11 +133,11 @@ jobs:
 
       - name: Smoke test — CLI train (no-op without DB)
         run: |
-          sigil-ml train 2>&1 || true
+          kameas-ml train 2>&1 || true
 
       - name: Smoke test — CLI health-check (server not running)
         run: |
-          sigil-ml health-check 2>&1 && exit 1 || echo "Expected failure — server not running"
+          kameas-ml health-check 2>&1 && exit 1 || echo "Expected failure — server not running"
 
   openapi:
     name: OpenAPI Spec
@@ -177,7 +177,7 @@ jobs:
 
       - name: Verify server starts from installed wheel
         run: |
-          sigil-ml serve --port 7798 &
+          kameas-ml serve --port 7798 &
           SERVER_PID=$!
           sleep 3
           curl -sf http://127.0.0.1:7798/health | python -m json.tool

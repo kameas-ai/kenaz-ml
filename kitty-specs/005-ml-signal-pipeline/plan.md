@@ -5,7 +5,7 @@
 
 ## Summary
 
-Add an event-driven ML signal system to sigil-ml that learns each user's actual tools, workflows, and patterns from observed event data, then detects noteworthy behavioral deviations and predicts user actions. Three new models — Pattern Detector (z-score cold start → Isolation Forest), Next-Action Predictor (n-gram on composite tokens), and File Recommender (co-occurrence matrix) — are integrated into the existing EventPoller and write structured signals to a new `ml_signals` table. A continuously updated Behavior Profile grounds all models in what the user actually does. The existing prediction pipeline remains unchanged.
+Add an event-driven ML signal system to kameas-ml that learns each user's actual tools, workflows, and patterns from observed event data, then detects noteworthy behavioral deviations and predicts user actions. Three new models — Pattern Detector (z-score cold start → Isolation Forest), Next-Action Predictor (n-gram on composite tokens), and File Recommender (co-occurrence matrix) — are integrated into the existing EventPoller and write structured signals to a new `ml_signals` table. A continuously updated Behavior Profile grounds all models in what the user actually does. The existing prediction pipeline remains unchanged.
 
 ## Technical Context
 

@@ -191,14 +191,14 @@ def tenant_id() -> str:
            state.poller.stop()
        if state.store:
            state.store.close()  # Clean up database connection
-       logger.info("sigil-ml shutdown complete")
+       logger.info("kameas-ml shutdown complete")
    ```
 
    Add `store.close()` to the shutdown handler to properly close database connections.
 
 5. Verify logging shows which backend was selected:
    ```python
-   logger.info("sigil-ml: using %s backend", type(store).__name__)
+   logger.info("kameas-ml: using %s backend", type(store).__name__)
    ```
 
 **Notes**:

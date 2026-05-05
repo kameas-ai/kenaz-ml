@@ -7,7 +7,7 @@
 
 ### MLSignal
 
-A structured event emitted when a model detects something noteworthy. Written by sigil-ml, read by sigild.
+A structured event emitted when a model detects something noteworthy. Written by kameas-ml, read by sigild.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -122,7 +122,7 @@ Examples: `verifying:pytest`, `editing:python`, `integrating:git`, `researching:
 
 ### SignalFeedback
 
-Not a new table — extends existing `suggestions` table with `signal_id` column (implemented in sigil Feature 021). sigil-ml reads the linkage for training labels:
+Not a new table — extends existing `suggestions` table with `signal_id` column (implemented in sigil Feature 021). kameas-ml reads the linkage for training labels:
 - `suggestions.status = 'accepted'` + `signal_id` → positive label
 - `suggestions.status = 'dismissed'` + `signal_id` → negative label
 - `suggestions.status = 'ignored'` + `signal_id` → weak negative label

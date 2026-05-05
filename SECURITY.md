@@ -7,7 +7,7 @@
 | latest release | Yes |
 | older releases | No |
 
-sigil-ml is pre-1.0. Only the latest release receives security fixes.
+kameas-ml is pre-1.0. Only the latest release receives security fixes.
 
 ## Reporting a Vulnerability
 
@@ -25,7 +25,7 @@ or mitigation within 7 days for critical issues.
 
 ## Scope
 
-sigil-ml runs as a local Python process with no elevated privileges. The
+kameas-ml runs as a local Python process with no elevated privileges. The
 security surface includes:
 
 - **Local SQLite database** (`~/.local/share/sigild/data.db`) — contains
@@ -38,10 +38,10 @@ security surface includes:
 
 ## Design Principles
 
-- **Local-only.** sigil-ml makes no outbound network calls. No telemetry,
+- **Local-only.** kameas-ml makes no outbound network calls. No telemetry,
   no external APIs, no cloud services.
 - **Localhost binding.** The HTTP server binds to `127.0.0.1`, not `0.0.0.0`.
   It is not reachable from the network.
-- **No secrets.** sigil-ml has no API keys, tokens, or credentials.
+- **No secrets.** kameas-ml has no API keys, tokens, or credentials.
 - **No elevated privileges.** Runs as the current user. No root/sudo required.
 - **Minimal dependencies.** Fewer dependencies means a smaller attack surface.

@@ -16,9 +16,9 @@
 
 ## R2: Tenant Identification Mechanism
 
-**Decision**: Read tenant ID from the `X-Tenant-ID` HTTP header, set by the upstream API gateway. No JWT parsing. No authentication in sigil-ml itself.
+**Decision**: Read tenant ID from the `X-Tenant-ID` HTTP header, set by the upstream API gateway. No JWT parsing. No authentication in kameas-ml itself.
 
-**Rationale**: The API gateway handles authentication and authorization. sigil-ml in cloud mode is an internal service behind the gateway. A simple header is the lightest-weight approach with zero new dependencies.
+**Rationale**: The API gateway handles authentication and authorization. kameas-ml in cloud mode is an internal service behind the gateway. A simple header is the lightest-weight approach with zero new dependencies.
 
 **Alternatives considered**:
 - JWT claim extraction: Rejected because it adds a `PyJWT` dependency and duplicates gateway logic.
@@ -85,7 +85,7 @@
 
 **Decision**: Add a `[cloud]` optional extras group in `pyproject.toml`. Initially empty (no new deps needed for filesystem-based cloud mode). Future features (003, 002) will add `boto3`, `asyncpg` etc. here.
 
-**Rationale**: Keeps the base install lightweight for local users. Cloud operators install with `pip install sigil-ml[cloud]`.
+**Rationale**: Keeps the base install lightweight for local users. Cloud operators install with `pip install kameas-ml[cloud]`.
 
 **Alternatives considered**:
-- Separate `sigil-ml-cloud` package: Over-engineered for this stage.
+- Separate `kameas-ml-cloud` package: Over-engineered for this stage.

@@ -82,7 +82,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
   1. Create directory `src/sigil_ml/storage/`.
   2. Create `src/sigil_ml/storage/__init__.py` with imports:
      ```python
-     """Model storage abstraction for sigil-ml."""
+     """Model storage abstraction for kameas-ml."""
 
      from sigil_ml.storage.model_store import (
          CachedModelStore,

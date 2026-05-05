@@ -2,11 +2,11 @@
 
 ## Overview
 
-This document outlines the changes needed in the [sigil](https://github.com/sigil-tech/sigil) Go daemon to consume the new prediction format from sigil-ml and generate LLM-driven suggestions. These changes are **out of scope** for the sigil-ml PRD but are documented here for planning and coordination.
+This document outlines the changes needed in the [sigil](https://github.com/kameas-ai/sigil) Go daemon to consume the new prediction format from kameas-ml and generate LLM-driven suggestions. These changes are **out of scope** for the kameas-ml PRD but are documented here for planning and coordination.
 
 ## Context
 
-After the sigil-ml PRD is implemented, the `ml_predictions` table will contain two new prediction types:
+After the kameas-ml PRD is implemented, the `ml_predictions` table will contain two new prediction types:
 
 1. **model `"activity"`** — classified event summary with semantic categories
 2. **model `"suggest"`** (same name, new format) — workflow state assessment with flow state probabilities, momentum, focus score, and activity distribution
@@ -79,7 +79,7 @@ momentum, and focus level. Generate suggestions that are:
 
 **File:** `internal/notifier/notifier.go` or `internal/store/store.go`
 
-When the user accepts or dismisses an LLM-generated suggestion, write feedback events that sigil-ml can learn from:
+When the user accepts or dismisses an LLM-generated suggestion, write feedback events that kameas-ml can learn from:
 
 ```go
 // On suggestion accept:
@@ -159,6 +159,6 @@ Items 1-2 are sufficient for the pipeline to work end-to-end. Items 3-7 improve 
 
 ## Dependencies
 
-- sigil-ml PRD must be implemented first (new prediction format must exist in `ml_predictions`)
+- kameas-ml PRD must be implemented first (new prediction format must exist in `ml_predictions`)
 - No database schema changes needed (uses existing `events` and `ml_predictions` tables)
 - No new Go dependencies

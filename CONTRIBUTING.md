@@ -1,11 +1,11 @@
-# Contributing to sigil-ml
+# Contributing to kameas-ml
 
-Thanks for your interest in contributing to sigil-ml.
+Thanks for your interest in contributing to kameas-ml.
 
 ## Before You Start
 
-1. **Understand the architecture.** sigil-ml is a sidecar — it reads events
-   written by [sigild](https://github.com/sigil-tech/sigil) and writes
+1. **Understand the architecture.** kameas-ml is a sidecar — it reads events
+   written by [sigild](https://github.com/kameas-ai/sigil) and writes
    predictions back to the same SQLite database. It never writes to tables
    owned by the Go daemon.
 
@@ -19,8 +19,8 @@ Thanks for your interest in contributing to sigil-ml.
 ## Development Setup
 
 ```bash
-git clone https://github.com/sigil-tech/sigil-ml.git
-cd sigil-ml
+git clone https://github.com/kameas-ai/kameas-ml.git
+cd kameas-ml
 pip install -e ".[dev]"
 pytest tests/ -v          # must pass before submitting
 ```
@@ -35,13 +35,13 @@ Requires Python 3.10+. No native extensions — pure Python + scikit-learn.
 - **Type hints** on all public function signatures.
 - **Tests** for every new model, feature extractor, or endpoint. Use pytest
   fixtures with temporary SQLite databases — no sigild dependency in tests.
-- **No network calls.** sigil-ml is local-only. Feature extraction and
+- **No network calls.** kameas-ml is local-only. Feature extraction and
   prediction must never contact external services.
 - `pytest tests/ -v` must pass. No exceptions.
 
 ## Database Contract
 
-sigil-ml communicates with sigild exclusively through SQLite. These invariants
+kameas-ml communicates with sigild exclusively through SQLite. These invariants
 must be preserved:
 
 1. Every SQLite connection must set `PRAGMA journal_mode=WAL` and
