@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "kameas-ml"
+name = "kenaz-ml"
 version = "0.1.0"
 description = "ML prediction sidecar for the Sigil developer intelligence daemon"
 readme = "README.md"
@@ -35,13 +35,13 @@ dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.4"]
 cloud = ["psycopg2-binary>=2.9", "boto3>=1.34"]
 
 [project.urls]
-Homepage = "https://github.com/kameas-ai/kameas-ml"
-Repository = "https://github.com/kameas-ai/kameas-ml"
-Issues = "https://github.com/kameas-ai/kameas-ml/issues"
+Homepage = "https://github.com/kameas-ai/kenaz-ml"
+Repository = "https://github.com/kameas-ai/kenaz-ml"
+Issues = "https://github.com/kameas-ai/kenaz-ml/issues"
 "Sigil Daemon" = "https://github.com/kameas-ai/sigil"
 
 [project.scripts]
-kameas-ml = "sigil_ml.cli:main"
+kenaz-ml = "sigil_ml.cli:main"
 
 [tool.ruff]
 target-version = "py310"

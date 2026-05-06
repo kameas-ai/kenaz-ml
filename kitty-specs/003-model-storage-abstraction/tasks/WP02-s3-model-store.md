@@ -55,7 +55,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
 - `S3ModelStore.load("stuck")` reads the `latest` pointer, fetches the version, and returns the bytes. Returns `None` if the key doesn't exist.
 - Missing keys return `None` without raising exceptions.
 - Invalid credentials, missing bucket, or network errors produce clear, actionable error messages.
-- `pip install kameas-ml[cloud]` installs `boto3`. Local install does NOT require `boto3`.
+- `pip install kenaz-ml[cloud]` installs `boto3`. Local install does NOT require `boto3`.
 
 ## Context & Constraints
 
@@ -108,7 +108,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
              except ImportError:
                  raise ImportError(
                      "boto3 is required for S3 model storage. "
-                     "Install with: pip install kameas-ml[cloud]"
+                     "Install with: pip install kenaz-ml[cloud]"
                  ) from None
 
              self._bucket = bucket
@@ -254,8 +254,8 @@ Use language identifiers in code blocks: ````python`, ````bash`
      cloud = ["boto3>=1.34"]
      ```
   2. `moto[s3]>=5.0` is added to `dev` extras for mocking S3 in tests.
-  3. Verify `pip install kameas-ml` does NOT install `boto3`.
-  4. Verify `pip install kameas-ml[cloud]` installs `boto3` and its transitive dependencies.
+  3. Verify `pip install kenaz-ml` does NOT install `boto3`.
+  4. Verify `pip install kenaz-ml[cloud]` installs `boto3` and its transitive dependencies.
 
 - **Files**:
   - Update: `pyproject.toml`

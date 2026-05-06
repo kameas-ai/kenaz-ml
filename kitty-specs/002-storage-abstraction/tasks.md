@@ -119,7 +119,7 @@
 ## Work Package WP04: Postgres Implementation (Priority: P1)
 
 **Goal**: Implement `PostgresStore` -- a `DataStore` backend that connects to a Postgres database via a connection URL, supports per-tenant schema isolation, and passes all the same operations as `SqliteStore`.
-**Independent Test**: Configure kameas-ml with a Postgres connection URL (can use a local Docker Postgres), run prediction operations, verify data is read from and written to the correct Postgres schema.
+**Independent Test**: Configure kenaz-ml with a Postgres connection URL (can use a local Docker Postgres), run prediction operations, verify data is read from and written to the correct Postgres schema.
 **Prompt**: `/tasks/WP04-postgres-implementation.md`
 **Estimated Lines**: ~480
 
@@ -155,7 +155,7 @@
 ## Work Package WP05: App Wiring, Config & Cleanup (Priority: P1)
 
 **Goal**: Complete the end-to-end integration: app startup selects the correct backend based on operating mode, configuration supports both backends, `schema.py` is retired, and no module outside store implementations imports `sqlite3`.
-**Independent Test**: Start kameas-ml in local mode -- all behavior identical to pre-refactor. Start with `--mode cloud` and a Postgres URL -- Postgres backend is selected. `grep -r "import sqlite3" src/sigil_ml/` returns only `store_sqlite.py`.
+**Independent Test**: Start kenaz-ml in local mode -- all behavior identical to pre-refactor. Start with `--mode cloud` and a Postgres URL -- Postgres backend is selected. `grep -r "import sqlite3" src/sigil_ml/` returns only `store_sqlite.py`.
 **Prompt**: `/tasks/WP05-app-wiring-config-cleanup.md`
 **Estimated Lines**: ~350
 

@@ -7,7 +7,7 @@
 
 ### ServingMode (Enum)
 
-New enum representing the operating mode of the kameas-ml service.
+New enum representing the operating mode of the kenaz-ml service.
 
 | Value   | Description                                      |
 |---------|--------------------------------------------------|

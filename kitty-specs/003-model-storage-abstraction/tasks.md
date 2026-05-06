@@ -64,7 +64,7 @@
 ### Implementation Notes
 - S3 key format: `{tenant_id}/{model_name}.joblib` (e.g., `tenant-abc/stuck.joblib`).
 - `S3ModelStore.__init__` takes `bucket`, `prefix` (tenant ID), `region`, and optional `endpoint_url` (for MinIO).
-- `boto3` must be an optional dependency: `pip install kameas-ml[cloud]` to enable S3 support. Import guarded with try/except at module level.
+- `boto3` must be an optional dependency: `pip install kenaz-ml[cloud]` to enable S3 support. Import guarded with try/except at module level.
 - On startup in cloud mode, validate bucket accessibility and fail clearly with an actionable error if misconfigured.
 - Last-writer-wins for concurrent saves (per spec edge cases — no locking required).
 
@@ -158,7 +158,7 @@
 ## Work Package WP05: Wire ModelStore into App Startup & Trainer (Priority: P1)
 
 **Goal**: Update `AppState`, `Trainer`, `TrainingScheduler`, and `create_app()` to use the `ModelStore` abstraction. The startup sequence selects the correct backend based on operating mode and injects it into all model classes.
-**Independent Test**: Start kameas-ml in local mode, verify models load from disk as before. Configure S3 env vars and start in cloud mode, verify S3 backend is selected (logs confirm S3 store initialization).
+**Independent Test**: Start kenaz-ml in local mode, verify models load from disk as before. Configure S3 env vars and start in cloud mode, verify S3 backend is selected (logs confirm S3 store initialization).
 **Prompt**: `/tasks/WP05-wire-app-startup-and-trainer.md`
 **Estimated Size**: ~450 lines
 

@@ -1,4 +1,4 @@
-"""Storage abstractions for kameas-ml model weights."""
+"""Storage abstractions for kenaz-ml model weights."""
 
 from sigil_ml.storage.model_store import (
     CachedModelStore,

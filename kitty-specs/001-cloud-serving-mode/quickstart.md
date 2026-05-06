@@ -3,16 +3,16 @@
 ## Prerequisites
 
 - Python 3.10+
-- kameas-ml installed: `pip install -e ".[dev]"`
+- kenaz-ml installed: `pip install -e ".[dev]"`
 
 ## Running in Cloud Mode
 
 ```bash
-# Start kameas-ml in cloud mode
-kameas-ml serve --mode cloud --host 0.0.0.0 --port 7774
+# Start kenaz-ml in cloud mode
+kenaz-ml serve --mode cloud --host 0.0.0.0 --port 7774
 
 # Or via environment variable
-SIGIL_ML_MODE=cloud kameas-ml serve --host 0.0.0.0 --port 7774
+SIGIL_ML_MODE=cloud kenaz-ml serve --host 0.0.0.0 --port 7774
 ```
 
 Cloud mode starts without:
@@ -130,10 +130,10 @@ If no model exists for a tenant, all endpoints return rule-based fallback predic
 
 ```bash
 # Default behavior - identical to current
-kameas-ml serve
+kenaz-ml serve
 
 # Explicit local mode
-kameas-ml serve --mode local
+kenaz-ml serve --mode local
 ```
 
 Local mode requires the sigild SQLite database and behaves identically to the current implementation.

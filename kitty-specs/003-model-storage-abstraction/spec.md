@@ -3,13 +3,13 @@
 **Feature Branch**: `003-model-storage-abstraction`
 **Created**: 2026-03-25
 **Status**: Draft
-**Input**: Introduce a ModelStore protocol that abstracts how kameas-ml loads and saves trained model weights. Provide a local filesystem implementation (preserving current behavior) and an S3 implementation (for cloud/K8s deployment with per-tenant model isolation).
+**Input**: Introduce a ModelStore protocol that abstracts how kenaz-ml loads and saves trained model weights. Provide a local filesystem implementation (preserving current behavior) and an S3 implementation (for cloud/K8s deployment with per-tenant model isolation).
 
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Local Model Loading Unchanged (Priority: P1)
 
-A free-tier developer runs kameas-ml locally. Model weights are loaded from and saved to `~/.local/share/sigild/ml-models/*.joblib` exactly as they are today. The abstraction is invisible to the local experience.
+A free-tier developer runs kenaz-ml locally. Model weights are loaded from and saved to `~/.local/share/sigild/ml-models/*.joblib` exactly as they are today. The abstraction is invisible to the local experience.
 
 **Why this priority**: Current behavior must be preserved. The abstraction must not regress model loading for local users.
 
@@ -17,23 +17,23 @@ A free-tier developer runs kameas-ml locally. Model weights are loaded from and 
 
 **Acceptance Scenarios**:
 
-1. **Given** kameas-ml is in local mode, **When** a model is loaded, **Then** it reads from `~/.local/share/sigild/ml-models/{model_name}.joblib`.
-2. **Given** kameas-ml is in local mode, **When** a model is trained and saved, **Then** the `.joblib` file is written to the local models directory.
+1. **Given** kenaz-ml is in local mode, **When** a model is loaded, **Then** it reads from `~/.local/share/sigild/ml-models/{model_name}.joblib`.
+2. **Given** kenaz-ml is in local mode, **When** a model is trained and saved, **Then** the `.joblib` file is written to the local models directory.
 3. **Given** a model file does not exist on disk, **When** loading is attempted, **Then** the system returns None and the model falls back to rule-based predictions (matching current behavior).
 
 ---
 
 ### User Story 2 - Cloud Mode Loads Models from Object Storage (Priority: P1)
 
-A cloud deployment of kameas-ml loads model weights from an S3-compatible object store. Each tenant's models are stored under a tenant-specific prefix. When a prediction request arrives, the service loads the correct tenant's model weights from the configured bucket.
+A cloud deployment of kenaz-ml loads model weights from an S3-compatible object store. Each tenant's models are stored under a tenant-specific prefix. When a prediction request arrives, the service loads the correct tenant's model weights from the configured bucket.
 
-**Why this priority**: Without remote model storage, cloud kameas-ml cannot serve tenant-specific predictions.
+**Why this priority**: Without remote model storage, cloud kenaz-ml cannot serve tenant-specific predictions.
 
-**Independent Test**: Configure kameas-ml with an S3 bucket, upload a model file to a tenant prefix, start the service in cloud mode, and verify the model loads correctly for prediction requests.
+**Independent Test**: Configure kenaz-ml with an S3 bucket, upload a model file to a tenant prefix, start the service in cloud mode, and verify the model loads correctly for prediction requests.
 
 **Acceptance Scenarios**:
 
-1. **Given** kameas-ml is in cloud mode with an S3 bucket configured, **When** a prediction request arrives for tenant A, **Then** the model weights are loaded from `s3://{bucket}/{tenant_a}/{model_name}.joblib`.
+1. **Given** kenaz-ml is in cloud mode with an S3 bucket configured, **When** a prediction request arrives for tenant A, **Then** the model weights are loaded from `s3://{bucket}/{tenant_a}/{model_name}.joblib`.
 2. **Given** no model exists in S3 for a tenant, **When** loading is attempted, **Then** the system returns None and falls back to rule-based predictions.
 3. **Given** model weights exist in S3, **When** the training pipeline saves updated weights, **Then** the new weights are written to the correct tenant prefix in S3.
 
