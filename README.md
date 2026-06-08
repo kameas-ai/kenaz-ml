@@ -91,6 +91,24 @@ The server starts on `127.0.0.1:7774` and immediately begins polling the sigild 
 
 If `sigild` manages the sidecar lifecycle (the default), you don't need to start it manually — the daemon launches `kameas-ml serve` as a subprocess and monitors its health.
 
+### Frozen, self-contained binary (FR-3)
+
+For shipping inside the kenaz desktop control plane, `kameas-ml` can be frozen
+into a single self-contained executable that carries its own interpreter +
+scikit-learn + numpy + uvicorn — no system Python, no `pip install` on the
+user's machine. kenaz supervises this binary directly (spawn-if-absent,
+health-check, bounded restart), so the app never silently drops to a fake ML
+backend. See `.specify/decisions/ADR-ml-packaging.md`.
+
+```bash
+pip install -e ".[freeze]"
+make freeze            # → dist/kameas-ml (current host platform only, ML-DEBT-2 for the matrix)
+make freeze-smoke      # boots the frozen binary, asserts /predict/stuck returns a real prediction
+```
+
+The frozen binary's runtime behaviour and the SQLite WAL data contract
+(`CLAUDE.md`) are unchanged — freezing changes delivery, not behaviour.
+
 ### Train models manually
 
 ```bash

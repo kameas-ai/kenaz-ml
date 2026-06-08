@@ -33,6 +33,12 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.4"]
 cloud = ["psycopg2-binary>=2.9", "boto3>=1.34"]
+# FR-3 (ADR-ml-packaging.md): build-time-only deps for producing the frozen,
+# self-contained `kameas-ml` executable. NOT a runtime dependency — the frozen
+# artifact carries only the runtime deps above (the CLAUDE.md "no heavyweight
+# runtime deps" rule is preserved; PyInstaller runs at build time, not serve
+# time).
+freeze = ["pyinstaller>=6.0"]
 
 [project.urls]
 Homepage = "https://github.com/kameas-ai/kameas-ml"
