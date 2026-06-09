@@ -2,6 +2,14 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# The distribution is named `kameas-ml` (renamed from `sigil-ml`) but the
+# import package is still `sigil_ml` (the module path is kept for WAL-contract
+# and legacy import-compat reasons, see CLAUDE.md). Hatchling's default file
+# selection looks for a top-level dir matching the project name (`kameas_ml`)
+# and fails when it can't find one, so the wheel target is declared explicitly.
+[tool.hatch.build.targets.wheel]
+packages = ["src/sigil_ml"]
+
 [project]
 name = "kameas-ml"
 version = "0.1.0"
