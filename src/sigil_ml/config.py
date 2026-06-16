@@ -1,4 +1,4 @@
-"""Configuration and path discovery for kameas-ml."""
+"""Configuration and path discovery for kenaz-ml."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 class ServingMode(str, enum.Enum):
-    """Operating mode for the kameas-ml service.
+    """Operating mode for the kenaz-ml service.
 
     LOCAL: Default. Poller, SQLite, local models. Current behavior.
     CLOUD: Stateless. No poller, no SQLite, tenant-aware model loading.

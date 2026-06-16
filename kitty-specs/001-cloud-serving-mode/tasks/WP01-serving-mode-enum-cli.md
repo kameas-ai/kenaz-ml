@@ -66,9 +66,9 @@ Use language identifiers in code blocks: ````python`, ````bash`
 - Add empty `[cloud]` optional extras group to `pyproject.toml` for future dependencies.
 
 **Measurable**:
-- `kameas-ml serve --mode cloud` starts without opening any SQLite connection.
-- `kameas-ml serve` (no flag) starts poller and scheduler as before.
-- `SIGIL_ML_MODE=cloud kameas-ml serve` behaves the same as `--mode cloud`.
+- `kenaz-ml serve --mode cloud` starts without opening any SQLite connection.
+- `kenaz-ml serve` (no flag) starts poller and scheduler as before.
+- `SIGIL_ML_MODE=cloud kenaz-ml serve` behaves the same as `--mode cloud`.
 - Existing test suite (`pytest tests/test_server.py`) passes without modification.
 
 ## Context & Constraints
@@ -98,7 +98,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
   2. Define the enum class near the top of the module, before the path helper functions:
      ```python
      class ServingMode(str, enum.Enum):
-         """Operating mode for the kameas-ml service.
+         """Operating mode for the kenaz-ml service.
 
          LOCAL: Default. Poller, SQLite, local models. Current behavior.
          CLOUD: Stateless. No poller, no SQLite, tenant-aware model loading.
@@ -204,7 +204,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
          """Create and configure the FastAPI application."""
          if mode is None:
              mode = resolve_mode()  # reads SIGIL_ML_MODE env var, defaults to LOCAL
-         application = FastAPI(title="kameas-ml", version="0.1.0")
+         application = FastAPI(title="kenaz-ml", version="0.1.0")
          state = AppState(mode=mode)
 
          register_routes(application, state)
@@ -262,12 +262,12 @@ Use language identifiers in code blocks: ````python`, ````bash`
              asyncio.create_task(_schedule_loop())
 
              logger.info(
-                 "kameas-ml: local mode -- models loaded, poller started, scheduler active"
+                 "kenaz-ml: local mode -- models loaded, poller started, scheduler active"
              )
          else:
              # Cloud mode: no SQLite, no poller, no scheduler.
              # Models loaded lazily per-tenant (WP05 will add cache/loader init here).
-             logger.info("kameas-ml: cloud mode -- stateless serving, no poller")
+             logger.info("kenaz-ml: cloud mode -- stateless serving, no poller")
      ```
   2. The `shutdown_event()` already guards with `if state.poller:` so it handles cloud mode (poller is `None`) correctly. No change needed.
   3. Verify that NO call to `config.db_path()`, `ensure_ml_tables()`, `EventPoller()`, `TrainingScheduler()`, or `state.load_models()` happens in the cloud startup path.
@@ -285,7 +285,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
      dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.4", "pyre-check>=0.9.18"]
      cloud = []  # Reserved for future: boto3, asyncpg, etc.
      ```
-  2. No actual dependencies added. This enables `pip install kameas-ml[cloud]` in the future.
+  2. No actual dependencies added. This enables `pip install kenaz-ml[cloud]` in the future.
 - **Files**: `pyproject.toml` (modify -- add 1 line)
 - **Parallel?**: Yes -- completely independent of all other subtasks.
 

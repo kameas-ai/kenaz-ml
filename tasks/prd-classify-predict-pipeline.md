@@ -2,19 +2,19 @@
 
 ## Introduction
 
-kameas-ml currently uses a Thompson Sampling bandit (`SuggestionPolicy`) that picks from 11 hardcoded action strings like `suggest_commit` and `suggest_break`. The context parameter is accepted but ignored — it is a context-free bandit. The `QualityEstimator` also contains hardcoded English suggestion strings mapped to quality components.
+kenaz-ml currently uses a Thompson Sampling bandit (`SuggestionPolicy`) that picks from 11 hardcoded action strings like `suggest_commit` and `suggest_break`. The context parameter is accepted but ignored — it is a context-free bandit. The `QualityEstimator` also contains hardcoded English suggestion strings mapped to quality components.
 
 This architecture is rigid, developer-specific, and does not learn from the user's actual workflow. It cannot adapt to different roles (PM, data scientist, designer) or different working styles within the same role.
 
-This PRD replaces the hardcoded suggestion system with a flexible classification and prediction pipeline. kameas-ml will **classify events into semantic activity categories** and **predict workflow state as a probability distribution**, then write structured predictions to the shared SQLite database. The Go daemon's LLM (already connected via MCP tools) reads these predictions and generates natural language suggestions appropriate to the user's actual context.
+This PRD replaces the hardcoded suggestion system with a flexible classification and prediction pipeline. kenaz-ml will **classify events into semantic activity categories** and **predict workflow state as a probability distribution**, then write structured predictions to the shared SQLite database. The Go daemon's LLM (already connected via MCP tools) reads these predictions and generates natural language suggestions appropriate to the user's actual context.
 
 The system starts rule-based on day 1 and upgrades to ML as data accumulates. It learns from task outcomes, suggestion feedback, and explicit corrections — getting sharper over time without manual tuning.
 
-**Scope:** This PRD covers kameas-ml (Python) changes only. A companion document covers the Go daemon changes needed to consume the new prediction format and generate LLM-driven suggestions.
+**Scope:** This PRD covers kenaz-ml (Python) changes only. A companion document covers the Go daemon changes needed to consume the new prediction format and generate LLM-driven suggestions.
 
 ## Goals
 
-- Remove all hardcoded suggestion actions and suggestion text from kameas-ml
+- Remove all hardcoded suggestion actions and suggestion text from kenaz-ml
 - Classify raw events into 8 role-agnostic semantic activity categories that work for any knowledge worker
 - Predict workflow state as a multi-dimensional assessment (probability distribution over flow states, momentum, focus, activity breakdown)
 - Write structured, self-describing predictions to `ml_predictions` for LLM consumption
@@ -26,7 +26,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 ## User Stories
 
 ### US-001: Create ActivityClassifier with rule-based cold start
-**Description:** As a kameas-ml developer, I need an ActivityClassifier model that categorizes raw events into semantic activity categories so that downstream models and the LLM understand what the user is doing, not just what tool generated the event.
+**Description:** As a kenaz-ml developer, I need an ActivityClassifier model that categorizes raw events into semantic activity categories so that downstream models and the LLM understand what the user is doing, not just what tool generated the event.
 
 **Acceptance Criteria:**
 - [ ] New file `src/sigil_ml/models/activity.py` with `ActivityClassifier` class
@@ -40,7 +40,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - [ ] `pytest tests/test_models.py` passes with new ActivityClassifier tests
 
 ### US-002: Add activity feature extraction
-**Description:** As a kameas-ml developer, I need feature extraction for the ActivityClassifier so that ML training has proper input features derived from event kind and payload.
+**Description:** As a kenaz-ml developer, I need feature extraction for the ActivityClassifier so that ML training has proper input features derived from event kind and payload.
 
 **Acceptance Criteria:**
 - [ ] New function `extract_activity_features(event: dict) -> dict` in `features.py`
@@ -50,7 +50,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - [ ] `pytest tests/test_features.py` passes with new tests
 
 ### US-003: Integrate ActivityClassifier into poller event processing
-**Description:** As a kameas-ml user, I want every event classified as it enters the poller buffer so that downstream predictions have semantic activity context.
+**Description:** As a kenaz-ml user, I want every event classified as it enters the poller buffer so that downstream predictions have semantic activity context.
 
 **Acceptance Criteria:**
 - [ ] Poller constructor accepts `models["activity"]` (ActivityClassifier instance)
@@ -62,7 +62,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - [ ] `pytest tests/` passes
 
 ### US-004: Add /predict/activity API endpoint
-**Description:** As a kameas-ml API consumer, I want a `/predict/activity` endpoint so I can query event classifications on demand.
+**Description:** As a kenaz-ml API consumer, I want a `/predict/activity` endpoint so I can query event classifications on demand.
 
 **Acceptance Criteria:**
 - [ ] `POST /predict/activity` endpoint in `server.py`
@@ -72,7 +72,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - [ ] `pytest tests/test_server.py` passes with new endpoint tests
 
 ### US-005: Create WorkflowStatePredictor with rule-based cold start
-**Description:** As a kameas-ml developer, I need a WorkflowStatePredictor that assesses the user's current workflow state from a window of classified events, replacing the hardcoded SuggestionPolicy.
+**Description:** As a kenaz-ml developer, I need a WorkflowStatePredictor that assesses the user's current workflow state from a window of classified events, replacing the hardcoded SuggestionPolicy.
 
 **Acceptance Criteria:**
 - [ ] New file `src/sigil_ml/models/workflow.py` with `WorkflowStatePredictor` class
@@ -87,7 +87,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - [ ] `pytest tests/test_models.py` passes with new WorkflowStatePredictor tests
 
 ### US-006: Add workflow state feature extraction
-**Description:** As a kameas-ml developer, I need feature extraction for the WorkflowStatePredictor so that ML training has proper window-level features.
+**Description:** As a kenaz-ml developer, I need feature extraction for the WorkflowStatePredictor so that ML training has proper window-level features.
 
 **Acceptance Criteria:**
 - [ ] New function `extract_workflow_features(classified_events: list[dict], session_info: dict) -> dict` in `features.py`
@@ -97,7 +97,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - [ ] `pytest tests/test_features.py` passes with new tests
 
 ### US-007: Replace suggest prediction in poller with workflow state
-**Description:** As a kameas-ml user, I want the poller to write workflow state assessments instead of hardcoded suggestion actions so the LLM can generate context-appropriate suggestions.
+**Description:** As a kenaz-ml user, I want the poller to write workflow state assessments instead of hardcoded suggestion actions so the LLM can generate context-appropriate suggestions.
 
 **Acceptance Criteria:**
 - [ ] Poller constructor accepts `models["workflow"]` (WorkflowStatePredictor) instead of `models["suggest"]` (SuggestionPolicy)
@@ -108,7 +108,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - [ ] `pytest tests/` passes
 
 ### US-008: Replace /predict/suggest endpoint with workflow state response
-**Description:** As a kameas-ml API consumer, I want the `/predict/suggest` endpoint to return workflow state assessments in the new format.
+**Description:** As a kenaz-ml API consumer, I want the `/predict/suggest` endpoint to return workflow state assessments in the new format.
 
 **Acceptance Criteria:**
 - [ ] `/predict/suggest` endpoint returns new schema: `flow_state`, `dominant_state`, `momentum`, `focus_score`, `dominant_activity`, `activity_distribution`, `session_elapsed_min`, `method`, `confidence`
@@ -118,7 +118,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - [ ] `pytest tests/test_server.py` passes with updated tests
 
 ### US-009: Delete SuggestionPolicy and related code
-**Description:** As a kameas-ml developer, I want to remove all Thompson Sampling bandit code and hardcoded action strings so the codebase reflects the new architecture.
+**Description:** As a kenaz-ml developer, I want to remove all Thompson Sampling bandit code and hardcoded action strings so the codebase reflects the new architecture.
 
 **Acceptance Criteria:**
 - [ ] `src/sigil_ml/models/suggest.py` deleted
@@ -129,7 +129,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - [ ] `pytest tests/` passes
 
 ### US-010: Remove hardcoded suggestion strings from QualityEstimator
-**Description:** As a kameas-ml developer, I want to remove hardcoded suggestion text from the QualityEstimator so that suggestion generation is entirely the LLM's responsibility.
+**Description:** As a kenaz-ml developer, I want to remove hardcoded suggestion text from the QualityEstimator so that suggestion generation is entirely the LLM's responsibility.
 
 **Acceptance Criteria:**
 - [ ] `_suggest_for_degraded()` function deleted from `quality.py`
@@ -140,7 +140,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - [ ] `pytest tests/` passes
 
 ### US-011: Add ML training path for ActivityClassifier
-**Description:** As a kameas-ml developer, I need ML training for the ActivityClassifier so it upgrades from rules to learned classification after sufficient data.
+**Description:** As a kenaz-ml developer, I need ML training for the ActivityClassifier so it upgrades from rules to learned classification after sufficient data.
 
 **Acceptance Criteria:**
 - [ ] `ActivityClassifier.train(events, labels)` fits an `SGDClassifier` with `partial_fit()`
@@ -154,7 +154,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - [ ] `pytest tests/` passes
 
 ### US-012: Add ML training path for WorkflowStatePredictor
-**Description:** As a kameas-ml developer, I need ML training for the WorkflowStatePredictor so it upgrades from rules to learned state prediction after sufficient task data.
+**Description:** As a kenaz-ml developer, I need ML training for the WorkflowStatePredictor so it upgrades from rules to learned state prediction after sufficient task data.
 
 **Acceptance Criteria:**
 - [ ] `WorkflowStatePredictor.train(X, y)` fits a `GradientBoostingClassifier`
@@ -168,7 +168,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - [ ] `pytest tests/` passes
 
 ### US-013: Add synthetic data generators for new models
-**Description:** As a kameas-ml developer, I need synthetic data generators for the new models to support cold-start ML training.
+**Description:** As a kenaz-ml developer, I need synthetic data generators for the new models to support cold-start ML training.
 
 **Acceptance Criteria:**
 - [ ] `generate_activity_data(n=500)` added to `training/synthetic.py`
@@ -179,7 +179,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - [ ] `pytest tests/` passes
 
 ### US-014: Update training scheduler for new feedback signals
-**Description:** As a kameas-ml developer, I want the training scheduler to trigger retraining based on new feedback events, not just completed tasks.
+**Description:** As a kenaz-ml developer, I want the training scheduler to trigger retraining based on new feedback events, not just completed tasks.
 
 **Acceptance Criteria:**
 - [ ] Scheduler tracks `ml_feedback` event count since last retrain
@@ -190,7 +190,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - [ ] `pytest tests/` passes
 
 ### US-015: Update server startup and model wiring
-**Description:** As a kameas-ml developer, I need the server startup to load and wire the new models correctly.
+**Description:** As a kenaz-ml developer, I need the server startup to load and wire the new models correctly.
 
 **Acceptance Criteria:**
 - [ ] `ActivityClassifier` instantiated and loaded at startup alongside other models
@@ -198,7 +198,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - [ ] Old `SuggestionPolicy` import and instantiation removed
 - [ ] Models dict passed to poller includes `"activity"` and `"workflow"` keys
 - [ ] `/health` endpoint reports status of all models including `activity` and `workflow`
-- [ ] `kameas-ml serve` starts without errors
+- [ ] `kenaz-ml serve` starts without errors
 - [ ] `pytest tests/` passes
 
 ## Functional Requirements
@@ -215,7 +215,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - FR-10: The WorkflowStatePredictor must fall back to synthetic data when fewer than 20 completed tasks exist
 - FR-11: The system must read `ml_correction` events (kind = `"ml_correction"`, payload = `{"event_id": int, "correct_category": str}`) as gold-standard training labels
 - FR-12: The system must read `ml_feedback` events (kind = `"ml_feedback"`, payload = `{"model": str, "accepted": bool}`) to reinforce or weaken state predictions
-- FR-13: No hardcoded suggestion text may exist in kameas-ml after implementation — all English-language suggestions are generated by the LLM in the Go daemon
+- FR-13: No hardcoded suggestion text may exist in kenaz-ml after implementation — all English-language suggestions are generated by the LLM in the Go daemon
 - FR-14: The `QualityEstimator.predict()` return dict must not contain a `suggestion` key
 - FR-15: All prediction outputs must be JSON-serializable and self-describing (the LLM reads them without external documentation)
 
@@ -224,7 +224,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 - No changes to the Go daemon in this PRD (covered by companion document)
 - No changes to the StuckPredictor or DurationEstimator models
 - No changes to the `ml_predictions` or `ml_events` database schema (new model names use existing columns)
-- No natural language generation in kameas-ml — that is the LLM's job
+- No natural language generation in kenaz-ml — that is the LLM's job
 - No user-facing UI changes
 - No new Python dependencies (scikit-learn, numpy, joblib, fastapi, uvicorn only)
 - No real-time streaming classification — events are classified in the polling loop, not via websocket
@@ -257,7 +257,7 @@ The system starts rule-based on day 1 and upgrades to ML as data accumulates. It
 
 ## Success Metrics
 
-- Zero hardcoded suggestion strings in kameas-ml codebase
+- Zero hardcoded suggestion strings in kenaz-ml codebase
 - All 6 event kinds classified into semantic categories with >0.7 confidence
 - Workflow state predictions written to `ml_predictions` every prediction cycle
 - ActivityClassifier upgrades from rules to ML within 2 days of active use (~500 events)

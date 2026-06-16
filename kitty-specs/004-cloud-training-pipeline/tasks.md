@@ -13,8 +13,8 @@
 
 ## Work Package WP01: Cloud Training Entrypoint & CLI (Priority: P0)
 
-**Goal**: Add `--mode cloud` and `--tenant` / `--all-tenants` / `--aggregate` flags to the `kameas-ml train` CLI command. Wire up a new `CloudTrainer` class that accepts a `DataStore` and `ModelStore` and orchestrates per-tenant training. This is the backbone all subsequent WPs depend on.
-**Independent Test**: Run `kameas-ml train --mode cloud --tenant test-tenant-1` against a mocked DataStore with synthetic data. Verify the command completes, invokes the trainer, and produces structured output.
+**Goal**: Add `--mode cloud` and `--tenant` / `--all-tenants` / `--aggregate` flags to the `kenaz-ml train` CLI command. Wire up a new `CloudTrainer` class that accepts a `DataStore` and `ModelStore` and orchestrates per-tenant training. This is the backbone all subsequent WPs depend on.
+**Independent Test**: Run `kenaz-ml train --mode cloud --tenant test-tenant-1` against a mocked DataStore with synthetic data. Verify the command completes, invokes the trainer, and produces structured output.
 **Prompt**: `/tasks/WP01-cloud-training-entrypoint.md`
 **Estimated Prompt Size**: ~450 lines
 
@@ -24,7 +24,7 @@
 - [ ] T003 Implement `CloudTrainer.train_tenant(tenant_id)` — single-tenant training flow using DataStore for data and ModelStore for weights
 - [ ] T004 [P] Create `src/sigil_ml/training/models.py` with dataclasses `TrainingRun`, `TrainingSummary` for structured training output
 - [ ] T005 Wire CLI `--mode cloud --tenant <id>` to invoke `CloudTrainer.train_tenant()` and print structured summary
-- [ ] T006 Ensure `kameas-ml train` (no flags / `--mode local`) continues to use existing `Trainer` class unchanged
+- [ ] T006 Ensure `kenaz-ml train` (no flags / `--mode local`) continues to use existing `Trainer` class unchanged
 
 ### Implementation Notes
 - `CloudTrainer` depends on the `DataStore` protocol (feature 002) and `ModelStore` protocol (feature 003). It must accept these as constructor dependencies, not import concrete implementations.
@@ -149,7 +149,7 @@
 ## Work Package WP05: Aggregate Model Training (Priority: P2)
 
 **Goal**: Implement aggregate model training that pools events from all opted-in tenants and trains shared aggregate models. This is the Team-tier differentiator.
-**Independent Test**: Opt in 5 tenants, run `kameas-ml train --mode cloud --aggregate`. Verify pooled data from all 5 tenants is used and aggregate weights are saved to a shared storage prefix.
+**Independent Test**: Opt in 5 tenants, run `kenaz-ml train --mode cloud --aggregate`. Verify pooled data from all 5 tenants is used and aggregate weights are saved to a shared storage prefix.
 **Prompt**: `/tasks/WP05-aggregate-model-training.md`
 **Estimated Prompt Size**: ~450 lines
 

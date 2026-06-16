@@ -1,7 +1,7 @@
-"""Logging configuration for kameas-ml.
+"""Logging configuration for kenaz-ml.
 
 Configures both console and file logging. Log file is written to
-~/.local/share/sigild/logs/kameas-ml.log alongside sigild's logs.
+~/.local/share/sigild/logs/kenaz-ml.log alongside sigild's logs.
 """
 
 from __future__ import annotations
@@ -21,9 +21,9 @@ def _log_dir() -> Path:
 
 
 def setup_logging(level: str = "INFO") -> None:
-    """Configure logging for kameas-ml with console and file output.
+    """Configure logging for kenaz-ml with console and file output.
 
-    File: ~/.local/share/sigild/logs/kameas-ml.log (5MB rotate, 3 backups)
+    File: ~/.local/share/sigild/logs/kenaz-ml.log (5MB rotate, 3 backups)
     Console: standard uvicorn-style output
     """
     log_level = getattr(logging, level.upper(), logging.INFO)
@@ -42,7 +42,7 @@ def setup_logging(level: str = "INFO") -> None:
     )
 
     # File handler — rotating, shared logs directory
-    log_file = _log_dir() / "kameas-ml.log"
+    log_file = _log_dir() / "kenaz-ml.log"
     file_handler = RotatingFileHandler(
         log_file,
         maxBytes=5 * 1024 * 1024,  # 5MB
@@ -59,4 +59,4 @@ def setup_logging(level: str = "INFO") -> None:
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
-    logger.info("kameas-ml logging initialized: file=%s level=%s", log_file, level)
+    logger.info("kenaz-ml logging initialized: file=%s level=%s", log_file, level)

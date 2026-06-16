@@ -10,7 +10,7 @@ Introduce a `ModelStore` protocol that decouples model weight persistence from d
 ## Technical Context
 
 **Language/Version**: Python 3.10+ (matching existing `requires-python = ">=3.10"`)
-**Primary Dependencies**: `joblib` (existing), `boto3` (new, optional via `kameas-ml[cloud]`)
+**Primary Dependencies**: `joblib` (existing), `boto3` (new, optional via `kenaz-ml[cloud]`)
 **Storage**: Local filesystem (`.joblib` files in `~/.local/share/sigild/ml-models/`), S3-compatible object storage (cloud mode)
 **Testing**: pytest (existing framework, with moto for S3 mocking in cloud tests)
 **Target Platform**: Linux, macOS, Windows (local); Linux containers (cloud/K8s)

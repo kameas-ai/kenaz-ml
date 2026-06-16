@@ -3,13 +3,13 @@
 **Feature Branch**: `002-storage-abstraction`
 **Created**: 2026-03-25
 **Status**: Draft
-**Input**: Introduce a DataStore protocol that abstracts kameas-ml's data access layer, replacing direct SQLite calls in the poller, schema, and app modules with a pluggable interface. Provide a SQLite implementation (preserving current behavior) and a Postgres implementation (for cloud/K8s deployment).
+**Input**: Introduce a DataStore protocol that abstracts kenaz-ml's data access layer, replacing direct SQLite calls in the poller, schema, and app modules with a pluggable interface. Provide a SQLite implementation (preserving current behavior) and a Postgres implementation (for cloud/K8s deployment).
 
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Local Mode Uses SQLite Backend Transparently (Priority: P1)
 
-A free-tier developer runs kameas-ml locally. The system uses the SQLite backend by default. All existing behavior — polling events, reading tasks, writing predictions, managing the cursor — works identically to today. The developer notices no change.
+A free-tier developer runs kenaz-ml locally. The system uses the SQLite backend by default. All existing behavior — polling events, reading tasks, writing predictions, managing the cursor — works identically to today. The developer notices no change.
 
 **Why this priority**: The abstraction must not break the existing local experience. This validates that the refactor is safe.
 
@@ -17,7 +17,7 @@ A free-tier developer runs kameas-ml locally. The system uses the SQLite backend
 
 **Acceptance Scenarios**:
 
-1. **Given** kameas-ml is started in local mode, **When** the DataStore is initialized, **Then** a SQLite backend is created pointing to the configured database path with WAL mode and busy_timeout=5000.
+1. **Given** kenaz-ml is started in local mode, **When** the DataStore is initialized, **Then** a SQLite backend is created pointing to the configured database path with WAL mode and busy_timeout=5000.
 2. **Given** the SQLite backend is active, **When** events are queried since a cursor position, **Then** the results are identical to the current direct SQLite queries.
 3. **Given** the SQLite backend is active, **When** a prediction is inserted, **Then** it appears in the `ml_predictions` table with the correct model, result, confidence, and expiry.
 
@@ -25,15 +25,15 @@ A free-tier developer runs kameas-ml locally. The system uses the SQLite backend
 
 ### User Story 2 - Cloud Mode Uses Postgres Backend (Priority: P1)
 
-A cloud operator deploys kameas-ml in Kubernetes. The system initializes a Postgres backend using a connection URL from configuration. The Postgres backend supports the same data operations as SQLite — reading events/tasks and writing predictions — but against per-tenant schemas in a shared Postgres cluster.
+A cloud operator deploys kenaz-ml in Kubernetes. The system initializes a Postgres backend using a connection URL from configuration. The Postgres backend supports the same data operations as SQLite — reading events/tasks and writing predictions — but against per-tenant schemas in a shared Postgres cluster.
 
 **Why this priority**: This is the primary motivator for the abstraction. Without a Postgres backend, cloud deployment is not possible.
 
-**Independent Test**: Configure kameas-ml with a Postgres connection URL, run prediction operations, verify data is read from and written to Postgres.
+**Independent Test**: Configure kenaz-ml with a Postgres connection URL, run prediction operations, verify data is read from and written to Postgres.
 
 **Acceptance Scenarios**:
 
-1. **Given** kameas-ml is started in cloud mode with a Postgres connection URL, **When** the DataStore is initialized, **Then** a Postgres backend is created using the provided connection URL.
+1. **Given** kenaz-ml is started in cloud mode with a Postgres connection URL, **When** the DataStore is initialized, **Then** a Postgres backend is created using the provided connection URL.
 2. **Given** the Postgres backend is active, **When** events are queried for a tenant, **Then** only that tenant's events are returned.
 3. **Given** the Postgres backend is active, **When** a prediction is inserted, **Then** it is written to the correct tenant's schema with the same fields as the SQLite implementation.
 

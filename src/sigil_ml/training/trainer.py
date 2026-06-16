@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class Trainer:
-    """Orchestrates training of all kameas-ml models from local data."""
+    """Orchestrates training of all kenaz-ml models from local data."""
 
     def __init__(self, store: DataStore, model_store: ModelStore | None = None) -> None:
         self.store = store

@@ -186,7 +186,7 @@ requirement_refs:
              asyncio.create_task(_schedule_loop())
 
          logger.info(
-             "kameas-ml: mode=%s, backend=%s, models loaded",
+             "kenaz-ml: mode=%s, backend=%s, models loaded",
              mode, backend,
          )
      ```
@@ -347,7 +347,7 @@ requirement_refs:
          logger.error(
              "FATAL: Failed to initialize model store: %s. "
              "Check SIGIL_MODEL_BUCKET, AWS credentials, and "
-             "ensure kameas-ml[cloud] is installed.",
+             "ensure kenaz-ml[cloud] is installed.",
              e,
          )
          raise SystemExit(1) from e
@@ -361,7 +361,7 @@ requirement_refs:
 
 - **Notes**:
   - This is a lightweight subtask -- most validation is already in `S3ModelStore.__init__`. This subtask ensures the startup event handles the validation result correctly.
-  - The error message must be actionable: mention specific env vars to check, the `pip install kameas-ml[cloud]` command, and IAM permission requirements.
+  - The error message must be actionable: mention specific env vars to check, the `pip install kenaz-ml[cloud]` command, and IAM permission requirements.
 
 ## Risks & Mitigations
 

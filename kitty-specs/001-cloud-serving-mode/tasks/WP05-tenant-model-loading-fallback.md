@@ -244,7 +244,7 @@ Use language identifiers in code blocks: ````python`, ````bash`
          # Cloud mode
          state.model_cache = create_model_cache()
          state.model_loader = FilesystemModelLoader()
-         logger.info("kameas-ml: cloud mode -- cache and loader initialized")
+         logger.info("kenaz-ml: cloud mode -- cache and loader initialized")
      ```
   4. Add `resolve_model()` method to `AppState`:
      ```python

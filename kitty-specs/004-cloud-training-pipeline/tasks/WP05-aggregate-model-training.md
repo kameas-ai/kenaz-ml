@@ -342,7 +342,7 @@ Aggregate training produces model weights that the prediction API can load along
 - **Files**: `src/sigil_ml/cli.py` (modify, ~5 lines)
 - **Parallel?**: No -- depends on T026.
 - **Validation**:
-  - [ ] `kameas-ml train --mode cloud --aggregate` prints JSON result
+  - [ ] `kenaz-ml train --mode cloud --aggregate` prints JSON result
   - [ ] Exit code 0 on successful aggregate training
   - [ ] Exit code 0 on skip (no opted-in tenants)
   - [ ] Exit code 1 on failure

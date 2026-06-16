@@ -67,12 +67,12 @@ No dependencies -- this is the starting work package.
 
 ## Objectives & Success Criteria
 
-1. The `kameas-ml train` CLI gains `--mode` (local|cloud), `--tenant <id>`, `--all-tenants`, `--aggregate`, `--min-interval`, `--min-tasks`, and `--max-tasks-per-tenant` flags.
+1. The `kenaz-ml train` CLI gains `--mode` (local|cloud), `--tenant <id>`, `--all-tenants`, `--aggregate`, `--min-interval`, `--min-tasks`, and `--max-tasks-per-tenant` flags.
 2. A `CloudTrainer` class exists in `src/sigil_ml/training/cloud_trainer.py` that accepts `DataStore` and `ModelStore` protocol objects as constructor dependencies.
 3. `CloudTrainer.train_tenant(tenant_id)` returns a `TrainingRun` result (skeleton implementation -- detailed training logic is WP02).
 4. Structured dataclasses `TrainingRun`, `TrainingBatch`, `TrainingSummary`, and `CloudTrainingConfig` are defined in `src/sigil_ml/training/models.py`.
-5. Running `kameas-ml train --mode cloud --tenant <id>` invokes CloudTrainer and prints structured JSON output.
-6. Running `kameas-ml train` (no flags) or `kameas-ml train --mode local` behaves **identically** to the current implementation -- zero changes to the local path (FR-011).
+5. Running `kenaz-ml train --mode cloud --tenant <id>` invokes CloudTrainer and prints structured JSON output.
+6. Running `kenaz-ml train` (no flags) or `kenaz-ml train --mode local` behaves **identically** to the current implementation -- zero changes to the local path (FR-011).
 7. Cloud mode validates that `SIGIL_ML_DB_URL` and `SIGIL_ML_S3_BUCKET` environment variables are present before proceeding.
 
 ## Context & Constraints
@@ -136,10 +136,10 @@ The `CloudTrainer` wraps the same model training algorithms as the local `Traine
 - **Files**: `src/sigil_ml/cli.py` (modify, ~40 lines added)
 - **Parallel?**: No -- this is the CLI skeleton other subtasks wire into.
 - **Validation**:
-  - [ ] `kameas-ml train --help` shows all new flags
-  - [ ] `kameas-ml train --mode cloud` without --tenant/--all-tenants/--aggregate prints a clear error
-  - [ ] `kameas-ml train --mode cloud --tenant X --all-tenants` prints a mutual exclusivity error
-  - [ ] `kameas-ml train` (no flags) still works identically to current behavior
+  - [ ] `kenaz-ml train --help` shows all new flags
+  - [ ] `kenaz-ml train --mode cloud` without --tenant/--all-tenants/--aggregate prints a clear error
+  - [ ] `kenaz-ml train --mode cloud --tenant X --all-tenants` prints a mutual exclusivity error
+  - [ ] `kenaz-ml train` (no flags) still works identically to current behavior
 
 ### Subtask T002 -- Create CloudTrainer Class Skeleton
 
@@ -515,7 +515,7 @@ The `CloudTrainer` wraps the same model training algorithms as the local `Traine
 - **Files**: `src/sigil_ml/cli.py` (modify, ~50 lines), `src/sigil_ml/config.py` (modify, ~35 lines)
 - **Parallel?**: No -- depends on T001 (CLI flags), T002 (CloudTrainer), T004 (TrainingRun).
 - **Validation**:
-  - [ ] `SIGIL_ML_DB_URL=x SIGIL_ML_S3_BUCKET=y kameas-ml train --mode cloud --tenant test-1` runs without crashing (or errors on missing store implementations, which is expected)
+  - [ ] `SIGIL_ML_DB_URL=x SIGIL_ML_S3_BUCKET=y kenaz-ml train --mode cloud --tenant test-1` runs without crashing (or errors on missing store implementations, which is expected)
   - [ ] Missing env vars produce: "Error: SIGIL_ML_DB_URL and SIGIL_ML_S3_BUCKET required for cloud mode"
   - [ ] CLI args override env var defaults: `--min-interval 1800` overrides the default 3600
 
@@ -548,8 +548,8 @@ The `CloudTrainer` wraps the same model training algorithms as the local `Traine
   - [ ] `git diff src/sigil_ml/training/scheduler.py` shows no changes
   - [ ] `git diff src/sigil_ml/app.py` shows no changes
   - [ ] `pytest tests/` passes with no regressions
-  - [ ] `kameas-ml train --help` shows new flags without breaking old behavior
-  - [ ] `kameas-ml train` (no flags) executes the local path
+  - [ ] `kenaz-ml train --help` shows new flags without breaking old behavior
+  - [ ] `kenaz-ml train` (no flags) executes the local path
 
 ---
 

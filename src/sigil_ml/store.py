@@ -1,4 +1,4 @@
-"""DataStore protocol — the central abstraction for all data access in kameas-ml.
+"""DataStore protocol — the central abstraction for all data access in kenaz-ml.
 
 All modules (poller, routes, trainer, scheduler) depend on this protocol
 instead of importing sqlite3 or psycopg2 directly.
@@ -15,7 +15,7 @@ from typing import Any, Protocol, runtime_checkable
 
 @runtime_checkable
 class DataStore(Protocol):
-    """Protocol for all data access operations in kameas-ml.
+    """Protocol for all data access operations in kenaz-ml.
 
     Implementations: SqliteStore (local), PostgresStore (cloud).
     Python only writes to ml_predictions, ml_events, ml_cursor, ml_signals.

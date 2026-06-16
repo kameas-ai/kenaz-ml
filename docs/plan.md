@@ -1,4 +1,4 @@
-# Implementation Plan: kameas-ml Cloud Enhancements
+# Implementation Plan: kenaz-ml Cloud Enhancements
 
 **Date**: 2026-03-29
 **Specs**: `kitty-specs/001` through `kitty-specs/004`
@@ -6,14 +6,14 @@
 
 ## Summary
 
-This plan covers the four features needed to run kameas-ml in the cloud as a stateless prediction API and batch training pipeline, while preserving the existing local-first experience unchanged.
+This plan covers the four features needed to run kenaz-ml in the cloud as a stateless prediction API and batch training pipeline, while preserving the existing local-first experience unchanged.
 
 The features, in dependency order:
 
 1. **002 - Storage Abstraction**: DataStore protocol decoupling all data access from SQLite
 2. **003 - Model Storage Abstraction**: ModelStore protocol decoupling model weight persistence from the filesystem
 3. **001 - Cloud Serving Mode**: `--mode cloud` flag for stateless K8s serving
-4. **004 - Cloud Training Pipeline**: `kameas-ml train --mode cloud` for K8s CronJob execution
+4. **004 - Cloud Training Pipeline**: `kenaz-ml train --mode cloud` for K8s CronJob execution
 
 Features 002 and 003 are foundational abstractions with no cloud dependencies. They can be built and tested entirely in local mode. Features 001 and 004 build on top, adding cloud-specific wiring.
 
@@ -31,7 +31,7 @@ Features 002 and 003 are foundational abstractions with no cloud dependencies. T
 
 ### AD-1: Optional dependency extras
 
-Cloud dependencies are installed via `pip install kameas-ml[cloud]`. The base install remains lightweight.
+Cloud dependencies are installed via `pip install kenaz-ml[cloud]`. The base install remains lightweight.
 
 ```toml
 [project.optional-dependencies]
@@ -51,7 +51,7 @@ except ImportError:
 class PostgresStore:
     def __init__(self, dsn: str):
         if psycopg2 is None:
-            raise ImportError("psycopg2-binary is required for cloud mode: pip install kameas-ml[cloud]")
+            raise ImportError("psycopg2-binary is required for cloud mode: pip install kenaz-ml[cloud]")
         ...
 ```
 
@@ -468,7 +468,7 @@ class S3ModelStore:
         endpoint_url: str | None = None,
     ):
         if boto3 is None:
-            raise ImportError("boto3 required for cloud mode: pip install kameas-ml[cloud]")
+            raise ImportError("boto3 required for cloud mode: pip install kenaz-ml[cloud]")
         self._bucket = bucket
         self._prefix = prefix
         kwargs = {"region_name": region}
@@ -547,7 +547,7 @@ class AppState:
 
 ### Phase 3: Cloud Serving Mode (Feature 001)
 
-**Goal**: Add `--mode cloud` to `kameas-ml serve` for stateless K8s deployment.
+**Goal**: Add `--mode cloud` to `kenaz-ml serve` for stateless K8s deployment.
 
 This phase is mostly wiring -- Phases 1 and 2 did the hard refactoring.
 
@@ -585,7 +585,7 @@ The full mode-aware app factory:
 
 ```python
 def create_app(mode: str = "local") -> FastAPI:
-    application = FastAPI(title="kameas-ml", version="0.1.0")
+    application = FastAPI(title="kenaz-ml", version="0.1.0")
     state = AppState()
     state.mode = mode
 
@@ -628,7 +628,7 @@ def create_app(mode: str = "local") -> FastAPI:
         else:
             # Cloud mode: no poller, no scheduler
             # Models loaded on-demand per tenant
-            logger.info("kameas-ml: cloud mode, no poller, models loaded per-tenant")
+            logger.info("kenaz-ml: cloud mode, no poller, models loaded per-tenant")
 
     ...
 ```
@@ -721,7 +721,7 @@ async def health():
 
 ### Phase 4: Cloud Training Pipeline (Feature 004)
 
-**Goal**: Add `kameas-ml train --mode cloud` for K8s CronJob batch training.
+**Goal**: Add `kenaz-ml train --mode cloud` for K8s CronJob batch training.
 
 #### Step 4.1: Add cloud training CLI commands
 
@@ -882,7 +882,7 @@ Phases 3 and 4 require both 1 and 2 to be complete.
 
 ### Risk 2: Postgres query compatibility
 
-**Mitigation**: SQLite and Postgres have slightly different SQL dialects. The queries in kameas-ml are simple (SELECT, INSERT, basic WHERE). The main risk is parameter syntax (`?` vs `%s`). Both store implementations use their native parameter syntax -- the protocol hides this.
+**Mitigation**: SQLite and Postgres have slightly different SQL dialects. The queries in kenaz-ml are simple (SELECT, INSERT, basic WHERE). The main risk is parameter syntax (`?` vs `%s`). Both store implementations use their native parameter syntax -- the protocol hides this.
 
 ### Risk 3: Cloud mode cold start latency
 
@@ -914,9 +914,9 @@ Marked with `@pytest.mark.integration` or specific markers like `@pytest.mark.po
 
 ### Manual Verification
 
-- Start `kameas-ml serve` (no flags) -- verify identical behavior to current
-- Start `kameas-ml serve --mode cloud` with env vars -- verify stateless serving
-- Run `kameas-ml train --mode cloud --tenant test` -- verify training output
+- Start `kenaz-ml serve` (no flags) -- verify identical behavior to current
+- Start `kenaz-ml serve --mode cloud` with env vars -- verify stateless serving
+- Run `kenaz-ml train --mode cloud --tenant test` -- verify training output
 
 ## Open Items Resolved
 

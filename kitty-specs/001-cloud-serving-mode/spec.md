@@ -3,38 +3,38 @@
 **Feature Branch**: `001-cloud-serving-mode`
 **Created**: 2026-03-25
 **Status**: Draft
-**Input**: Add a `--mode cloud` option to kameas-ml so it can run as a stateless prediction API in Kubernetes, serving requests from remote Go daemons without a local SQLite poller.
+**Input**: Add a `--mode cloud` option to kenaz-ml so it can run as a stateless prediction API in Kubernetes, serving requests from remote Go daemons without a local SQLite poller.
 
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Stateless Prediction Serving (Priority: P1)
 
-A Sigil Cloud operator deploys kameas-ml in Kubernetes with `--mode cloud`. The service starts without a poller, without SQLite, and without local model file dependencies. It accepts prediction requests over HTTP from authenticated Go daemons and returns results. The operator can horizontally scale the deployment based on request rate.
+A Sigil Cloud operator deploys kenaz-ml in Kubernetes with `--mode cloud`. The service starts without a poller, without SQLite, and without local model file dependencies. It accepts prediction requests over HTTP from authenticated Go daemons and returns results. The operator can horizontally scale the deployment based on request rate.
 
-**Why this priority**: This is the core capability that enables the entire cloud ML offering. Without stateless serving, kameas-ml cannot run in K8s.
+**Why this priority**: This is the core capability that enables the entire cloud ML offering. Without stateless serving, kenaz-ml cannot run in K8s.
 
-**Independent Test**: Start kameas-ml with `--mode cloud`, send a prediction request to any `/predict/*` endpoint with features in the request body, and receive a valid prediction response. No SQLite database exists on the machine.
+**Independent Test**: Start kenaz-ml with `--mode cloud`, send a prediction request to any `/predict/*` endpoint with features in the request body, and receive a valid prediction response. No SQLite database exists on the machine.
 
 **Acceptance Scenarios**:
 
-1. **Given** kameas-ml is started with `--mode cloud`, **When** a `POST /predict/stuck` request arrives with a feature payload, **Then** the service returns a prediction response with probability and confidence fields.
-2. **Given** kameas-ml is started with `--mode cloud`, **When** the service starts, **Then** no SQLite connection is opened and no poller background task is created.
-3. **Given** kameas-ml is started with `--mode cloud`, **When** `GET /health` is called, **Then** the response indicates cloud mode and reports model availability.
+1. **Given** kenaz-ml is started with `--mode cloud`, **When** a `POST /predict/stuck` request arrives with a feature payload, **Then** the service returns a prediction response with probability and confidence fields.
+2. **Given** kenaz-ml is started with `--mode cloud`, **When** the service starts, **Then** no SQLite connection is opened and no poller background task is created.
+3. **Given** kenaz-ml is started with `--mode cloud`, **When** `GET /health` is called, **Then** the response indicates cloud mode and reports model availability.
 
 ---
 
 ### User Story 2 - Local Mode Unchanged (Priority: P1)
 
-A free-tier developer runs `kameas-ml serve` (no mode flag) and the service behaves identically to today: the poller starts, SQLite is read, predictions are written back to the database. No regressions from the cloud mode changes.
+A free-tier developer runs `kenaz-ml serve` (no mode flag) and the service behaves identically to today: the poller starts, SQLite is read, predictions are written back to the database. No regressions from the cloud mode changes.
 
 **Why this priority**: Protecting the existing local-first experience is equally critical. Cloud mode must not break local users.
 
-**Independent Test**: Run `kameas-ml serve` without `--mode` flag, verify the poller starts and predictions appear in SQLite.
+**Independent Test**: Run `kenaz-ml serve` without `--mode` flag, verify the poller starts and predictions appear in SQLite.
 
 **Acceptance Scenarios**:
 
-1. **Given** kameas-ml is started with no mode flag, **When** events exist in SQLite, **Then** the poller reads them and writes predictions to `ml_predictions`.
-2. **Given** kameas-ml is started with `--mode local`, **When** the service starts, **Then** behavior is identical to the current default.
+1. **Given** kenaz-ml is started with no mode flag, **When** events exist in SQLite, **Then** the poller reads them and writes predictions to `ml_predictions`.
+2. **Given** kenaz-ml is started with `--mode local`, **When** the service starts, **Then** behavior is identical to the current default.
 
 ---
 
@@ -63,8 +63,8 @@ An operator monitoring the cloud deployment can check service health, see which 
 
 **Acceptance Scenarios**:
 
-1. **Given** kameas-ml is running in cloud mode, **When** `GET /health` is called, **Then** the response includes `mode: "cloud"` and does not reference SQLite or poller state.
-2. **Given** kameas-ml is running in cloud mode with models loaded for 3 tenants, **When** `GET /status` is called, **Then** the response lists the loaded tenants and their model versions.
+1. **Given** kenaz-ml is running in cloud mode, **When** `GET /health` is called, **Then** the response includes `mode: "cloud"` and does not reference SQLite or poller state.
+2. **Given** kenaz-ml is running in cloud mode with models loaded for 3 tenants, **When** `GET /status` is called, **Then** the response lists the loaded tenants and their model versions.
 
 ---
 
@@ -100,7 +100,7 @@ An operator monitoring the cloud deployment can check service health, see which 
 
 ### Measurable Outcomes
 
-- **SC-001**: kameas-ml starts in cloud mode in under 2 seconds with no local dependencies (no SQLite, no local model files required at startup).
+- **SC-001**: kenaz-ml starts in cloud mode in under 2 seconds with no local dependencies (no SQLite, no local model files required at startup).
 - **SC-002**: Prediction latency in cloud mode is within 20% of local mode for the same model and features (excluding model load time).
 - **SC-003**: All 5 prediction endpoints (`stuck`, `suggest`, `duration`, `activity`, `quality`) return valid responses in cloud mode.
 - **SC-004**: Existing test suite passes without modification when running in local mode after cloud mode changes are merged.

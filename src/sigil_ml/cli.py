@@ -1,4 +1,4 @@
-"""CLI entry point for kameas-ml."""
+"""CLI entry point for kenaz-ml."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from sigil_ml.training.trainer import Trainer
 
 
 def main() -> None:
-    """Entry point for the kameas-ml CLI."""
+    """Entry point for the kenaz-ml CLI."""
     parser = argparse.ArgumentParser(description="Sigil ML sidecar")
     sub = parser.add_subparsers(dest="command")
 
@@ -239,7 +239,7 @@ def _create_data_store(db_url: str) -> object:
         tenant = config.tenant_id()
         return PostgresStore(connection_url=db_url, tenant=tenant)
     except ImportError:
-        raise SystemExit("Error: PostgresStore not available. Install with: pip install kameas-ml[cloud]") from None
+        raise SystemExit("Error: PostgresStore not available. Install with: pip install kenaz-ml[cloud]") from None
 
 
 def _create_model_store(s3_bucket_name: str) -> object:
@@ -255,7 +255,7 @@ def _create_model_store(s3_bucket_name: str) -> object:
             region=config.aws_region(),
         )
     except ImportError:
-        raise SystemExit("Error: S3ModelStore not available. Install with: pip install kameas-ml[cloud]") from None
+        raise SystemExit("Error: S3ModelStore not available. Install with: pip install kenaz-ml[cloud]") from None
 
 
 def _build_cloud_training_config(

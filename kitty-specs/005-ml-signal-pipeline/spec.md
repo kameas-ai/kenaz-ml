@@ -3,13 +3,13 @@
 **Feature Branch**: `005-ml-signal-pipeline`
 **Created**: 2026-03-30
 **Status**: Draft
-**Input**: Build an event-driven ML signal system that learns each user's actual tools, workflows, and patterns from observed event data, then detects noteworthy moments and predicts behavior. Signals are rendered into human-readable suggestions by the LLM. Go heuristics remain as fallback when kameas-ml is unavailable.
+**Input**: Build an event-driven ML signal system that learns each user's actual tools, workflows, and patterns from observed event data, then detects noteworthy moments and predicts behavior. Signals are rendered into human-readable suggestions by the LLM. Go heuristics remain as fallback when kenaz-ml is unavailable.
 
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Personalized Pattern Detection (Priority: P1)
 
-A developer works normally — editing files, running tests, committing code, switching between tools. kameas-ml silently learns their behavioral patterns: which tools they use, their typical editing rhythms, how long they spend before committing, their test cadence. When something deviates from their personal norm — e.g., they've been editing the same file for 20 minutes without testing when they normally test every 8 minutes — kameas-ml emits a signal. The Go daemon passes the signal to the LLM, which renders it as: "You've been on routes.py for 20 minutes without running tests — that's unusual for you. Want to run your test suite?"
+A developer works normally — editing files, running tests, committing code, switching between tools. kenaz-ml silently learns their behavioral patterns: which tools they use, their typical editing rhythms, how long they spend before committing, their test cadence. When something deviates from their personal norm — e.g., they've been editing the same file for 20 minutes without testing when they normally test every 8 minutes — kenaz-ml emits a signal. The Go daemon passes the signal to the LLM, which renders it as: "You've been on routes.py for 20 minutes without running tests — that's unusual for you. Want to run your test suite?"
 
 The system never suggests tools the user doesn't use. It never fires on behavior that's normal *for this person*, even if it would be unusual for someone else.
 
@@ -60,7 +60,7 @@ Based on historical co-occurrence patterns — which files are typically edited 
 
 ### User Story 4 - User Behavior Profile (Priority: P1)
 
-kameas-ml maintains a continuously updated profile of each user's observed behavior: tools and applications used (with frequency), file types and languages worked on, workflow rhythms (when they commit, test, take breaks), active plugins and event sources. This profile is stored locally (and optionally synced to cloud for aggregate training). All models and signals are filtered through this profile — ensuring recommendations are grounded in what the user actually does.
+kenaz-ml maintains a continuously updated profile of each user's observed behavior: tools and applications used (with frequency), file types and languages worked on, workflow rhythms (when they commit, test, take breaks), active plugins and event sources. This profile is stored locally (and optionally synced to cloud for aggregate training). All models and signals are filtered through this profile — ensuring recommendations are grounded in what the user actually does.
 
 **Why this priority**: The profile is the foundation that all three models depend on. Without knowing what tools a user uses, patterns can't be personalized and recommendations can't be filtered.
 
@@ -94,11 +94,11 @@ A free-tier user runs locally with rule-based cold-start models. As they accumul
 
 ### User Story 6 - Feedback Collection for Model Improvement (Priority: P1)
 
-When a suggestion is shown to the user (via the notification system), their response — accepted, dismissed, or ignored — is recorded as feedback. This feedback is the training signal: accepted suggestions confirm that the ML signal was valuable; dismissed suggestions indicate noise. The feedback flows back to kameas-ml via the shared database and is used to improve signal precision over time.
+When a suggestion is shown to the user (via the notification system), their response — accepted, dismissed, or ignored — is recorded as feedback. This feedback is the training signal: accepted suggestions confirm that the ML signal was valuable; dismissed suggestions indicate noise. The feedback flows back to kenaz-ml via the shared database and is used to improve signal precision over time.
 
 **Why this priority**: Without feedback, models can't learn. This is the data collection mechanism that enables all future model improvement.
 
-**Independent Test**: Emit a signal, have the Go daemon surface it as a suggestion, record the user's acceptance/dismissal. Verify the feedback is written to the database in a format that kameas-ml can use for training.
+**Independent Test**: Emit a signal, have the Go daemon surface it as a suggestion, record the user's acceptance/dismissal. Verify the feedback is written to the database in a format that kenaz-ml can use for training.
 
 **Acceptance Scenarios**:
 
@@ -114,7 +114,7 @@ When a suggestion is shown to the user (via the notification system), their resp
 - What happens when event volume is very low (e.g., user only commits once a day)? The profile reflects this low-activity pattern. Signals adapt to the user's actual cadence. No false "you haven't committed in a while" signals.
 - What happens when multiple users share a machine? Each user's profile is separate, keyed by tenant ID (cloud) or system user (local).
 - What happens when the user's behavior changes dramatically (new project, new language)? The profile uses exponential decay — recent behavior is weighted more heavily. Transition periods generate fewer signals as the model adapts.
-- What happens when kameas-ml is not running? Go heuristic pattern detectors (existing 21 detectors in patterns.go) continue operating as fallback. Signals from `ml_signals` table are simply absent; the daemon continues with heuristic-only suggestions.
+- What happens when kenaz-ml is not running? Go heuristic pattern detectors (existing 21 detectors in patterns.go) continue operating as fallback. Signals from `ml_signals` table are simply absent; the daemon continues with heuristic-only suggestions.
 
 ## Requirements *(mandatory)*
 
@@ -135,8 +135,8 @@ When a suggestion is shown to the user (via the notification system), their resp
 - **FR-013**: Cloud aggregate training MUST use only anonymized behavioral patterns — no file paths, repository names, code content, or personally identifiable information.
 - **FR-014**: System MUST support distributing trained base models to local instances for fine-tuning, using the existing ModelStore infrastructure (Feature 003).
 - **FR-015**: System MUST record feedback linkage: when a suggestion derived from an ML signal is accepted or dismissed, the feedback MUST be traceable to the originating signal for use as training labels.
-- **FR-016**: All existing kameas-ml behavior (predictions, polling, training, local mode, cloud mode) MUST remain unchanged — the signal pipeline is additive.
-- **FR-017**: The `ml_signals` table MUST be Python-owned (kameas-ml creates and writes; Go daemon reads only), following the same ownership convention as `ml_predictions`.
+- **FR-016**: All existing kenaz-ml behavior (predictions, polling, training, local mode, cloud mode) MUST remain unchanged — the signal pipeline is additive.
+- **FR-017**: The `ml_signals` table MUST be Python-owned (kenaz-ml creates and writes; Go daemon reads only), following the same ownership convention as `ml_predictions`.
 
 ### Key Entities
 

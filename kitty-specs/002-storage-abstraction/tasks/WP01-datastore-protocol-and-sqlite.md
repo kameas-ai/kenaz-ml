@@ -130,7 +130,7 @@ from typing import Any, Protocol, runtime_checkable
 
 @runtime_checkable
 class DataStore(Protocol):
-    """Protocol for all data access operations in kameas-ml.
+    """Protocol for all data access operations in kenaz-ml.
 
     Implementations: SqliteStore (local), PostgresStore (cloud).
     Python only writes to ml_predictions, ml_events, ml_cursor.

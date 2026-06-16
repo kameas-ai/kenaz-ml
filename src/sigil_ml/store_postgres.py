@@ -3,7 +3,7 @@
 Supports per-tenant schema isolation. Each tenant's tables live
 in a dedicated Postgres schema (e.g., tenant_abc.events).
 
-Requires: pip install kameas-ml[cloud]
+Requires: pip install kenaz-ml[cloud]
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ class PostgresStore:
             from psycopg2 import sql as pg_sql
         except ImportError:
             raise ImportError(
-                "psycopg2-binary is required for PostgresStore. Install with: pip install kameas-ml[cloud]"
+                "psycopg2-binary is required for PostgresStore. Install with: pip install kenaz-ml[cloud]"
             ) from None
 
         from sigil_ml.config import validate_tenant_id
