@@ -69,6 +69,20 @@ class LocalModelStore:
         """Return True if the model weight file exists on disk."""
         return self._path(model_name).exists()
 
+    def last_modified(self, model_name: str) -> float | None:
+        """Return the mtime (epoch seconds) of the persisted weights, or None.
+
+        Used by the /introspect endpoint as an honest last-trained proxy —
+        weights are only ever written by the trainer, so the file mtime is
+        the last successful training time. Not part of the ModelStore
+        protocol; callers must getattr-probe for it (other backends do not
+        track this cheaply).
+        """
+        try:
+            return self._path(model_name).stat().st_mtime
+        except OSError:
+            return None
+
 
 class S3ModelStore:
     """S3-based model store with per-tenant key prefix and latest pointer versioning.

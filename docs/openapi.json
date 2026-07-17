@@ -44,6 +44,25 @@
         }
       }
     },
+    "/introspect": {
+      "get": {
+        "summary": "Introspect",
+        "description": "Sidecar self-description for the kenaz ML Config view (spec 060).\n\nReturns the sidecar version plus per-model identity, training\nfreshness, and recent prediction activity. Values not tracked today\nare honest nulls/zeros \u2014 see ModelIntrospection.",
+        "operationId": "introspect_introspect_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntrospectResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/predict/stuck": {
       "post": {
         "summary": "Predict Stuck",
@@ -591,6 +610,133 @@
           "uptime_sec"
         ],
         "title": "HealthResponse"
+      },
+      "IntrospectResponse": {
+        "properties": {
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "uptime_sec": {
+            "type": "number",
+            "title": "Uptime Sec"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelIntrospection"
+            },
+            "type": "array",
+            "title": "Models"
+          },
+          "capabilities": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object",
+            "title": "Capabilities"
+          }
+        },
+        "type": "object",
+        "required": [
+          "service",
+          "version",
+          "mode",
+          "uptime_sec",
+          "models",
+          "capabilities"
+        ],
+        "title": "IntrospectResponse"
+      },
+      "ModelIntrospection": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "prediction_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prediction Model"
+          },
+          "algorithm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Algorithm"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "trained": {
+            "type": "boolean",
+            "title": "Trained"
+          },
+          "last_trained": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Trained"
+          },
+          "sample_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Count"
+          },
+          "recent_predictions": {
+            "type": "integer",
+            "title": "Recent Predictions",
+            "default": 0
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "display_name",
+          "status",
+          "trained",
+          "enabled"
+        ],
+        "title": "ModelIntrospection",
+        "description": "Per-model metadata for the /introspect endpoint.\n\nHonesty contract (kenaz spec 060): fields the sidecar does not track\ntoday are returned as null/zero \u2014 never invented."
       },
       "QualityRequest": {
         "properties": {

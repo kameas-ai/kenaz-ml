@@ -145,3 +145,80 @@ class TestTrainEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "started"
+
+
+class TestIntrospectEndpoint:
+    """GET /introspect — sidecar self-description for kenaz spec 060."""
+
+    def test_introspect_returns_service_identity(self, client: TestClient) -> None:
+        resp = client.get("/introspect")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["service"] == "kameas-ml"
+        assert data["mode"] == "local"
+        assert data["uptime_sec"] >= 0
+
+        from sigil_ml import __version__
+
+        assert data["version"] == __version__
+
+    def test_introspect_lists_all_local_models(self, client: TestClient) -> None:
+        resp = client.get("/introspect")
+        data = resp.json()
+        by_name = {m["name"]: m for m in data["models"]}
+        assert set(by_name) == {"stuck", "activity", "workflow", "duration", "quality"}
+
+        # Clean temp model dir → sklearn models are loaded but untrained.
+        stuck = by_name["stuck"]
+        assert stuck["display_name"] == "Stuck Predictor"
+        assert stuck["prediction_model"] == "stuck"
+        assert stuck["status"] == "untrained"
+        assert stuck["trained"] is False
+        assert stuck["enabled"] is True
+
+        # workflow predictions land in ml_predictions under "suggest".
+        assert by_name["workflow"]["prediction_model"] == "suggest"
+
+    def test_introspect_returns_honest_nulls(self, client: TestClient) -> None:
+        """Untracked metadata must be null/zero, never invented (spec 060)."""
+        resp = client.get("/introspect")
+        data = resp.json()
+        for model in data["models"]:
+            # Per-model training sample counts are not tracked today.
+            assert model["sample_count"] is None
+            # Nothing has been trained in this clean temp dir.
+            assert model["last_trained"] is None
+            # No predictions have been written in this test environment.
+            assert model["recent_predictions"] == 0
+
+    def test_introspect_capabilities(self, client: TestClient) -> None:
+        resp = client.get("/introspect")
+        data = resp.json()
+        # Local mode supports retrain (POST /train); no per-predictor toggle
+        # exists — kenaz hides the control on discovery (FR-008).
+        assert data["capabilities"] == {"retrain": True, "toggle": False}
+
+    def test_introspect_reports_last_trained_after_weights_write(self, client: TestClient) -> None:
+        """A persisted weights file surfaces as an ISO last_trained stamp."""
+        import io
+
+        import joblib
+        import numpy as np
+        from sklearn.ensemble import GradientBoostingClassifier
+
+        from sigil_ml.storage.model_store import LocalModelStore
+
+        clf = GradientBoostingClassifier(n_estimators=2)
+        clf.fit(np.zeros((4, 6)), [0, 1, 0, 1])
+        buf = io.BytesIO()
+        joblib.dump(clf, buf)
+        LocalModelStore().save("stuck", buf.getvalue())
+
+        resp = client.get("/introspect")
+        by_name = {m["name"]: m for m in resp.json()["models"]}
+        assert by_name["stuck"]["last_trained"] is not None
+        # ISO-8601 UTC stamp — parseable and tz-aware.
+        from datetime import datetime
+
+        parsed = datetime.fromisoformat(by_name["stuck"]["last_trained"])
+        assert parsed.tzinfo is not None

@@ -91,6 +91,60 @@ class HealthResponse(BaseModel):
     uptime_sec: float
 
 
+class ModelIntrospection(BaseModel):
+    """Per-model metadata for the /introspect endpoint.
+
+    Honesty contract (kenaz spec 060): fields the sidecar does not track
+    today are returned as null/zero — never invented.
+    """
+
+    name: str
+    display_name: str
+    # ml_predictions.model value this model's predictions are written under
+    # (per the WAL contract: "stuck"|"suggest"|"duration"|"quality"|"profile"),
+    # or null for models that never write predictions directly.
+    prediction_model: str | None = None
+    # Underlying sklearn estimator class name, "rules" for rule-based models,
+    # or null when the model object is not loaded.
+    algorithm: str | None = None
+    # Mirrors /health: "ready" | "untrained" | "not_loaded".
+    status: str
+    trained: bool
+    # ISO-8601 UTC timestamp of the last persisted weights write (file mtime
+    # via LocalModelStore), or null when untracked/never trained.
+    last_trained: str | None = None
+    # Training sample count is not tracked per-model today — always null.
+    sample_count: int | None = None
+    # Count of this model's non-expired ml_predictions rows from the last 24h.
+    recent_predictions: int = 0
+    # No per-predictor toggle exists today (capabilities.toggle=false);
+    # reflects whether the model is loaded and will serve predictions.
+    enabled: bool
+
+
+class IntrospectResponse(BaseModel):
+    service: str
+    version: str
+    mode: str
+    uptime_sec: float
+    models: list[ModelIntrospection]
+    # Capability discovery for kenaz (spec 060 FR-008): controls are hidden
+    # in the UI when the capability is absent, rather than erroring.
+    capabilities: dict[str, bool]
+
+
+# (internal model attr, display name, ml_predictions.model key or None)
+_INTROSPECT_MODEL_SPECS: list[tuple[str, str, str | None]] = [
+    ("stuck", "Stuck Predictor", "stuck"),
+    ("activity", "Activity Classifier", None),
+    ("workflow", "Suggestion Policy", "suggest"),
+    ("duration", "Duration Estimator", "duration"),
+    ("quality", "Quality Estimator", "quality"),
+]
+
+_RECENT_PREDICTIONS_WINDOW_SEC = 24 * 3600
+
+
 _start_time = time.time()
 
 
@@ -198,6 +252,100 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
             }
         except Exception:
             return {"mode": "local", "cursor": None, "latest_predictions": [], "poller_running": False}
+
+    @fastapi_app.get("/introspect", response_model=IntrospectResponse)
+    async def introspect() -> IntrospectResponse:
+        """Sidecar self-description for the kenaz ML Config view (spec 060).
+
+        Returns the sidecar version plus per-model identity, training
+        freshness, and recent prediction activity. Values not tracked today
+        are honest nulls/zeros — see ModelIntrospection.
+        """
+        from sigil_ml import __version__
+
+        if state.mode == ServingMode.CLOUD:
+            # Cloud mode hosts per-tenant models loaded on demand; a global
+            # per-model listing is not cheaply available, so the model list
+            # is honestly empty and retrain is not offered.
+            return IntrospectResponse(
+                service="kameas-ml",
+                version=__version__,
+                mode="cloud",
+                uptime_sec=round(time.time() - _start_time, 1),
+                models=[],
+                capabilities={"retrain": False, "toggle": False},
+            )
+
+        # Recent prediction counts per ml_predictions.model key (last 24h,
+        # non-expired rows only — get_status_data already filters expiry).
+        recent_counts: dict[str, int] = {}
+        if state.store is not None:
+            try:
+                cutoff_ms = int((time.time() - _RECENT_PREDICTIONS_WINDOW_SEC) * 1000)
+                for row in state.store.get_status_data()["latest_predictions"]:
+                    created_at = row.get("created_at")
+                    if isinstance(created_at, (int, float)) and created_at >= cutoff_ms:
+                        model_key = row.get("model")
+                        if isinstance(model_key, str):
+                            recent_counts[model_key] = recent_counts.get(model_key, 0) + 1
+            except Exception:
+                # WAL locked / sigild not started yet: degrade to zeros
+                # rather than failing the whole introspection.
+                logger.warning("introspect: prediction counts unavailable", exc_info=True)
+
+        # last-trained timestamps come from the LocalModelStore weight-file
+        # mtime; other backends don't track this (getattr probe → nulls).
+        last_modified = getattr(state.model_store, "last_modified", None)
+
+        models: list[ModelIntrospection] = []
+        for attr, display_name, prediction_model in _INTROSPECT_MODEL_SPECS:
+            obj = getattr(state, attr, None)
+            if obj is None:
+                status_str = "not_loaded"
+                trained = False
+            else:
+                trained = bool(getattr(obj, "is_trained", True))
+                status_str = "ready" if trained else "untrained"
+
+            algorithm: str | None = None
+            if obj is not None:
+                inner = getattr(obj, "model", None)
+                if inner is not None:
+                    algorithm = type(inner).__name__
+                elif attr == "quality":
+                    algorithm = "rules"
+
+            last_trained: str | None = None
+            if callable(last_modified):
+                mtime = last_modified(attr)
+                if mtime is not None:
+                    from datetime import datetime, timezone
+
+                    last_trained = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+
+            models.append(
+                ModelIntrospection(
+                    name=attr,
+                    display_name=display_name,
+                    prediction_model=prediction_model,
+                    algorithm=algorithm,
+                    status=status_str,
+                    trained=trained,
+                    last_trained=last_trained,
+                    sample_count=None,  # not tracked per-model today
+                    recent_predictions=recent_counts.get(prediction_model, 0) if prediction_model else 0,
+                    enabled=obj is not None,
+                )
+            )
+
+        return IntrospectResponse(
+            service="kameas-ml",
+            version=__version__,
+            mode="local",
+            uptime_sec=round(time.time() - _start_time, 1),
+            models=models,
+            capabilities={"retrain": True, "toggle": False},
+        )
 
     @fastapi_app.post("/predict/stuck", response_model=StuckResponse)
     async def predict_stuck(
