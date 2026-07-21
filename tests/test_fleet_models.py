@@ -102,8 +102,7 @@ class TestFleetMeetingModel:
     def test_persistence_roundtrip(self, tmp_store: LocalModelStore) -> None:
         model = FleetMeetingModel(team_id=7, model_store=tmp_store)
         data = [
-            {"meeting_duration": d, "time_of_day": 10, "focus_before": 80, "focus_after": 60}
-            for d in range(10, 60, 5)
+            {"meeting_duration": d, "time_of_day": 10, "focus_before": 80, "focus_after": 60} for d in range(10, 60, 5)
         ]
         model.train(data)
 

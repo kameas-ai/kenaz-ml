@@ -17,7 +17,7 @@ Run it explicitly after a freeze build:
 
     pip install -e ".[freeze]"
     pyinstaller freeze/kameas-ml.spec --noconfirm
-    KAMEAS_ML_FROZEN_BIN=$PWD/dist/kameas-ml pytest tests/test_frozen_smoke.py -v
+    KAMEAS_ML_FROZEN_BIN=$PWD/dist/kameas-ml/kameas-ml pytest tests/test_frozen_smoke.py -v
 """
 
 from __future__ import annotations
@@ -37,7 +37,8 @@ FROZEN_BIN = os.environ.get("KAMEAS_ML_FROZEN_BIN")
 pytestmark = pytest.mark.skipif(
     not FROZEN_BIN,
     reason="KAMEAS_ML_FROZEN_BIN not set; build the frozen binary first "
-    "(pyinstaller freeze/kameas-ml.spec) and point the env var at dist/kameas-ml",
+    "(pyinstaller freeze/kameas-ml.spec) and point the env var at "
+    "dist/kameas-ml/kameas-ml (onedir layout)",
 )
 
 
@@ -57,8 +58,7 @@ def _wait_healthy(base_url: str, proc: subprocess.Popen, timeout: float = 60.0) 
         if proc.poll() is not None:
             out, _ = proc.communicate(timeout=5)
             raise AssertionError(
-                f"frozen binary exited early (code {proc.returncode}) before "
-                f"becoming healthy.\n--- output ---\n{out}"
+                f"frozen binary exited early (code {proc.returncode}) before becoming healthy.\n--- output ---\n{out}"
             )
         try:
             with urlopen(f"{base_url}/health", timeout=2) as resp:

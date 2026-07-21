@@ -115,11 +115,13 @@ class FleetMeetingModel:
             for tod in [9, 11, 14, 16]:
                 X = np.array([[duration, tod, 70]])
                 pred = int(self.model.predict(X)[0])
-                scenarios.append({
-                    "duration": duration,
-                    "time_of_day": tod,
-                    "disruption": DISRUPTION_LABELS.get(pred, "unknown"),
-                    "recovery_estimate_min": pred * 30,
-                })
+                scenarios.append(
+                    {
+                        "duration": duration,
+                        "time_of_day": tod,
+                        "disruption": DISRUPTION_LABELS.get(pred, "unknown"),
+                        "recovery_estimate_min": pred * 30,
+                    }
+                )
 
         return {"scenarios": scenarios, "samples": self._samples}
