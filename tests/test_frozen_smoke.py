@@ -17,7 +17,7 @@ Run it explicitly after a freeze build:
 
     pip install -e ".[freeze]"
     pyinstaller freeze/kameas-ml.spec --noconfirm
-    KAMEAS_ML_FROZEN_BIN=$PWD/dist/kameas-ml pytest tests/test_frozen_smoke.py -v
+    KAMEAS_ML_FROZEN_BIN=$PWD/dist/kameas-ml/kameas-ml pytest tests/test_frozen_smoke.py -v
 """
 
 from __future__ import annotations
@@ -37,7 +37,8 @@ FROZEN_BIN = os.environ.get("KAMEAS_ML_FROZEN_BIN")
 pytestmark = pytest.mark.skipif(
     not FROZEN_BIN,
     reason="KAMEAS_ML_FROZEN_BIN not set; build the frozen binary first "
-    "(pyinstaller freeze/kameas-ml.spec) and point the env var at dist/kameas-ml",
+    "(pyinstaller freeze/kameas-ml.spec) and point the env var at "
+    "dist/kameas-ml/kameas-ml (onedir layout)",
 )
 
 

@@ -26,15 +26,19 @@ build:
 clean:
 	rm -rf dist/ build/ *.egg-info src/*.egg-info
 
-# FR-3 (ADR-ml-packaging.md): produce the frozen, self-contained `kameas-ml`
-# executable for the CURRENT HOST PLATFORM. Requires the build-time freeze
-# extra (`pip install -e ".[freeze]"`). The multi-platform matrix is ML-DEBT-2.
+# FR-3 (ADR-ml-packaging.md) + spec 069 LD-3/FR-002: produce the frozen,
+# self-contained `kameas-ml` ONEDIR bundle for the CURRENT HOST PLATFORM:
+#   dist/kameas-ml/kameas-ml  (bootloader exe)
+#   dist/kameas-ml/_internal/ (interpreter + sklearn/numpy/... dylibs)
+# Onedir (not onefile) because notarization rejects onefile's runtime
+# self-extraction of unsigned dylibs — see freeze/kameas-ml.spec header.
+# Requires the build-time freeze extra (`pip install -e ".[freeze]"`).
 freeze:
 	pyinstaller freeze/kameas-ml.spec --noconfirm --clean
 
-# Run the freeze smoke test against a built artifact. Boots dist/kameas-ml on
-# an ephemeral port and asserts /predict/stuck returns a real sklearn
-# prediction — the guard for the known sklearn/numpy/uvicorn hidden-import
-# breakage. Run `make freeze` first.
+# Run the freeze smoke test against a built artifact. Boots the onedir
+# executable on an ephemeral port and asserts /predict/stuck returns a real
+# sklearn prediction — the guard for the known sklearn/numpy/uvicorn
+# hidden-import breakage. Run `make freeze` first.
 freeze-smoke:
-	KAMEAS_ML_FROZEN_BIN=$(PWD)/dist/kameas-ml pytest tests/test_frozen_smoke.py -v
+	KAMEAS_ML_FROZEN_BIN=$(PWD)/dist/kameas-ml/kameas-ml pytest tests/test_frozen_smoke.py -v

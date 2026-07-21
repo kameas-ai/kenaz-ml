@@ -10,11 +10,18 @@
 # Build (from the kenaz-ml repo root):
 #     pip install -e ".[freeze]"
 #     pyinstaller freeze/kameas-ml.spec --noconfirm
-#     # → dist/kameas-ml  (single-file executable for the current host platform)
+#     # → dist/kameas-ml/  (ONEDIR bundle: dist/kameas-ml/kameas-ml + _internal/)
 #
-# This PR targets the CURRENT HOST PLATFORM ONLY (macOS arm64 = the Tart smoke
-# host). The multi-platform build matrix (macOS x86_64, Windows x86_64, Linux)
-# is ML-DEBT-2, sequenced with FR-2's bake/notarize work.
+# ONEDIR, not onefile (spec 069 LD-3 / FR-002): a onefile build self-extracts
+# its (unsigned copies of) dylibs to a temp dir at runtime, which Apple
+# notarization + hardened runtime reject — the extracted code is outside the
+# signed/notarized envelope. The onedir layout keeps every Mach-O on disk in
+# the app bundle where kenaz's inside-out signing pass
+# (ADR-nested-binary-signing) can sign each one individually before
+# notarization.
+#
+# Freeze arch matrix per LD-3: macOS arm64 only (sklearn/scipy wheels are
+# single-arch; the darwin-amd64 leg is dropped for v1); Linux x86_64 + arm64.
 #
 # The runtime behaviour and the WAL data contract (kenaz-ml/CLAUDE.md) are
 # UNCHANGED — freezing changes delivery, not behaviour.
@@ -96,24 +103,38 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# ONEDIR: the EXE is the thin bootloader only (exclude_binaries=True); the
+# interpreter + all compiled deps land beside it via COLLECT in
+# dist/kameas-ml/_internal/. Signing is deliberately NOT done here
+# (codesign_identity=None): kenaz's `make sign-macos` signs the staged tree
+# inside-out with the release identity + per-file hardened runtime, so the
+# freeze stays identity-agnostic and reproducible across dev/CI.
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="kameas-ml",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
     upx_exclude=[],
-    runtime_tmpdir=None,
     console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="kameas-ml",
 )
