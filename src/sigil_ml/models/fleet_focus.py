@@ -67,12 +67,14 @@ class FleetFocusModel:
         features = []
         targets = []
         for row in data:
-            features.append([
-                row.get("hour", 12),
-                row.get("day_of_week", 0),
-                row.get("meeting_minutes", 0),
-                row.get("context_switches", 0),
-            ])
+            features.append(
+                [
+                    row.get("hour", 12),
+                    row.get("day_of_week", 0),
+                    row.get("meeting_minutes", 0),
+                    row.get("context_switches", 0),
+                ]
+            )
             targets.append(row.get("focus_score", 50))
 
         X = np.array(features)
@@ -135,12 +137,14 @@ class FleetFocusModel:
                     end = h if s < threshold else h + 1
                     if end - start >= 2:
                         avg_score = float(np.mean(day_preds[start:end]))
-                        optimal_windows.append({
-                            "day": day_name,
-                            "start": start,
-                            "end": end,
-                            "predicted_score": round(avg_score, 1),
-                        })
+                        optimal_windows.append(
+                            {
+                                "day": day_name,
+                                "start": start,
+                                "end": end,
+                                "predicted_score": round(avg_score, 1),
+                            }
+                        )
                     in_window = False
 
         optimal_windows.sort(key=lambda x: x["predicted_score"], reverse=True)

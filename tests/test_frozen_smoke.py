@@ -58,8 +58,7 @@ def _wait_healthy(base_url: str, proc: subprocess.Popen, timeout: float = 60.0) 
         if proc.poll() is not None:
             out, _ = proc.communicate(timeout=5)
             raise AssertionError(
-                f"frozen binary exited early (code {proc.returncode}) before "
-                f"becoming healthy.\n--- output ---\n{out}"
+                f"frozen binary exited early (code {proc.returncode}) before becoming healthy.\n--- output ---\n{out}"
             )
         try:
             with urlopen(f"{base_url}/health", timeout=2) as resp:
