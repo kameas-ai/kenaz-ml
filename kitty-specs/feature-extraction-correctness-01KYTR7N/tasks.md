@@ -25,7 +25,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 | T004 | Thread `as_of_ms` through `extract_duration_features_from_data` | WP01 | [D] |
 | T005 | Thread `as_of_ms` through `extract_features_from_buffer` | WP01 | [D] |
 | T006 | Extract `_empty_stuck_features()` / `_empty_duration_features()` | WP01 | | [D] |
-| T007 | Reduce `extract_stuck_features` to fetch-and-delegate | WP01 | |
+| T007 | Reduce `extract_stuck_features` to fetch-and-delegate | WP01 | | [D] |
 | T008 | Reduce `extract_duration_features` to fetch-and-delegate | WP01 | [P] |
 | T009 | Frozen-clock and fake-store test fixtures | WP02 | |
 | T010 | Determinism tests | WP02 | |
@@ -63,7 +63,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 - [x] T004 Thread `as_of_ms` through `extract_duration_features_from_data` (WP01)
 - [x] T005 Thread `as_of_ms` through `extract_features_from_buffer` (WP01)
 - [x] T006 Extract `_empty_stuck_features()` / `_empty_duration_features()` (WP01)
-- [ ] T007 Reduce `extract_stuck_features` to fetch-and-delegate (WP01)
+- [x] T007 Reduce `extract_stuck_features` to fetch-and-delegate (WP01)
 - [ ] T008 Reduce `extract_duration_features` to fetch-and-delegate (WP01)
 
 **Implementation sketch**: helpers first (T001–T002), then the data-backed extractors that use them (T003–T005), then the empty-vector helpers (T006) that the delegates need, then the delegates themselves (T007–T008).
