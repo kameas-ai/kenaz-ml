@@ -41,7 +41,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 | T020 | Training reference-time and skip tests | WP03 | | [D] |
 | T021 | Audit `poller.py` call sites | WP04 | [D] |
 | T022 | Audit `routes.py` call sites | WP04 | [D] |
-| T023 | Capture pre-change baseline vectors | WP04 | |
+| T023 | Capture pre-change baseline vectors | WP04 | | [D] |
 | T024 | Serving non-regression tests | WP04 | |
 
 ---
@@ -145,7 +145,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 
 - [x] T021 Audit `poller.py` call sites (WP04)
 - [x] T022 Audit `routes.py` call sites (WP04)
-- [ ] T023 Capture pre-change baseline vectors (WP04)
+- [x] T023 Capture pre-change baseline vectors (WP04)
 - [ ] T024 Serving non-regression tests (WP04)
 
 **Implementation sketch**: capture baselines from the pre-WP01 implementation first (T023 must be done against the original code or from recorded fixtures), then audit, then assert.
