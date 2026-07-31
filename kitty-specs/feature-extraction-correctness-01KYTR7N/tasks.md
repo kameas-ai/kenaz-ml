@@ -32,7 +32,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 | T011 | No-lookahead and inclusive-boundary tests | WP02 | [D] |
 | T012 | Negative-clamp tests | WP02 | [D] |
 | T013 | Path-equivalence tests | WP02 | [D] |
-| T014 | Vector-layout-frozen test | WP02 | [P] |
+| T014 | Vector-layout-frozen test | WP02 | [D] |
 | T015 | Edge-case tests | WP02 | [P] |
 | T016 | Add `_reference_time_for()` resolver | WP03 | |
 | T017 | `trainer.py` stuck path passes reference time | WP03 | |
@@ -92,7 +92,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 - [x] T011 No-lookahead and inclusive-boundary tests (WP02)
 - [x] T012 Negative-clamp tests (WP02)
 - [x] T013 Path-equivalence tests (WP02)
-- [ ] T014 Vector-layout-frozen test (WP02)
+- [x] T014 Vector-layout-frozen test (WP02)
 - [ ] T015 Edge-case tests (WP02)
 
 **Implementation sketch**: fixtures first (T009), then one test group per property. T010–T015 are independent once fixtures exist.
