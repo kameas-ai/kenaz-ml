@@ -27,7 +27,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 | T006 | Extract `_empty_stuck_features()` / `_empty_duration_features()` | WP01 | | [D] |
 | T007 | Reduce `extract_stuck_features` to fetch-and-delegate | WP01 | | [D] |
 | T008 | Reduce `extract_duration_features` to fetch-and-delegate | WP01 | [D] |
-| T009 | Frozen-clock and fake-store test fixtures | WP02 | |
+| T009 | Frozen-clock and fake-store test fixtures | WP02 | | [D] |
 | T010 | Determinism tests | WP02 | |
 | T011 | No-lookahead and inclusive-boundary tests | WP02 | [P] |
 | T012 | Negative-clamp tests | WP02 | [P] |
@@ -87,7 +87,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 
 **Included subtasks**:
 
-- [ ] T009 Frozen-clock and fake-store test fixtures (WP02)
+- [x] T009 Frozen-clock and fake-store test fixtures (WP02)
 - [ ] T010 Determinism tests (WP02)
 - [ ] T011 No-lookahead and inclusive-boundary tests (WP02)
 - [ ] T012 Negative-clamp tests (WP02)
