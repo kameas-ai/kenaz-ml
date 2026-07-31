@@ -1,16 +1,16 @@
 {
-  "event_count": 24,
-  "last_event_id": "01KYWDF555397P1VZD2MH723VE",
-  "materialized_at": "2026-07-31T15:42:43.877753+00:00",
-  "mission_number": "",
+  "event_count": 25,
+  "last_event_id": "01KYWDKKJJ8KTV3CMZXMSG4K5C",
+  "materialized_at": "2026-07-31T15:45:09.714668+00:00",
+  "mission_number": "1",
   "mission_slug": "feature-extraction-correctness-01KYTR7N",
   "mission_type": "software-dev",
   "summary": {
-    "approved": 4,
+    "approved": 3,
     "blocked": 0,
     "canceled": 0,
     "claimed": 0,
-    "done": 0,
+    "done": 1,
     "for_review": 0,
     "in_progress": 0,
     "in_review": 0,
@@ -19,10 +19,10 @@
   "work_packages": {
     "WP01": {
       "actor": "user",
-      "force_count": 1,
-      "lane": "approved",
-      "last_event_id": "01KYWDES44NVZ2A1GSG790S9H3",
-      "last_transition_at": "2026-07-31T15:42:31.556633+00:00"
+      "force_count": 2,
+      "lane": "done",
+      "last_event_id": "01KYWDKKJJ8KTV3CMZXMSG4K5C",
+      "last_transition_at": "2026-07-31T15:45:09.714668+00:00"
     },
     "WP02": {
       "actor": "user",
