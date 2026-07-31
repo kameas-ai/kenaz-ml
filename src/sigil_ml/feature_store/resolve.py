@@ -241,9 +241,7 @@ class ActiveEntityStoreReadError(RuntimeError):
 #: ``@contextmanager`` helper: the generator wrapper costs about 0.8 µs, which
 #: against a ~12 µs extraction is most of NFR-002's whole 20% budget spent on
 #: syntax.
-_active_resolution: contextvars.ContextVar[bool] = contextvars.ContextVar(
-    "sigil_ml_active_resolution", default=False
-)
+_active_resolution: contextvars.ContextVar[bool] = contextvars.ContextVar("sigil_ml_active_resolution", default=False)
 
 
 # ---------------------------------------------------------------------------
@@ -454,9 +452,7 @@ def _feature_store() -> Any:
     if _store is not None:
         return _store
     if time.monotonic() < _store_unavailable_until:
-        raise RuntimeError(
-            f"feature store could not be opened; not retrying for {STORE_REOPEN_INTERVAL_SEC:.0f}s"
-        )
+        raise RuntimeError(f"feature store could not be opened; not retrying for {STORE_REOPEN_INTERVAL_SEC:.0f}s")
 
     try:
         from feast import FeatureStore

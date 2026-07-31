@@ -686,9 +686,7 @@ class TestPushIsBestEffort:
 
 
 class TestVectorIdentity:
-    def test_stuck_vector_is_identical_to_the_extractor_including_order(
-        self, online_store: FeatureStore
-    ) -> None:
+    def test_stuck_vector_is_identical_to_the_extractor_including_order(self, online_store: FeatureStore) -> None:
         data_store = FakeDataStore()
         direct = extract_stuck_features(data_store, data_store.task_id)
         resolved = resolve.resolve_stuck_features(data_store, data_store.task_id)
@@ -696,9 +694,7 @@ class TestVectorIdentity:
         assert resolved == direct
         assert list(resolved) == list(direct), "key order changed; the trainers index positionally"
 
-    def test_duration_vector_is_identical_to_the_extractor_including_order(
-        self, online_store: FeatureStore
-    ) -> None:
+    def test_duration_vector_is_identical_to_the_extractor_including_order(self, online_store: FeatureStore) -> None:
         data_store = FakeDataStore()
         direct = extract_duration_features(data_store, data_store.task_id)
         resolved = resolve.resolve_duration_features(data_store, data_store.task_id)
@@ -706,15 +702,14 @@ class TestVectorIdentity:
         assert resolved == direct
         assert list(resolved) == list(direct)
 
-    def test_resolved_keys_match_the_registered_feature_names_in_order(
-        self, online_store: FeatureStore
-    ) -> None:
+    def test_resolved_keys_match_the_registered_feature_names_in_order(self, online_store: FeatureStore) -> None:
         data_store = FakeDataStore()
-        assert list(resolve.resolve_stuck_features(data_store, data_store.task_id)) == (
-            REGISTERED_FEATURE_NAMES["stuck"]
+        assert (
+            list(resolve.resolve_stuck_features(data_store, data_store.task_id)) == (REGISTERED_FEATURE_NAMES["stuck"])
         )
-        assert list(resolve.resolve_duration_features(data_store, data_store.task_id)) == (
-            REGISTERED_FEATURE_NAMES["duration"]
+        assert (
+            list(resolve.resolve_duration_features(data_store, data_store.task_id))
+            == (REGISTERED_FEATURE_NAMES["duration"])
         )
 
     def test_an_unknown_task_still_yields_the_extractor_s_documented_empty_vector(

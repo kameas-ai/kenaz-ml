@@ -237,7 +237,12 @@ def run_local_flow(bundle: Path, user_data: Path, model: GradientBoostingClassif
 
     now = pd.Timestamp.now(tz="UTC")
     frame = pd.DataFrame(
-        {"task_id": ["task-1"], "event_timestamp": [now], "created": [now], **{k: [v] for k, v in _FEATURE_VALUES.items()}}
+        {
+            "task_id": ["task-1"],
+            "event_timestamp": [now],
+            "created": [now],
+            **{k: [v] for k, v in _FEATURE_VALUES.items()},
+        }
     )
     store.push(_PUSH_SOURCE_NAME, frame, to=PushMode.ONLINE)
 
@@ -336,9 +341,8 @@ class TestNoEgress:
         bundle, user_data = local_dirs
         with no_network() as recorder:
             run_local_flow(bundle, user_data, stuck_model)
-        assert recorder.socket_attempts == [], (
-            "The local feature flow attempted network access:\n  "
-            + "\n  ".join(recorder.socket_attempts)
+        assert recorder.socket_attempts == [], "The local feature flow attempted network access:\n  " + "\n  ".join(
+            recorder.socket_attempts
         )
 
     def test_local_flow_succeeds_with_network_unavailable(
@@ -405,9 +409,7 @@ class TestCloudConfigUnreachable:
         """
         module = ast.parse(Path(fsc.__file__).read_text(encoding="utf-8"))
         loader = next(
-            node
-            for node in module.body
-            if isinstance(node, ast.FunctionDef) and node.name == "load_local_repo_config"
+            node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "load_local_repo_config"
         )
         body = loader.body[1:] if ast.get_docstring(loader) else loader.body
         identifiers = {
@@ -431,9 +433,7 @@ class TestCloudConfigUnreachable:
             fsc.load_repo_config()
         assert "remote" in str(excinfo.value)
 
-    def test_unknown_mode_is_refused_even_if_the_mode_switch_loosens(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_unknown_mode_is_refused_even_if_the_mode_switch_loosens(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The dispatch carries its own backstop rather than trusting its caller."""
         monkeypatch.setattr(fsc.sigil_config, "operating_mode", lambda: "hybrid")
         with pytest.raises(fsc.UnknownOperatingModeError):

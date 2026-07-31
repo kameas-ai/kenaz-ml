@@ -253,9 +253,7 @@ def _assert_local_directory(value: str | Path, *, what: str) -> Path:
         )
     resolved = Path(given).resolve()
     if not resolved.is_absolute():
-        raise ValueError(
-            f"The {what} for the local feature store must be an absolute path, got {given!r}."
-        )
+        raise ValueError(f"The {what} for the local feature store must be an absolute path, got {given!r}.")
     return resolved
 
 
@@ -296,9 +294,7 @@ def render_local_config(
     text = local_config_text()
     bundle_root = _assert_local_directory(bundle or bundle_dir(), what="bundle directory")
     user_data_root = _assert_local_directory(user_data or user_data_dir(), what="user data directory")
-    return text.replace(_BUNDLE_DIR_MARKER, str(bundle_root)).replace(
-        _USER_DATA_DIR_MARKER, str(user_data_root)
-    )
+    return text.replace(_BUNDLE_DIR_MARKER, str(bundle_root)).replace(_USER_DATA_DIR_MARKER, str(user_data_root))
 
 
 def load_local_repo_config(
@@ -330,9 +326,7 @@ def load_local_repo_config(
     parsed = yaml.safe_load(rendered)
 
     if parsed.get("provider") != "local":
-        raise NetworkSurfaceError(
-            f"The local feature store requires provider 'local', got {parsed.get('provider')!r}."
-        )
+        raise NetworkSurfaceError(f"The local feature store requires provider 'local', got {parsed.get('provider')!r}.")
     if "offline_store" in parsed:
         raise NetworkSurfaceError(
             "The local configuration declares an offline store. Local training reads the shared "

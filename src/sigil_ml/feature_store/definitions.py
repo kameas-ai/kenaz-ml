@@ -111,9 +111,7 @@ def _schema(entity: Entity, feature_names: list[str]) -> list[Field]:
     Python floats uniformly, and both estimators feed a float ndarray to
     scikit-learn.
     """
-    return [Field(name=entity.join_key, dtype=String)] + [
-        Field(name=name, dtype=Float64) for name in feature_names
-    ]
+    return [Field(name=entity.join_key, dtype=String)] + [Field(name=name, dtype=Float64) for name in feature_names]
 
 
 # --------------------------------------------------------------------------

@@ -157,9 +157,7 @@ class FakeDataStore:
         return None
 
     def insert_ml_event(self, kind: str, endpoint: str, routing: str, latency_ms: int) -> None:
-        self.ml_events.append(
-            {"kind": kind, "endpoint": endpoint, "routing": routing, "latency_ms": latency_ms}
-        )
+        self.ml_events.append({"kind": kind, "endpoint": endpoint, "routing": routing, "latency_ms": latency_ms})
 
     def commit(self) -> None:
         self.commits += 1
@@ -444,9 +442,7 @@ def test_unresolvable_tasks_are_skipped_and_counted_once(caplog):
         task.pop("last_active", None)
 
     with caplog.at_level(logging.INFO, logger="sigil_ml.feature_store.materialize"):
-        result = build_offline_rows(
-            [resolvable, *unresolvable], lambda _: [], now_ms=FROZEN_NOW_MS
-        )
+        result = build_offline_rows([resolvable, *unresolvable], lambda _: [], now_ms=FROZEN_NOW_MS)
 
     assert result.skipped == 3
     assert result.materialized_tasks == 1
@@ -534,9 +530,7 @@ def test_materialization_is_not_reachable_from_a_training_run():
     """T014.4: a training run retrieves; it does not materialize."""
     source = inspect.getsource(cloud_trainer_module)
     for symbol in ("materialize_tasks", "build_offline_rows", "PostgresOfflineSink"):
-        assert symbol not in source, (
-            f"cloud_trainer references {symbol}; materialization must stay a scheduled job"
-        )
+        assert symbol not in source, f"cloud_trainer references {symbol}; materialization must stay a scheduled job"
 
 
 # ===========================================================================
@@ -649,9 +643,7 @@ def test_cloud_feature_services_mirror_the_shipped_contract():
     assert {s.name for s in services} == set(definitions.FEATURE_SERVICES)
     for service in services:
         shipped = definitions.FEATURE_SERVICES[service.name]
-        assert [p.name for p in service.feature_view_projections] == [
-            p.name for p in shipped.feature_view_projections
-        ]
+        assert [p.name for p in service.feature_view_projections] == [p.name for p in shipped.feature_view_projections]
 
 
 def test_feature_service_version_tracks_the_contract():
@@ -705,9 +697,7 @@ def test_rows_with_different_timestamps_receive_different_values(tmp_path):
     store = build_offline_feature_store(tmp_path, rows)
 
     frame = store.get_historical_features(
-        entity_df=_entity_frame(
-            [("t1", T0 + timedelta(minutes=1)), ("t1", T0 + timedelta(hours=2))]
-        ),
+        entity_df=_entity_frame([("t1", T0 + timedelta(minutes=1)), ("t1", T0 + timedelta(hours=2))]),
         features=store.get_feature_service("stuck"),
     ).to_df()
 
@@ -726,9 +716,7 @@ def test_a_value_older_than_the_ttl_is_not_returned(tmp_path):
     within = T0 + definitions.STUCK_TTL - timedelta(hours=1)
     beyond = T0 + definitions.STUCK_TTL + timedelta(hours=1)
 
-    inside = store.get_historical_features(
-        entity_df=_entity_frame([("t1", within)]), features=service
-    ).to_df()
+    inside = store.get_historical_features(entity_df=_entity_frame([("t1", within)]), features=service).to_df()
     assert len(inside) == 1
     assert inside.iloc[0]["edit_velocity"] == 4.0
 
@@ -736,9 +724,7 @@ def test_a_value_older_than_the_ttl_is_not_returned(tmp_path):
     # returned carrying a stale value. Either shape would satisfy "not served";
     # this one is stricter, and the trainer's row-count check turns it into the
     # loud failure of FR-017 rather than a quietly shorter training set.
-    outside = store.get_historical_features(
-        entity_df=_entity_frame([("t1", beyond)]), features=service
-    ).to_df()
+    outside = store.get_historical_features(entity_df=_entity_frame([("t1", beyond)]), features=service).to_df()
     assert len(outside) == 0, "a value past its TTL must not be served"
 
     combined = store.get_historical_features(
@@ -912,9 +898,7 @@ def test_retrieval_and_replay_produce_identical_training_sets(tmp_path, monkeypa
         monkeypatch.setattr(StuckPredictor, "train", _capture("stuck"))
         monkeypatch.setattr(DurationEstimator, "train", _capture("duration"))
         trainer = CloudTrainer(
-            data_store=FakeDataStore(
-                tasks_per_tenant={"acme": tasks}, events_per_task=events
-            ),
+            data_store=FakeDataStore(tasks_per_tenant={"acme": tasks}, events_per_task=events),
             model_store=FakeModelStore(),
             config=CloudTrainingConfig(min_interval_sec=0),
             feature_store=injected,
@@ -1024,9 +1008,7 @@ def test_entity_frame_carries_one_row_per_example_with_its_own_moment():
     assert list(frame["task_id"]) == [t["id"] for t in tasks]
     for task, moment in zip(tasks, frame["event_timestamp"]):
         assert int(moment.timestamp() * 1000) == _reference_time_for(task)
-    assert frame["event_timestamp"].nunique() == len(tasks), (
-        "each example must carry its own moment, not a shared one"
-    )
+    assert frame["event_timestamp"].nunique() == len(tasks), "each example must carry its own moment, not a shared one"
 
 
 def test_entity_frame_skips_unresolvable_tasks_and_logs_once(caplog):
@@ -1035,9 +1017,7 @@ def test_entity_frame_skips_unresolvable_tasks_and_logs_once(caplog):
         task.pop("completed_at")
         task.pop("last_active", None)
 
-    trainer = CloudTrainer(
-        data_store=data_store, model_store=FakeModelStore(), feature_store=object()
-    )
+    trainer = CloudTrainer(data_store=data_store, model_store=FakeModelStore(), feature_store=object())
     with caplog.at_level(logging.INFO, logger="sigil_ml.training.cloud_trainer"):
         frame = trainer._build_entity_frame(tasks, "acme")
 
@@ -1052,9 +1032,7 @@ def test_entity_frame_refuses_to_be_empty():
         task.pop("completed_at", None)
         task.pop("last_active", None)
 
-    trainer = CloudTrainer(
-        data_store=FakeDataStore(), model_store=FakeModelStore(), feature_store=object()
-    )
+    trainer = CloudTrainer(data_store=FakeDataStore(), model_store=FakeModelStore(), feature_store=object())
     with pytest.raises(OfflineStoreUnavailableError):
         trainer._build_entity_frame(tasks, "acme")
 
