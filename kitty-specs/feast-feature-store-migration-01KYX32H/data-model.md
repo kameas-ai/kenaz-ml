@@ -53,15 +53,16 @@ offline_store:
 
 ## Feature views
 
-One per model family, mirroring the existing `FEATURE_NAMES` constants exactly — ordering included, since both trainers index positionally.
+One per model family that declares a `FEATURE_NAMES` constant, mirroring it exactly — ordering included, since both trainers index positionally.
 
 | Feature view | Entity | Features | Source |
 |---|---|---|---|
 | `stuck_features` | `task` | 6 — matches `models/stuck.py:FEATURE_NAMES` | Push (local) / `ml_features` (cloud) |
 | `duration_features` | `task` | 4 — matches `models/duration.py:FEATURE_NAMES` | Push (local) / `ml_features` (cloud) |
-| `workflow_features` | `task` | window aggregation set | as above |
-| `activity_features` | `task` | per-event set | as above |
-| `fleet_*_features` | `node` | per fleet model | as above |
+
+**Only these two are registrable today** (corrected during WP01). `stuck.py` and `duration.py` are the only model modules declaring a `FEATURE_NAMES` constant. `workflow.py` builds its vector from `sorted(features.keys())` at predict time (`workflow.py:164`), `activity.py` likewise, `quality.py` is a rules scorer reading keys ad hoc, and the `fleet_*` models take fixed positional rows. Registering any of them would mean retyping feature names as literals — the second source of truth FR-001 exists to prevent.
+
+Those models therefore need a `FEATURE_NAMES` constant *before* they can be registered. That is deliberately separate work: `sorted(features.keys())` means their current vector layout is alphabetical and data-dependent, so freezing it into a constant is a behaviour-affecting change needing its own verification. A conformance test fails the moment any model gains a constant without a matching view, so none can ship unregistered.
 
 Each carries a TTL bounding how far back a point-in-time lookup will reach.
 

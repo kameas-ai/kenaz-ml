@@ -12,7 +12,9 @@ Feature computation stays in Python. Feast provides the registry, storage, and r
 ## Technical Context
 
 **Language/Version**: Python 3.12
-**Primary Dependencies**: existing `scikit-learn`, `numpy`, `fastapi`, `uvicorn`, `joblib`, plus `feast[sqlite]` locally and `feast[postgres]` in cloud. Measured cost: **+309 MB, +338 native libraries** (137 MB/199 → 446 MB/537). Pinned exactly — the registry format is coupled to the Feast version.
+**Primary Dependencies**: existing `scikit-learn`, `numpy`, `fastapi`, `uvicorn`, `joblib`, plus `feast==0.65.0` locally and `feast[postgres]==0.65.0` in cloud. Measured cost: **+309 MB, +338 native libraries** (137 MB/199 → 446 MB/537). Pinned exactly — the registry format is coupled to the Feast version.
+
+> **Corrected during WP01**: earlier drafts of this plan specified `feast[sqlite]`. **No `sqlite` extra exists in Feast 0.65.0** — the published extras include `mssql`, `mysql`, and `sqlite-vec` (a vector store), but not `sqlite`. The SQLite online store ships in core at `feast.infra.online_stores.sqlite`, so plain `feast` is correct. `postgres` is a real extra and is used for cloud.
 **Storage**: local — file registry (shipped, read-only) + SQLite online store under `~/.local/share/sigild/`. Cloud — PostgreSQL for offline (`ml_features`) and online.
 **Testing**: `pytest`; plus a structural no-egress harness and a notarization check in CI
 **Target Platform**: frozen PyInstaller `onedir`, macOS-notarized (local); Linux container (cloud)
