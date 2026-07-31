@@ -34,6 +34,10 @@ from sigil_ml.training.models import (
 )
 from sigil_ml.training.synthetic import generate_duration_data, generate_stuck_data
 
+# Imported rather than reimplemented: local and cloud training must resolve a
+# training example's reference time by exactly the same rule, or they will drift.
+from sigil_ml.training.trainer import _reference_time_for
+
 logger = logging.getLogger(__name__)
 
 AGGREGATE_TENANT_ID = "__aggregate__"
@@ -257,14 +261,26 @@ class CloudTrainer:
         try:
             X_stuck_list: list[list[float]] = []
             y_stuck_list: list[float] = []
+            stuck_skipped = 0
             for task in tasks:
+                as_of = _reference_time_for(task)
+                if as_of is None:
+                    stuck_skipped += 1
+                    continue
                 events = task_events.get(task["id"], [])
-                feats = extract_stuck_features_from_data(task, events)
+                feats = extract_stuck_features_from_data(task, events, as_of_ms=as_of)
                 x = [feats.get(f, 0.0) for f in STUCK_FEATURES]
                 X_stuck_list.append(x)
                 # Heuristic label: stuck if high test failures AND long time in phase
                 stuck = feats["test_failure_count"] > 3 and feats["time_in_phase_sec"] > 600
                 y_stuck_list.append(1.0 if stuck else 0.0)
+
+            if stuck_skipped:
+                logger.info(
+                    "stuck training: skipped %d task(s) with no resolvable reference time (tenant %s)",
+                    stuck_skipped,
+                    tenant_id,
+                )
 
             if X_stuck_list:
                 X_stuck = np.array(X_stuck_list)
@@ -284,9 +300,14 @@ class CloudTrainer:
         try:
             X_dur_list: list[list[float]] = []
             y_dur_list: list[float] = []
+            dur_skipped = 0
             for task in tasks:
+                as_of = _reference_time_for(task)
+                if as_of is None:
+                    dur_skipped += 1
+                    continue
                 events = task_events.get(task["id"], [])
-                feats = extract_duration_features_from_data(task, events)
+                feats = extract_duration_features_from_data(task, events, as_of_ms=as_of)
                 x = [feats.get(f, 0.0) for f in DURATION_FEATURES]
                 X_dur_list.append(x)
                 # Duration label: (completed_at - started_at) in minutes, min 1.0
@@ -297,6 +318,13 @@ class CloudTrainer:
                     y_dur_list.append(max(duration_min, 1.0))
                 else:
                     y_dur_list.append(60.0)  # default 60 min if timestamps missing
+
+            if dur_skipped:
+                logger.info(
+                    "duration training: skipped %d task(s) with no resolvable reference time (tenant %s)",
+                    dur_skipped,
+                    tenant_id,
+                )
 
             if X_dur_list:
                 X_dur = np.array(X_dur_list)

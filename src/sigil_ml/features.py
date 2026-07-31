@@ -12,6 +12,61 @@ from typing import Any
 
 from sigil_ml.store import DataStore
 
+# --- Reference-time helpers ---
+#
+# Feature vectors describe an instant. At serving time that instant is "now";
+# at training time it is the moment the historical example describes. These
+# helpers are the single place where the reference time is resolved, where the
+# no-lookahead filter is applied, and where elapsed durations are clamped.
+
+
+def _elapsed_sec(now_ms: int, since_ms: int) -> float:
+    """Seconds between two epoch-ms timestamps, clamped at zero.
+
+    Clock skew across event sources and out-of-order ingestion can put
+    `since_ms` after `now_ms`. A negative duration is meaningless to every
+    consuming model, so absorb it here rather than at each call site.
+    """
+    return max(0.0, (now_ms - since_ms) / 1000.0)
+
+
+def _resolve_now_ms(as_of_ms: int | None) -> int:
+    """Reference time for a feature vector; None means current wall clock."""
+    return as_of_ms if as_of_ms is not None else int(time.time() * 1000)
+
+
+def _events_at_or_before(events: list[dict], now_ms: int) -> list[dict]:
+    """Drop events after the reference time. The boundary is inclusive."""
+    return [e for e in events if e.get("ts", 0) <= now_ms]
+
+
+def _empty_stuck_features() -> dict[str, float]:
+    """Documented empty stuck vector, returned when there is nothing to measure."""
+    return {
+        "test_failure_count": 0.0,
+        "time_in_phase_sec": 0.0,
+        "edit_velocity": 0.0,
+        "file_switch_rate": 0.0,
+        "session_length_sec": 0.0,
+        "time_since_last_commit_sec": 0.0,
+    }
+
+
+def _empty_duration_features() -> dict[str, float]:
+    """Documented empty duration vector.
+
+    `time_of_day_hour` intentionally defaults to the current local hour rather
+    than 0.0 — that is the pre-existing behavior and callers build vectors
+    positionally, so changing it would silently shift a feature value.
+    """
+    return {
+        "file_count": 0.0,
+        "total_edits": 0.0,
+        "time_of_day_hour": float(time.localtime().tm_hour),
+        "branch_name_length": 0.0,
+    }
+
+
 # --- Activity classification features ---
 
 _EVENT_KINDS = ["file", "process", "hyprland", "git", "terminal", "ai"]
@@ -70,8 +125,18 @@ def extract_activity_features(event: dict) -> dict[str, float]:
     return features
 
 
-def extract_stuck_features(store: DataStore, task_id: str) -> dict[str, float]:
-    """Extract features for the stuck predictor.
+def extract_stuck_features(
+    store: DataStore,
+    task_id: str,
+    *,
+    as_of_ms: int | None = None,
+) -> dict[str, float]:
+    """Fetch a task and delegate to the authoritative stuck extractor.
+
+    Contains no feature arithmetic — see extract_stuck_features_from_data().
+
+    Args:
+        as_of_ms: Reference time in epoch ms. None means current wall clock.
 
     Returns:
         Dict with keys: test_failure_count, time_in_phase_sec, edit_velocity,
@@ -79,111 +144,33 @@ def extract_stuck_features(store: DataStore, task_id: str) -> dict[str, float]:
     """
     task = store.get_task_by_id(task_id)
     if task is None:
-        return {
-            "test_failure_count": 0.0,
-            "time_in_phase_sec": 0.0,
-            "edit_velocity": 0.0,
-            "file_switch_rate": 0.0,
-            "session_length_sec": 0.0,
-            "time_since_last_commit_sec": 0.0,
-        }
-
-    events = store.get_events_for_task(task_id)
-
-    now_ms = int(time.time() * 1000)
-    started_at = task.get("started_at", now_ms)
-    last_active = task.get("last_active", now_ms)
-
-    session_length_sec = max((last_active - started_at) / 1000.0, 1.0)
-    test_failure_count = float(task.get("test_fails", 0) or 0)
-
-    # Time in current phase: approximate from last phase-change event or started_at
-    phase_start = started_at
-    for ev in events:
-        if ev.get("kind") == "phase_change":
-            phase_start = ev.get("ts", phase_start)
-    time_in_phase_sec = (now_ms - phase_start) / 1000.0
-
-    # Edit velocity: count edit events
-    edit_events = [e for e in events if e.get("kind") in ("edit", "file_edit", "save")]
-    edit_count = len(edit_events)
-    session_minutes = max(session_length_sec / 60.0, 1 / 60.0)
-    edit_velocity = edit_count / session_minutes
-
-    # File switch rate: distinct files / total edits
-    files_in_edits: set[str] = set()
-    for ev in edit_events:
-        payload = ev.get("payload")
-        if isinstance(payload, dict) and "file" in payload:
-            files_in_edits.add(payload["file"])
-    file_switch_rate = len(files_in_edits) / max(edit_count, 1)
-
-    # Time since last commit
-    commit_events = [e for e in events if e.get("kind") == "commit"]
-    if commit_events:
-        last_commit_ts = max(e.get("ts", 0) for e in commit_events)
-        time_since_last_commit_sec = (now_ms - last_commit_ts) / 1000.0
-    else:
-        time_since_last_commit_sec = session_length_sec
-
-    return {
-        "test_failure_count": test_failure_count,
-        "time_in_phase_sec": time_in_phase_sec,
-        "edit_velocity": edit_velocity,
-        "file_switch_rate": file_switch_rate,
-        "session_length_sec": session_length_sec,
-        "time_since_last_commit_sec": time_since_last_commit_sec,
-    }
+        return _empty_stuck_features()
+    return extract_stuck_features_from_data(task, store.get_events_for_task(task_id), as_of_ms=as_of_ms)
 
 
-def extract_duration_features(store: DataStore, task_id: str) -> dict[str, float]:
-    """Extract features for the duration estimator.
+def extract_duration_features(
+    store: DataStore,
+    task_id: str,
+    *,
+    as_of_ms: int | None = None,
+) -> dict[str, float]:
+    """Fetch a task and delegate to the authoritative duration extractor.
+
+    Contains no feature arithmetic — see extract_duration_features_from_data().
+
+    Args:
+        as_of_ms: Reference time in epoch ms. None means current wall clock.
 
     Returns:
         Dict with keys: file_count, total_edits, time_of_day_hour, branch_name_length
     """
     task = store.get_task_by_id(task_id)
     if task is None:
-        return {
-            "file_count": 0.0,
-            "total_edits": 0.0,
-            "time_of_day_hour": float(time.localtime().tm_hour),
-            "branch_name_length": 0.0,
-        }
-
-    # File count
-    files_map = task.get("files")
-    if isinstance(files_map, str):
-        try:
-            files_map = json.loads(files_map)
-        except (json.JSONDecodeError, TypeError):
-            files_map = {}
-    file_count = float(len(files_map)) if isinstance(files_map, dict) else 0.0
-
-    # Total edits from events
-    events = store.get_events_for_task(task_id)
-    total_edits = float(len([e for e in events if e.get("kind") in ("edit", "file_edit", "save")]))
-
-    # Time of day
-    started_at = task.get("started_at")
-    if started_at:
-        hour = time.localtime(started_at / 1000.0).tm_hour
-    else:
-        hour = time.localtime().tm_hour
-
-    # Branch name length
-    branch = task.get("branch") or ""
-    branch_name_length = float(len(branch))
-
-    return {
-        "file_count": file_count,
-        "total_edits": total_edits,
-        "time_of_day_hour": float(hour),
-        "branch_name_length": branch_name_length,
-    }
+        return _empty_duration_features()
+    return extract_duration_features_from_data(task, store.get_events_for_task(task_id), as_of_ms=as_of_ms)
 
 
-def extract_features_from_buffer(events: list[dict]) -> dict[str, float]:
+def extract_features_from_buffer(events: list[dict], *, as_of_ms: int | None = None) -> dict[str, float]:
     """Extract stuck-predictor features from a raw event buffer.
 
     Used by the poller when no active task_id exists (between tasks,
@@ -193,18 +180,14 @@ def extract_features_from_buffer(events: list[dict]) -> dict[str, float]:
     Args:
         events: List of raw event dicts from the polling buffer.
                 Each dict has keys: id, kind, source, payload (parsed), ts.
+        as_of_ms: Reference time in epoch ms. None means current wall clock.
     """
-    if not events:
-        return {
-            "test_failure_count": 0.0,
-            "time_in_phase_sec": 0.0,
-            "edit_velocity": 0.0,
-            "file_switch_rate": 0.0,
-            "session_length_sec": 0.0,
-            "time_since_last_commit_sec": 0.0,
-        }
+    now_ms = _resolve_now_ms(as_of_ms)
+    events = _events_at_or_before(events, now_ms)
 
-    now_ms = int(time.time() * 1000)
+    if not events:
+        return _empty_stuck_features()
+
     first_ts = events[0].get("ts", now_ms)
     last_ts = events[-1].get("ts", now_ms)
     session_length_sec = max((last_ts - first_ts) / 1000.0, 1.0)
@@ -224,7 +207,7 @@ def extract_features_from_buffer(events: list[dict]) -> dict[str, float]:
     commit_events = [e for e in events if e.get("kind") == "git"]
     if commit_events:
         last_commit_ts = max(e.get("ts", 0) for e in commit_events)
-        time_since_last_commit_sec = (now_ms - last_commit_ts) / 1000.0
+        time_since_last_commit_sec = _elapsed_sec(now_ms, last_commit_ts)
     else:
         time_since_last_commit_sec = session_length_sec
 
@@ -336,13 +319,27 @@ def extract_workflow_features(classified_events: list[dict], session_info: dict)
 # ---------------------------------------------------------------------------
 
 
-def extract_stuck_features_from_data(task: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, float]:
-    """Extract stuck features from pre-queried task and events data.
+def extract_stuck_features_from_data(
+    task: dict[str, Any],
+    events: list[dict[str, Any]],
+    *,
+    as_of_ms: int | None = None,
+) -> dict[str, float]:
+    """Authoritative definition of the stuck feature vector.
 
-    Same output as extract_stuck_features() but operates on passed-in
-    data instead of querying a DataStore. For use with DataStore in cloud mode.
+    All stuck feature arithmetic lives here; extract_stuck_features() fetches
+    rows and delegates to this function.
+
+    Args:
+        task: Pre-queried task record.
+        events: Pre-queried events for the task's window.
+        as_of_ms: Reference time in epoch ms. None means current wall clock.
+                  Events later than this are excluded before any aggregation,
+                  and elapsed features are measured relative to it.
     """
-    now_ms = int(time.time() * 1000)
+    now_ms = _resolve_now_ms(as_of_ms)
+    events = _events_at_or_before(events, now_ms)
+
     started_at = task.get("started_at", now_ms)
     last_active = task.get("last_active", now_ms)
     session_length_sec = max((last_active - started_at) / 1000.0, 1.0)
@@ -353,7 +350,7 @@ def extract_stuck_features_from_data(task: dict[str, Any], events: list[dict[str
     for ev in events:
         if ev.get("kind") == "phase_change":
             phase_start = ev.get("ts", phase_start)
-    time_in_phase_sec = (now_ms - phase_start) / 1000.0
+    time_in_phase_sec = _elapsed_sec(now_ms, phase_start)
 
     # Edit velocity: count edit events
     edit_events = [e for e in events if e.get("kind") in ("edit", "file_edit", "save")]
@@ -369,11 +366,13 @@ def extract_stuck_features_from_data(task: dict[str, Any], events: list[dict[str
             files_in_edits.add(payload["file"])
     file_switch_rate = len(files_in_edits) / max(edit_count, 1)
 
-    # Time since last commit
+    # Time since last commit. The task-window event stream labels commits with
+    # kind == "commit" (source == "git"); "git" is the raw daemon-stream kind
+    # used by the buffer extractor, which reads a different event vocabulary.
     commit_events = [e for e in events if e.get("kind") == "commit"]
     if commit_events:
         last_commit_ts = max(e.get("ts", 0) for e in commit_events)
-        time_since_last_commit_sec = (now_ms - last_commit_ts) / 1000.0
+        time_since_last_commit_sec = _elapsed_sec(now_ms, last_commit_ts)
     else:
         time_since_last_commit_sec = session_length_sec
 
@@ -387,12 +386,27 @@ def extract_stuck_features_from_data(task: dict[str, Any], events: list[dict[str
     }
 
 
-def extract_duration_features_from_data(task: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, float]:
-    """Extract duration features from pre-queried data.
+def extract_duration_features_from_data(
+    task: dict[str, Any],
+    events: list[dict[str, Any]],
+    *,
+    as_of_ms: int | None = None,
+) -> dict[str, float]:
+    """Authoritative definition of the duration feature vector.
 
-    Same output as extract_duration_features() but operates on passed-in
-    data instead of querying a DataStore. For use with DataStore in cloud mode.
+    All duration feature arithmetic lives here; extract_duration_features()
+    fetches rows and delegates to this function.
+
+    Args:
+        task: Pre-queried task record.
+        events: Pre-queried events for the task's window.
+        as_of_ms: Reference time in epoch ms. None means current wall clock.
+                  Events later than this are excluded, which affects
+                  total_edits. time_of_day_hour still derives from started_at.
     """
+    now_ms = _resolve_now_ms(as_of_ms)
+    events = _events_at_or_before(events, now_ms)
+
     # File count
     files_map = task.get("files")
     if isinstance(files_map, str):
