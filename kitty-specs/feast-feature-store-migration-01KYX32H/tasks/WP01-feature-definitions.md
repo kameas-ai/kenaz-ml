@@ -19,6 +19,7 @@ history:
 authoritative_surface: src/sigil_ml/feature_store/definitions.py
 execution_mode: code_change
 owned_files:
+- pyproject.toml
 - src/sigil_ml/feature_store/__init__.py
 - src/sigil_ml/feature_store/definitions.py
 - tests/test_feature_store_defs.py

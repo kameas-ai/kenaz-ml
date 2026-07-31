@@ -1,10 +1,12 @@
 {
   "created_at": "2026-07-31T22:00:19.902187+00:00",
-  "friendly_name": "feast feature store migration",
+  "friendly_name": "Feast Feature Store Migration",
   "mission_id": "01KYX32HVM37J05TZHXC6XCPNX",
   "mission_number": null,
   "mission_slug": "feast-feature-store-migration-01KYX32H",
   "mission_type": "software-dev",
   "slug": "feast-feature-store-migration-01KYX32H",
-  "target_branch": "main"
+  "source_description": "Migrate feature management to Feast in both deployments. Definitions are authored once as Feast definitions, bundled into the open-source package, and shipped. Local runs a self-contained Feast (file registry + SQLite online store) with no network path to the cloud; cloud runs the same definitions over PostgreSQL for offline retrieval, materialization, and online serving. Behaviour-preserving: feature values do not change.",
+  "target_branch": "main",
+  "vcs": "git"
 }
