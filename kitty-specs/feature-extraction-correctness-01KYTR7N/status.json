@@ -1,19 +1,19 @@
 {
-  "event_count": 21,
-  "last_event_id": "01KYWDES44NVZ2A1GSG790S9H3",
-  "materialized_at": "2026-07-31T15:42:31.556633+00:00",
+  "event_count": 22,
+  "last_event_id": "01KYWDF3EN4AKCHRB1N4FQRK3P",
+  "materialized_at": "2026-07-31T15:42:42.133190+00:00",
   "mission_number": "",
   "mission_slug": "feature-extraction-correctness-01KYTR7N",
   "mission_type": "software-dev",
   "summary": {
-    "approved": 1,
+    "approved": 2,
     "blocked": 0,
     "canceled": 0,
     "claimed": 0,
     "done": 0,
     "for_review": 0,
     "in_progress": 0,
-    "in_review": 3,
+    "in_review": 2,
     "planned": 0
   },
   "work_packages": {
@@ -25,11 +25,11 @@
       "last_transition_at": "2026-07-31T15:42:31.556633+00:00"
     },
     "WP02": {
-      "actor": "claude-opus-5",
+      "actor": "user",
       "force_count": 1,
-      "lane": "in_review",
-      "last_event_id": "01KYWCWVD940VR85WA6N00B37J",
-      "last_transition_at": "2026-07-31T15:32:44.073075+00:00"
+      "lane": "approved",
+      "last_event_id": "01KYWDF3EN4AKCHRB1N4FQRK3P",
+      "last_transition_at": "2026-07-31T15:42:42.133190+00:00"
     },
     "WP03": {
       "actor": "claude-opus-5",
