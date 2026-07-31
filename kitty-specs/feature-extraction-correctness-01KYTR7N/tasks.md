@@ -31,7 +31,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 | T010 | Determinism tests | WP02 | | [D] |
 | T011 | No-lookahead and inclusive-boundary tests | WP02 | [D] |
 | T012 | Negative-clamp tests | WP02 | [D] |
-| T013 | Path-equivalence tests | WP02 | [P] |
+| T013 | Path-equivalence tests | WP02 | [D] |
 | T014 | Vector-layout-frozen test | WP02 | [P] |
 | T015 | Edge-case tests | WP02 | [P] |
 | T016 | Add `_reference_time_for()` resolver | WP03 | |
@@ -91,7 +91,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 - [x] T010 Determinism tests (WP02)
 - [x] T011 No-lookahead and inclusive-boundary tests (WP02)
 - [x] T012 Negative-clamp tests (WP02)
-- [ ] T013 Path-equivalence tests (WP02)
+- [x] T013 Path-equivalence tests (WP02)
 - [ ] T014 Vector-layout-frozen test (WP02)
 - [ ] T015 Edge-case tests (WP02)
 
