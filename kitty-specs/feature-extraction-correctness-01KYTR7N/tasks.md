@@ -24,7 +24,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 | T003 | Thread `as_of_ms` through `extract_stuck_features_from_data` | WP01 | | [D] |
 | T004 | Thread `as_of_ms` through `extract_duration_features_from_data` | WP01 | [D] |
 | T005 | Thread `as_of_ms` through `extract_features_from_buffer` | WP01 | [D] |
-| T006 | Extract `_empty_stuck_features()` / `_empty_duration_features()` | WP01 | |
+| T006 | Extract `_empty_stuck_features()` / `_empty_duration_features()` | WP01 | | [D] |
 | T007 | Reduce `extract_stuck_features` to fetch-and-delegate | WP01 | |
 | T008 | Reduce `extract_duration_features` to fetch-and-delegate | WP01 | [P] |
 | T009 | Frozen-clock and fake-store test fixtures | WP02 | |
@@ -62,7 +62,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 - [x] T003 Thread `as_of_ms` through `extract_stuck_features_from_data` (WP01)
 - [x] T004 Thread `as_of_ms` through `extract_duration_features_from_data` (WP01)
 - [x] T005 Thread `as_of_ms` through `extract_features_from_buffer` (WP01)
-- [ ] T006 Extract `_empty_stuck_features()` / `_empty_duration_features()` (WP01)
+- [x] T006 Extract `_empty_stuck_features()` / `_empty_duration_features()` (WP01)
 - [ ] T007 Reduce `extract_stuck_features` to fetch-and-delegate (WP01)
 - [ ] T008 Reduce `extract_duration_features` to fetch-and-delegate (WP01)
 
