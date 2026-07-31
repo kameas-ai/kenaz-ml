@@ -21,7 +21,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 |---|---|---|---|
 | T001 | Add `_elapsed_sec()` clamp helper | WP01 | | [D] |
 | T002 | Add `_resolve_now_ms()` and `_events_at_or_before()` helpers | WP01 | | [D] |
-| T003 | Thread `as_of_ms` through `extract_stuck_features_from_data` | WP01 | |
+| T003 | Thread `as_of_ms` through `extract_stuck_features_from_data` | WP01 | | [D] |
 | T004 | Thread `as_of_ms` through `extract_duration_features_from_data` | WP01 | [P] |
 | T005 | Thread `as_of_ms` through `extract_features_from_buffer` | WP01 | [P] |
 | T006 | Extract `_empty_stuck_features()` / `_empty_duration_features()` | WP01 | |
@@ -59,7 +59,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 
 - [x] T001 Add `_elapsed_sec()` clamp helper (WP01)
 - [x] T002 Add `_resolve_now_ms()` and `_events_at_or_before()` helpers (WP01)
-- [ ] T003 Thread `as_of_ms` through `extract_stuck_features_from_data` (WP01)
+- [x] T003 Thread `as_of_ms` through `extract_stuck_features_from_data` (WP01)
 - [ ] T004 Thread `as_of_ms` through `extract_duration_features_from_data` (WP01)
 - [ ] T005 Thread `as_of_ms` through `extract_features_from_buffer` (WP01)
 - [ ] T006 Extract `_empty_stuck_features()` / `_empty_duration_features()` (WP01)
