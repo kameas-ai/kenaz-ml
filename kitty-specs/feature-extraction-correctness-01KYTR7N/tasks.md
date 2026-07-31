@@ -37,7 +37,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 | T016 | Add `_reference_time_for()` resolver | WP03 | | [D] |
 | T017 | `trainer.py` stuck path passes reference time | WP03 | | [D] |
 | T018 | `trainer.py` duration path passes reference time | WP03 | [D] |
-| T019 | `cloud_trainer.py` stuck and duration paths | WP03 | [P] |
+| T019 | `cloud_trainer.py` stuck and duration paths | WP03 | [D] |
 | T020 | Training reference-time and skip tests | WP03 | |
 | T021 | Audit `poller.py` call sites | WP04 | [P] |
 | T022 | Audit `routes.py` call sites | WP04 | [P] |
@@ -119,7 +119,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 - [x] T016 Add `_reference_time_for()` resolver (WP03)
 - [x] T017 `trainer.py` stuck path passes reference time (WP03)
 - [x] T018 `trainer.py` duration path passes reference time (WP03)
-- [ ] T019 `cloud_trainer.py` stuck and duration paths (WP03)
+- [x] T019 `cloud_trainer.py` stuck and duration paths (WP03)
 - [ ] T020 Training reference-time and skip tests (WP03)
 
 **Implementation sketch**: shared resolver first (T016), then the four call sites, then tests.
