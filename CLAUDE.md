@@ -2,9 +2,24 @@
 
 ## What kameas-ml Is
 
-`kameas-ml` is the ML sidecar for [`sigil`](https://github.com/wambozi/sigil) — a background daemon that observes developer workflow signals and surfaces productivity suggestions. The ML service runs locally on the user's laptop.
+`kameas-ml` is the ML sidecar for [`sigil`](https://github.com/wambozi/sigil) — a background daemon that observes developer workflow signals and surfaces productivity suggestions.
 
-**Core principle: security-first, local-only.** No data leaves the machine.
+It ships in **two deployments from one codebase**:
+
+| | Local (open source) | Cloud (enterprise) |
+|---|---|---|
+| Packaging | Frozen PyInstaller `onedir`, notarized | Container |
+| Data store | SQLite (`~/.local/share/sigild/data.db`, WAL) | PostgreSQL |
+| `DataStore` impl | `SqliteStore` | `PostgresStore` |
+| Tenancy | Single user | Multi-tenant |
+| Model artifacts | Filesystem | S3 / MinIO |
+| Extra deps | none | `kameas-ml[cloud]` |
+
+Mode is selected by `config.operating_mode()`.
+
+**Core principle for the local deployment: security-first, local-only.** No data leaves the machine — this is a product guarantee, not a default. Anything that could transmit user-derived data must be gated behind cloud mode and must not be reachable from the open-source local path.
+
+Architecture beyond this file — feature layer, model lifecycle, registry, base-model strategy — lives in [`docs/ML_ARCHITECTURE.md`](docs/ML_ARCHITECTURE.md).
 
 ## The Shared Database
 
@@ -29,12 +44,54 @@
 1. Every SQLite connection Python opens must set `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=5000`
 2. Model names in `ml_predictions.model` must exactly match Go's queries: `"stuck"`, `"suggest"`, `"duration"`, `"quality"`, `"profile"`
 3. The HTTP endpoints on `:7774` must remain functional — `sigilctl` uses them
-4. No heavyweight dependencies — `scikit-learn`, `numpy`, `fastapi`, `uvicorn`, `joblib` only
+4. No heavyweight dependencies in the local path — `scikit-learn`, `numpy`, `fastapi`, `uvicorn`, `joblib` only
+5. **Never import `sqlite3` or `psycopg2` directly.** All data access goes through the `DataStore` protocol in `src/sigil_ml/store.py`, so both deployments stay behaviourally identical
+
+### Why the dependency ceiling
+
+The local build is a PyInstaller `onedir` bundle that gets **notarized**, so every native library inside it must be signed and stapled. A dependency that pulls `pyarrow`, `protobuf`, or `grpcio` adds hundreds of megabytes of signable surface to every release. Heavyweight tooling belongs in cloud mode (behind the `cloud` extra) or at build time — never in the local runtime.
+
+This is why Feast was tried and abandoned; see `docs/ML_ARCHITECTURE.md` §10 before proposing a feature store or model registry.
+
+## Feature Extraction
+
+`src/sigil_ml/features.py` is the **single authority** for feature computation, shared by both deployments and by base-model training.
+
+- The `*_from_data(task, events, *, as_of_ms=None)` functions are the definition. The store-backed `extract_*(store, task_id, ...)` variants fetch rows and delegate — they must contain no feature arithmetic.
+- **`as_of_ms` is the reference time the vector describes.** `None` means current wall clock, which is correct only when the subject is an *active* task (serving). Any path replaying history must pass the example's own reference time.
+- Training resolves that reference time as `completed_at` → `last_active` → skip the example. There is deliberately **no wall-clock fallback**: computing elapsed features against `time.time()` while replaying completed tasks makes them measure task age instead of behaviour.
+- Events later than the reference time are filtered out before aggregation. The boundary is inclusive.
+- **Feature names and ordering are a contract.** Both trainers build vectors positionally against `FEATURE_NAMES`, so a reordering silently permutes every model input.
+
+## Known Data Gotchas
+
+Observed against a real `sigild` database (~3.5k events, single install — treat as strong evidence, not proof):
+
+- Event kinds present in practice: `file`, `process`, `hyprland`, `browser`, `terminal`, `power`.
+- **`kind="commit"` and `kind="git"` do not appear.** The stuck extractors key commit detection off `"commit"` and the buffer extractor off `"git"`, so in practice `time_since_last_commit_sec` always falls back to `session_length_sec` — two of six stuck features carry the same value.
+- `_EVENT_KINDS` one-hot encodes `git` and `ai` (never observed) while omitting `browser` and `power` (observed).
+
+Verify against live data before treating any event-kind branch as exercised.
 
 ## Build & Test
 
 ```bash
-pip install -e ".[dev]"
-kameas-ml serve           # start server with poller
-pytest tests/            # run tests
+pip install -e ".[dev]"          # local development
+pip install -e ".[dev,cloud]"    # includes psycopg2, boto3 — needed for cloud-path tests
+kameas-ml serve                  # start server with poller
+pytest tests/                    # run tests
 ```
+
+The repo carries **no checked-in virtualenv**, and `pytest` is not on the system interpreter. Create one before running tests (`uv venv` works).
+
+## Spec-Driven Workflow
+
+Feature work is organised as [spec-kitty](https://github.com/) missions under `kitty-specs/<mission-slug>/`, each with `spec.md`, `plan.md`, `research.md`, `tasks.md`, and per-work-package prompts in `tasks/`.
+
+- Every spec-kitty CLI call needs `--mission <handle>` — the handle is the `mission_id` (ULID), its 8-char `mid8` prefix, or the full `mission_slug`.
+- The `NNN-` directory prefix is display-only and assigned at **merge** time; `mission_number` is `null` before then. Never use it as a selector.
+- Work packages declare `owned_files`. An agent implementing a WP must not modify anything outside that list.
+- Lanes collapse on any dependency edge, so a mission where every WP depends on a common foundation gets **one** lane and one worktree — expect sequential execution, not parallel worktrees.
+- When multiple agents share a lane worktree, commit with `git commit --only <path>`. Plain `git add <path>` is not sufficient isolation: a sibling staging files between your add and commit will be swept into your commit.
+
+**Troubleshooting**: if every commit fails with `ModuleNotFoundError: No module named 'specify_cli'`, the generated `.git/hooks/pre-commit` is pointing at a base interpreter rather than the one spec-kitty is installed into. Correct the interpreter path in the hook.

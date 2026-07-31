@@ -3,3 +3,8 @@ vcs:
 agents:
   available:
   - claude
+project:
+  uuid: c4f65cf8-1821-499b-af1a-6259dcb65faa
+  slug: kenaz-ml
+  node_id: c5746c3fdd7b
+  build_id: 3ac7446c-dc6e-4dd9-8aee-6e73df2fd261

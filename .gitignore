@@ -53,3 +53,8 @@ Thumbs.db
 .github/copilot/
 .kittify/.dashboard
 .kittify/missions/__pycache__/
+.kittify/workspaces/
+.kittify/runtime/
+
+# Spec Kitty lane worktrees — working copies, never committed
+.worktrees/

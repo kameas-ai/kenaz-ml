@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "mission_slug": "feature-extraction-correctness-01KYTR7N",
+  "mission_id": "01KYTR7NSJ86YBZG47CQZW71TX",
+  "mission_branch": "kitty/mission-feature-extraction-correctness-01KYTR7N",
+  "target_branch": "main",
+  "lanes": [
+    {
+      "lane_id": "lane-a",
+      "wp_ids": [
+        "WP01",
+        "WP02",
+        "WP03",
+        "WP04"
+      ],
+      "write_scope": [
+        "src/sigil_ml/features.py",
+        "src/sigil_ml/poller.py",
+        "src/sigil_ml/routes.py",
+        "src/sigil_ml/training/cloud_trainer.py",
+        "src/sigil_ml/training/trainer.py",
+        "tests/test_cloud_training.py",
+        "tests/test_features.py",
+        "tests/test_server.py",
+        "tests/test_serving_regression.py",
+        "tests/test_training_as_of.py"
+      ],
+      "predicted_surfaces": [
+        "api",
+        "app-shell",
+        "legacy-cleanup",
+        "tests"
+      ],
+      "depends_on_lanes": [],
+      "parallel_group": 0
+    }
+  ],
+  "computed_at": "2026-07-31T01:12:28.425058+00:00",
+  "computed_from": "dependency_graph+ownership",
+  "planning_artifact_wps": [],
+  "collapse_report": {
+    "events": [
+      {
+        "wp_a": "WP02",
+        "wp_b": "WP01",
+        "rule": "dependency",
+        "evidence": "WP02 depends on WP01"
+      },
+      {
+        "wp_a": "WP03",
+        "wp_b": "WP01",
+        "rule": "dependency",
+        "evidence": "WP03 depends on WP01"
+      },
+      {
+        "wp_a": "WP04",
+        "wp_b": "WP01",
+        "rule": "dependency",
+        "evidence": "WP04 depends on WP01"
+      }
+    ],
+    "total_merges": 3,
+    "independent_wps_collapsed": 0,
+    "by_rule": {
+      "dependency": 3
+    }
+  }
+}

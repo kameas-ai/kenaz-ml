@@ -20,6 +20,29 @@ from sigil_ml.training.synthetic import generate_duration_data, generate_stuck_d
 logger = logging.getLogger(__name__)
 
 
+def _reference_time_for(task: dict) -> int | None:
+    """Epoch ms describing the moment a completed task's features should reflect.
+
+    A training example describes an instant in the past, so its features must be
+    measured against that instant. For a completed task that is its completion;
+    `last_active` is the closest honest fallback when `completed_at` is unset.
+
+    Returns None when the task cannot yield an honest reference time, in which
+    case it must be excluded from training. There is deliberately no wall-clock
+    fallback: substituting "now" for a historical example is precisely the defect
+    this resolver exists to remove, and it would bite hardest on the malformed
+    rows most likely to be pathological.
+
+    `0` and `None` are treated alike -- a zero epoch is not a real timestamp in
+    this data.
+    """
+    for field in ("completed_at", "last_active"):
+        value = task.get(field)
+        if value:
+            return int(value)
+    return None
+
+
 class Trainer:
     """Orchestrates training of all kameas-ml models from local data."""
 
@@ -87,22 +110,40 @@ class Trainer:
         """
         task_ids = self.store.get_completed_task_ids()
 
-        if len(task_ids) < 10:
-            logger.info("Not enough completed tasks for stuck training (%d)", len(task_ids))
-            X, y = generate_stuck_data(500)
-            predictor = StuckPredictor(model_store=self._model_store)
-            predictor.train(X, y)
-            return 500
-
         X_list = []
         y_list = []
+        skipped = 0
         for task_id in task_ids:
-            features = extract_stuck_features(self.store, task_id)
+            task = self.store.get_task_by_id(task_id)
+            if task is None:
+                skipped += 1
+                continue
+            as_of = _reference_time_for(task)
+            if as_of is None:
+                skipped += 1
+                continue
+            features = extract_stuck_features(self.store, task_id, as_of_ms=as_of)
             x = [features.get(f, 0.0) for f in STUCK_FEATURES]
             X_list.append(x)
             # Heuristic label: stuck if high test failures and long time in phase
             stuck = features["test_failure_count"] > 3 and features["time_in_phase_sec"] > 600
             y_list.append(1.0 if stuck else 0.0)
+
+        if skipped:
+            logger.info("stuck training: skipped %d task(s) with no resolvable reference time", skipped)
+
+        # Threshold is evaluated against the usable count, not the raw count --
+        # a skipped task is not training data.
+        if len(X_list) < 10:
+            logger.info(
+                "Not enough completed tasks for stuck training (%d usable of %d)",
+                len(X_list),
+                len(task_ids),
+            )
+            X, y = generate_stuck_data(500)
+            predictor = StuckPredictor(model_store=self._model_store)
+            predictor.train(X, y)
+            return 500
 
         X = np.array(X_list)
         y = np.array(y_list)
@@ -119,23 +160,41 @@ class Trainer:
         """
         rows = self.store.get_completed_tasks_with_timestamps()
 
-        if len(rows) < 10:
-            logger.info("Not enough completed tasks for duration training (%d)", len(rows))
-            X, y = generate_duration_data(500)
-            estimator = DurationEstimator(model_store=self._model_store)
-            estimator.train(X, y)
-            return 500
-
         X_list = []
         y_list = []
+        skipped = 0
         for row in rows:
             task_id = row["id"]
-            features = extract_duration_features(self.store, task_id)
+            as_of = _reference_time_for(row)
+            # The label needs both timestamps, so a row missing either is
+            # unusable for the same reason an unresolvable reference time is.
+            if as_of is None or not row.get("started_at") or not row.get("completed_at"):
+                skipped += 1
+                continue
+            features = extract_duration_features(self.store, task_id, as_of_ms=as_of)
             x = [features.get(f, 0.0) for f in DURATION_FEATURES]
             X_list.append(x)
             # Duration in minutes
             duration_min = (row["completed_at"] - row["started_at"]) / 60000.0
             y_list.append(max(duration_min, 1.0))
+
+        if skipped:
+            logger.info(
+                "duration training: skipped %d task(s) with no resolvable reference time or duration label",
+                skipped,
+            )
+
+        # Threshold is evaluated against the usable count, not the raw count.
+        if len(X_list) < 10:
+            logger.info(
+                "Not enough completed tasks for duration training (%d usable of %d)",
+                len(X_list),
+                len(rows),
+            )
+            X, y = generate_duration_data(500)
+            estimator = DurationEstimator(model_store=self._model_store)
+            estimator.train(X, y)
+            return 500
 
         X = np.array(X_list)
         y = np.array(y_list)
