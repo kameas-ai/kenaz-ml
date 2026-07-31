@@ -7,7 +7,9 @@
 
 ## Overview
 
-24 subtasks across 4 work packages. WP01 is the foundation — it holds all feature arithmetic. WP02, WP03, and WP04 depend on WP01 and are mutually independent, so they parallelize cleanly across three lanes once WP01 lands.
+24 subtasks across 4 work packages. WP01 is the foundation — it holds all feature arithmetic. WP02, WP03, and WP04 each depend on WP01 and are mutually independent.
+
+Note on execution: `finalize-tasks` collapsed all four into a single lane (`lane-a`), because the lane algorithm merges on dependency edges and all three downstream WPs depend on WP01. They therefore execute sequentially in one worktree rather than in parallel worktrees. The mutual independence of WP02–WP04 still means they can be implemented and reviewed in any order once WP01 lands.
 
 File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns the extractor test module, WP03 owns the two training modules and their test, WP04 owns the two serving modules and their test.
 
@@ -163,7 +165,7 @@ WP01 (features.py core)
  └── WP04 (serving verification)
 ```
 
-WP02, WP03, and WP04 have no dependencies among themselves and run in parallel lanes.
+WP02, WP03, and WP04 have no dependencies among themselves, so they may be implemented in any order after WP01. All four share `lane-a` — see the execution note in the Overview.
 
 ## MVP Scope
 
