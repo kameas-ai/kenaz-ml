@@ -36,7 +36,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 | T015 | Edge-case tests | WP02 | [D] |
 | T016 | Add `_reference_time_for()` resolver | WP03 | | [D] |
 | T017 | `trainer.py` stuck path passes reference time | WP03 | | [D] |
-| T018 | `trainer.py` duration path passes reference time | WP03 | [P] |
+| T018 | `trainer.py` duration path passes reference time | WP03 | [D] |
 | T019 | `cloud_trainer.py` stuck and duration paths | WP03 | [P] |
 | T020 | Training reference-time and skip tests | WP03 | |
 | T021 | Audit `poller.py` call sites | WP04 | [P] |
@@ -118,7 +118,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 
 - [x] T016 Add `_reference_time_for()` resolver (WP03)
 - [x] T017 `trainer.py` stuck path passes reference time (WP03)
-- [ ] T018 `trainer.py` duration path passes reference time (WP03)
+- [x] T018 `trainer.py` duration path passes reference time (WP03)
 - [ ] T019 `cloud_trainer.py` stuck and duration paths (WP03)
 - [ ] T020 Training reference-time and skip tests (WP03)
 
