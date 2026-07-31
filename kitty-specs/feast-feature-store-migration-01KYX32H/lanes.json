@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "mission_slug": "feast-feature-store-migration-01KYX32H",
+  "mission_id": "01KYX32HVM37J05TZHXC6XCPNX",
+  "mission_branch": "kitty/mission-feast-feature-store-migration-01KYX32H",
+  "target_branch": "main",
+  "lanes": [
+    {
+      "lane_id": "lane-a",
+      "wp_ids": [
+        "WP01",
+        "WP02",
+        "WP03",
+        "WP04",
+        "WP05",
+        "WP06"
+      ],
+      "write_scope": [
+        ".github/workflows/ci.yml",
+        "freeze/entrypoint.py",
+        "freeze/kameas-ml.spec",
+        "src/sigil_ml/feature_store/__init__.py",
+        "src/sigil_ml/feature_store/config.py",
+        "src/sigil_ml/feature_store/definitions.py",
+        "src/sigil_ml/feature_store/feature_store.cloud.yaml",
+        "src/sigil_ml/feature_store/feature_store.local.yaml",
+        "src/sigil_ml/feature_store/materialize.py",
+        "src/sigil_ml/feature_store/resolve.py",
+        "src/sigil_ml/poller.py",
+        "src/sigil_ml/routes.py",
+        "src/sigil_ml/training/cloud_trainer.py",
+        "tests/test_feature_store_cloud.py",
+        "tests/test_feature_store_defs.py",
+        "tests/test_feature_store_local.py",
+        "tests/test_frozen_smoke.py",
+        "tests/test_migration_regression.py",
+        "tests/test_no_egress.py"
+      ],
+      "predicted_surfaces": [
+        "api",
+        "artifact-rendering",
+        "tracker-integration"
+      ],
+      "depends_on_lanes": [],
+      "parallel_group": 0
+    }
+  ],
+  "computed_at": "2026-07-31T22:16:36.767765+00:00",
+  "computed_from": "dependency_graph+ownership",
+  "planning_artifact_wps": [],
+  "collapse_report": {
+    "events": [
+      {
+        "wp_a": "WP02",
+        "wp_b": "WP01",
+        "rule": "dependency",
+        "evidence": "WP02 depends on WP01"
+      },
+      {
+        "wp_a": "WP03",
+        "wp_b": "WP01",
+        "rule": "dependency",
+        "evidence": "WP03 depends on WP01"
+      },
+      {
+        "wp_a": "WP04",
+        "wp_b": "WP01",
+        "rule": "dependency",
+        "evidence": "WP04 depends on WP01"
+      },
+      {
+        "wp_a": "WP05",
+        "wp_b": "WP01",
+        "rule": "dependency",
+        "evidence": "WP05 depends on WP01"
+      },
+      {
+        "wp_a": "WP06",
+        "wp_b": "WP03",
+        "rule": "dependency",
+        "evidence": "WP06 depends on WP03"
+      }
+    ],
+    "total_merges": 5,
+    "independent_wps_collapsed": 0,
+    "by_rule": {
+      "dependency": 5
+    }
+  }
+}
