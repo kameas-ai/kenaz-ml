@@ -1,0 +1,49 @@
+{
+  "event_count": 4,
+  "last_event_id": "01KYTVNNG4BWVWCYJ139DCEK4E",
+  "materialized_at": "2026-07-31T01:12:28.420179+00:00",
+  "mission_number": "",
+  "mission_slug": "feature-extraction-correctness-01KYTR7N",
+  "mission_type": "software-dev",
+  "summary": {
+    "approved": 0,
+    "blocked": 0,
+    "canceled": 0,
+    "claimed": 0,
+    "done": 0,
+    "for_review": 0,
+    "in_progress": 0,
+    "in_review": 0,
+    "planned": 4
+  },
+  "work_packages": {
+    "WP01": {
+      "actor": "finalize-tasks",
+      "force_count": 1,
+      "lane": "planned",
+      "last_event_id": "01KYTVNNDB8QAH1K5HVMJCY134",
+      "last_transition_at": "2026-07-31T01:12:28.331530+00:00"
+    },
+    "WP02": {
+      "actor": "finalize-tasks",
+      "force_count": 1,
+      "lane": "planned",
+      "last_event_id": "01KYTVNNG1PD8XMVFDJQR46RWB",
+      "last_transition_at": "2026-07-31T01:12:28.417583+00:00"
+    },
+    "WP03": {
+      "actor": "finalize-tasks",
+      "force_count": 1,
+      "lane": "planned",
+      "last_event_id": "01KYTVNNG25WX2NF5CDMQXTJRA",
+      "last_transition_at": "2026-07-31T01:12:28.418959+00:00"
+    },
+    "WP04": {
+      "actor": "finalize-tasks",
+      "force_count": 1,
+      "lane": "planned",
+      "last_event_id": "01KYTVNNG4BWVWCYJ139DCEK4E",
+      "last_transition_at": "2026-07-31T01:12:28.420179+00:00"
+    }
+  }
+}
