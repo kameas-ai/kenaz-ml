@@ -1,0 +1,10 @@
+{
+  "created_at": "2026-07-31T00:12:24.297114+00:00",
+  "friendly_name": "feature extraction correctness",
+  "mission_id": "01KYTR7NSJ86YBZG47CQZW71TX",
+  "mission_number": null,
+  "mission_slug": "feature-extraction-correctness-01KYTR7N",
+  "mission_type": "software-dev",
+  "slug": "feature-extraction-correctness-01KYTR7N",
+  "target_branch": "main"
+}
