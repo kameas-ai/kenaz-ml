@@ -15,6 +15,8 @@ Each WP owns its own test module, so file ownership is disjoint throughout.
 
 ## Subtask Index
 
+> **On the `[P]` column.** It marks *logical* independence — the subtask does not depend on its siblings' output. It does **not** mean two agents may run concurrently, which is bounded by file ownership. Most subtasks within a WP edit a single module and must be done sequentially by one agent. The only genuinely concurrent-safe pair here is **T019 ∥ T020** (`trainer.py` vs `cloud_trainer.py`). Concurrency between *work packages* is the real lever — WP02 ∥ WP03, then WP04 ∥ WP05.
+
 | ID | Description | WP | Parallel |
 |---|---|---|---|
 | T001 | Manifest schema and JSON read/write | WP01 | |

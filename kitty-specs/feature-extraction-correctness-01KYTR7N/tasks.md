@@ -15,6 +15,8 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 
 ## Subtask Index
 
+> **On the `[P]` column.** It marks *logical* independence — the subtask does not depend on its siblings' output. It does **not** mean two agents may run concurrently, which is bounded by file ownership. Most subtasks within a WP edit the same file and must be done sequentially by one agent. The only genuinely concurrent-safe pairs here are **T021 ∥ T022** (`poller.py` vs `routes.py`) and **T019** against T017/T018 (`cloud_trainer.py` vs `trainer.py`). Concurrency between *work packages* is the real lever — see Dependencies below.
+
 | ID | Description | WP | Parallel |
 |---|---|---|---|
 | T001 | Add `_elapsed_sec()` clamp helper | WP01 | |
