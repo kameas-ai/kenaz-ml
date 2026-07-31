@@ -40,7 +40,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 | T019 | `cloud_trainer.py` stuck and duration paths | WP03 | [D] |
 | T020 | Training reference-time and skip tests | WP03 | | [D] |
 | T021 | Audit `poller.py` call sites | WP04 | [D] |
-| T022 | Audit `routes.py` call sites | WP04 | [P] |
+| T022 | Audit `routes.py` call sites | WP04 | [D] |
 | T023 | Capture pre-change baseline vectors | WP04 | |
 | T024 | Serving non-regression tests | WP04 | |
 
@@ -144,7 +144,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 **Included subtasks**:
 
 - [x] T021 Audit `poller.py` call sites (WP04)
-- [ ] T022 Audit `routes.py` call sites (WP04)
+- [x] T022 Audit `routes.py` call sites (WP04)
 - [ ] T023 Capture pre-change baseline vectors (WP04)
 - [ ] T024 Serving non-regression tests (WP04)
 
