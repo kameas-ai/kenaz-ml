@@ -30,7 +30,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 | T009 | Frozen-clock and fake-store test fixtures | WP02 | | [D] |
 | T010 | Determinism tests | WP02 | | [D] |
 | T011 | No-lookahead and inclusive-boundary tests | WP02 | [D] |
-| T012 | Negative-clamp tests | WP02 | [P] |
+| T012 | Negative-clamp tests | WP02 | [D] |
 | T013 | Path-equivalence tests | WP02 | [P] |
 | T014 | Vector-layout-frozen test | WP02 | [P] |
 | T015 | Edge-case tests | WP02 | [P] |
@@ -90,7 +90,7 @@ File ownership is disjoint by construction: WP01 owns `features.py`, WP02 owns t
 - [x] T009 Frozen-clock and fake-store test fixtures (WP02)
 - [x] T010 Determinism tests (WP02)
 - [x] T011 No-lookahead and inclusive-boundary tests (WP02)
-- [ ] T012 Negative-clamp tests (WP02)
+- [x] T012 Negative-clamp tests (WP02)
 - [ ] T013 Path-equivalence tests (WP02)
 - [ ] T014 Vector-layout-frozen test (WP02)
 - [ ] T015 Edge-case tests (WP02)
