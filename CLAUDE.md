@@ -44,14 +44,16 @@ Architecture beyond this file — feature layer, model lifecycle, registry, base
 1. Every SQLite connection Python opens must set `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=5000`
 2. Model names in `ml_predictions.model` must exactly match Go's queries: `"stuck"`, `"suggest"`, `"duration"`, `"quality"`, `"profile"`
 3. The HTTP endpoints on `:7774` must remain functional — `sigilctl` uses them
-4. No heavyweight dependencies in the local path — `scikit-learn`, `numpy`, `fastapi`, `uvicorn`, `joblib` only
+4. Local runtime dependencies are `scikit-learn`, `numpy`, `fastapi`, `uvicorn`, `joblib`, **and `feast`** — nothing else without an explicit, recorded decision
 5. **Never import `sqlite3` or `psycopg2` directly.** All data access goes through the `DataStore` protocol in `src/sigil_ml/store.py`, so both deployments stay behaviourally identical
 
-### Why the dependency ceiling
+### The dependency ceiling, and the one exception
 
-The local build is a PyInstaller `onedir` bundle that gets **notarized**, so every native library inside it must be signed and stapled. A dependency that pulls `pyarrow`, `protobuf`, or `grpcio` adds hundreds of megabytes of signable surface to every release. Heavyweight tooling belongs in cloud mode (behind the `cloud` extra) or at build time — never in the local runtime.
+The local build is a PyInstaller `onedir` bundle that gets **notarized**, so every native library inside it must be signed and stapled. A dependency pulling `pyarrow`, `protobuf`, or `grpcio` adds hundreds of megabytes of signable surface to every release. That is why the ceiling exists and why it still applies to anything new.
 
-This is why Feast was tried and abandoned; see `docs/ML_ARCHITECTURE.md` §10 before proposing a feature store or model registry.
+**Feast is the deliberate exception.** The product owner chose to migrate to Feast in *both* deployments with the frozen binary retained, after the cost was measured: **+309 MB site-packages, +205 MB in the built bundle, +225 Mach-O files to sign.** `feast==0.65.0` is an unconditional local dependency, pinned exactly because the registry is a version-coupled protobuf. See `docs/ML_ARCHITECTURE.md` §3.5 and the `feast-feature-store-migration` mission.
+
+Note what this does *not* license: the exception covers Feast's tree only. Adding another heavyweight dependency still needs its own measurement and its own decision.
 
 ## Feature Extraction
 

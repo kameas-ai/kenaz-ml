@@ -15,10 +15,10 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from sigil_ml.signals.engine import SignalEngine
 
-from sigil_ml.features import (
-    extract_duration_features,
-    extract_features_from_buffer,
-    extract_stuck_features,
+from sigil_ml.feature_store.resolve import (
+    resolve_duration_features,
+    resolve_stuck_features,
+    resolve_stuck_features_from_buffer,
 )
 from sigil_ml.store import DataStore
 
@@ -138,9 +138,9 @@ class EventPoller:
         # Stuck prediction — check is_trained before calling predict.
         if self.stuck.is_trained:
             if task_id:
-                feats = extract_stuck_features(self.store, task_id)
+                feats = resolve_stuck_features(self.store, task_id)
             else:
-                feats = extract_features_from_buffer(self._buffer)
+                feats = resolve_stuck_features_from_buffer(self._buffer)
             result = self.stuck.predict(feats)
         else:
             result = self._FALLBACK_STUCK
@@ -160,7 +160,7 @@ class EventPoller:
         # Duration — only when active task AND model is trained.
         if task_id and self.duration.is_trained:
             try:
-                feats = extract_duration_features(self.store, task_id)
+                feats = resolve_duration_features(self.store, task_id)
                 result = self.duration.predict(feats)
                 ci = result.get("confidence_interval", [30, 90])
                 est = result.get("estimated_minutes", 60)

@@ -100,7 +100,27 @@ jobs:
         run: |
           kameas-ml serve --port 7799 &
           SERVER_PID=$!
-          sleep 3
+
+          # Wait for the server to answer rather than guessing how long it takes.
+          # The previous `sleep 3` raced startup: import time varies with runner
+          # load and with what the dependency set pulls in, so the curl below
+          # sometimes fired before the socket was listening and failed the job
+          # for reasons unrelated to the change under test. A flaky gate teaches
+          # people to ignore red, which is worse than having no gate.
+          ready=""
+          for _ in $(seq 1 60); do
+            if curl -sf -o /dev/null http://127.0.0.1:7799/health; then ready=1; break; fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              echo "::error::kameas-ml serve exited before answering /health"
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ -z "$ready" ]; then
+            echo "::error::kameas-ml serve did not answer /health within 60s"
+            kill "$SERVER_PID" 2>/dev/null || true
+            exit 1
+          fi
 
           # Health endpoint
           curl -sf http://127.0.0.1:7799/health | python -m json.tool
@@ -179,9 +199,315 @@ jobs:
         run: |
           kameas-ml serve --port 7798 &
           SERVER_PID=$!
-          sleep 3
+
+          # Same bounded wait as the `test` job — this is the step that has been
+          # failing this job on main. Installing from a wheel pulls the full
+          # dependency set, so startup here is slower than in `test` and the
+          # fixed `sleep 3` lost the race more often than it won it.
+          ready=""
+          for _ in $(seq 1 60); do
+            if curl -sf -o /dev/null http://127.0.0.1:7798/health; then ready=1; break; fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              echo "::error::kameas-ml serve (from wheel) exited before answering /health"
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ -z "$ready" ]; then
+            echo "::error::kameas-ml serve (from wheel) did not answer /health within 60s"
+            kill "$SERVER_PID" 2>/dev/null || true
+            exit 1
+          fi
+
           curl -sf http://127.0.0.1:7798/health | python -m json.tool
           curl -sf -X POST http://127.0.0.1:7798/predict/suggest \
             -H 'Content-Type: application/json' -d '{}' \
             | python -m json.tool
           kill $SERVER_PID
+
+  # ==========================================================================
+  # Frozen bundle — the packaging gate (WP05 T022; FR-011, FR-013, NFR-001,
+  # NFR-003)
+  # ==========================================================================
+  # Runs on macOS arm64, the only platform where the notarization requirement
+  # applies and the only freeze target for macOS per spec 069 LD-3.
+  #
+  # Two things this job is NOT allowed to conclude:
+  #
+  #   * "the build succeeded, therefore Feast is packaged correctly". Feast
+  #     resolves providers and stores by string through
+  #     `importlib.import_module`, which PyInstaller cannot see, so the failure
+  #     shape is a bundle that builds and starts and then dies on the first
+  #     feature call. The freeze smoke tests are what actually decide this: they
+  #     run a real feature resolution inside the frozen binary, with its
+  #     application directory made unwritable.
+  #   * "the bundle is a reasonable size". The delta is printed on every build
+  #     and gated, so drift is visible long before it breaches.
+  freeze:
+    name: Frozen bundle
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -e ".[dev,freeze]"
+
+      - name: Build frozen bundle
+        # `make freeze` runs `pyinstaller freeze/kameas-ml.spec`, which applies
+        # the Feast registry at build time and fails the build if the apply
+        # fails (D-001 / T019). A bundle without a registry would start fine and
+        # fail at the first feature call on a user's machine, so this must never
+        # degrade to a warning.
+        run: make freeze
+
+      - name: Bundle-size gate (NFR-001)
+        env:
+          # Size of the frozen onedir bundle immediately BEFORE this migration,
+          # measured on macOS arm64 at commit ef67e05 (the last commit before
+          # Feast entered pyproject.toml). Reproduce with:
+          #
+          #   git archive ef67e05 | tar -x -C /tmp/baseline
+          #   cd /tmp/baseline && pip install -e ".[freeze]" \
+          #     && pyinstaller freeze/kameas-ml.spec --noconfirm --clean
+          #   du -sm dist/kameas-ml
+          #
+          # 126 MB / 210 native libraries. Update this only alongside a recorded
+          # re-measurement; silently raising it to make a red build green is
+          # exactly the drift the gate exists to catch.
+          BASELINE_BUNDLE_MB: '126'
+          # NFR-001: no more than 350 MB over the pre-migration set.
+          GROWTH_CEILING_MB: '350'
+        run: |
+          BUNDLE_MB=$(du -sm dist/kameas-ml | cut -f1)
+          LIBS=$(find dist/kameas-ml \( -name '*.so' -o -name '*.dylib' \) | wc -l | tr -d ' ')
+          DELTA_MB=$((BUNDLE_MB - BASELINE_BUNDLE_MB))
+          HEADROOM_MB=$((GROWTH_CEILING_MB - DELTA_MB))
+
+          {
+            echo "### Frozen bundle size"
+            echo ""
+            echo "| | value |"
+            echo "|---|---|"
+            echo "| bundle | ${BUNDLE_MB} MB |"
+            echo "| pre-migration baseline | ${BASELINE_BUNDLE_MB} MB |"
+            echo "| **delta** | **+${DELTA_MB} MB** |"
+            echo "| NFR-001 ceiling | ${GROWTH_CEILING_MB} MB |"
+            echo "| headroom | ${HEADROOM_MB} MB |"
+            echo "| signable Mach-O files | ${LIBS} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "bundle ${BUNDLE_MB} MB; baseline ${BASELINE_BUNDLE_MB} MB; delta +${DELTA_MB} MB; ceiling ${GROWTH_CEILING_MB} MB; ${LIBS} signable Mach-O files"
+
+          if [ "$DELTA_MB" -gt "$GROWTH_CEILING_MB" ]; then
+            echo "::error::bundle grew +${DELTA_MB} MB over the pre-migration baseline, past NFR-001's ${GROWTH_CEILING_MB} MB ceiling"
+            exit 1
+          fi
+
+      - name: Freeze smoke tests — real feature call, read-only bundle, cold start
+        # The gate that means something. Covers, on the actual artifact:
+        #   * /predict/stuck through the frozen sklearn estimator path
+        #   * the shipped registry, its producing-Feast-version marker (D-007)
+        #   * a real Feast feature resolution with the application directory
+        #     chmod'd unwritable, asserting nothing inside the bundle changed and
+        #     that the online store landed in the user data directory (FR-013)
+        #   * cold start against NFR-003's 10 s budget, on the real binary
+        run: |
+          KAMEAS_ML_FROZEN_BIN="$PWD/dist/kameas-ml/kameas-ml" \
+            pytest tests/test_frozen_smoke.py -v -s
+
+      - name: Upload frozen bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: kameas-ml-macos-arm64
+          path: dist/kameas-ml
+          retention-days: 7
+
+  # ==========================================================================
+  # Notarization gate (WP05 T022; FR-012, NFR-005)
+  # ==========================================================================
+  # Feast takes the bundle from 210 to 435 Mach-O files, every one of which must
+  # be signed with a hardened runtime and covered by a successful notarization
+  # ticket. This job signs the bundle inside-out, notarizes it, staples the
+  # ticket, and then VERIFIES rather than trusting the submission result:
+  # `codesign --verify --deep --strict` and `xcrun stapler validate`.
+  #
+  # It requires Apple Developer credentials, which are repository secrets. When
+  # they are absent the job reports plainly that the gate did not run instead of
+  # passing vacuously — a green check that verified nothing is worse than a
+  # missing one, and NFR-005 asks for a gate that is trustworthy, not one that
+  # is merely green.
+  #
+  # Stapling targets a disk image rather than the bare onedir tree because
+  # `stapler` can only attach a ticket to a container format (.app, .dmg, .pkg);
+  # there is nowhere on a loose executable to put one. The .dmg is therefore the
+  # distributable artifact, and it is what gets validated.
+  notarize:
+    name: Notarization gate
+    needs: freeze
+    runs-on: macos-14
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download frozen bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: kameas-ml-macos-arm64
+          path: dist/kameas-ml
+
+      - name: Restore executable bits
+        # actions/upload-artifact does not preserve the executable bit.
+        run: |
+          chmod +x dist/kameas-ml/kameas-ml
+          find dist/kameas-ml -name '*.dylib' -o -name '*.so' | xargs -I{} chmod +x {}
+
+      - name: Check for signing credentials
+        id: creds
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
+        run: |
+          if [ -n "$MACOS_CERTIFICATE_P12" ] && [ -n "$MACOS_SIGNING_IDENTITY" ] && [ -n "$AC_API_KEY_ID" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report that the gate did not run
+        if: steps.creds.outputs.configured != 'true'
+        run: |
+          {
+            echo "### Notarization gate: NOT RUN"
+            echo ""
+            echo "Apple Developer credentials are not configured for this repository, so the"
+            echo "bundle was neither signed, notarized, nor stapled. FR-012 and NFR-005 are"
+            echo "**unverified** for this build."
+            echo ""
+            echo "Required repository secrets:"
+            echo ""
+            echo "| secret | purpose |"
+            echo "|---|---|"
+            echo "| \`MACOS_CERTIFICATE_P12\` | base64 of the Developer ID Application .p12 |"
+            echo "| \`MACOS_CERTIFICATE_PASSWORD\` | password for that .p12 |"
+            echo "| \`MACOS_SIGNING_IDENTITY\` | e.g. \`Developer ID Application: Example (TEAMID)\` |"
+            echo "| \`AC_API_KEY_ID\` / \`AC_API_ISSUER_ID\` / \`AC_API_PRIVATE_KEY\` | App Store Connect API key for \`notarytool\` |"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "::warning::notarization gate skipped — Apple Developer credentials are not configured; FR-012/NFR-005 are unverified for this build"
+
+      - name: Import signing certificate
+        if: steps.creds.outputs.configured == 'true'
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > /tmp/certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import /tmp/certificate.p12 -k build.keychain \
+            -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" build.keychain > /dev/null
+          rm -f /tmp/certificate.p12
+
+      - name: Sign the bundle inside-out
+        if: steps.creds.outputs.configured == 'true'
+        env:
+          IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          # Inside-out: every nested Mach-O first, the launcher last. Signing the
+          # launcher before its dylibs invalidates the outer signature the moment
+          # an inner one is written (ADR-nested-binary-signing).
+          find dist/kameas-ml -type f \( -name '*.dylib' -o -name '*.so' \) -print0 \
+            | xargs -0 -n 25 codesign --force --timestamp --options runtime --sign "$IDENTITY"
+          codesign --force --timestamp --options runtime --sign "$IDENTITY" dist/kameas-ml/kameas-ml
+          echo "signed $(find dist/kameas-ml \( -name '*.so' -o -name '*.dylib' \) | wc -l | tr -d ' ') nested Mach-O files plus the launcher"
+
+      - name: Verify every nested signature before notarizing
+        if: steps.creds.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+          # Fail here rather than at Apple's end: a single unsigned nested binary
+          # is the documented way this fails with 435 of them, and the local
+          # error names the file while the notarization log does not always.
+          failed=0
+          while IFS= read -r macho; do
+            if ! codesign --verify --strict "$macho" 2>/dev/null; then
+              echo "::error::unsigned or invalid signature: $macho"
+              failed=1
+            fi
+          done < <(find dist/kameas-ml -type f \( -name '*.dylib' -o -name '*.so' \))
+          codesign --verify --deep --strict --verbose=2 dist/kameas-ml/kameas-ml
+          [ "$failed" -eq 0 ]
+
+      - name: Notarize and staple
+        if: steps.creds.outputs.configured == 'true'
+        env:
+          AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
+          AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
+          AC_API_PRIVATE_KEY: ${{ secrets.AC_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ac
+          echo "$AC_API_PRIVATE_KEY" > "/tmp/ac/AuthKey_${AC_API_KEY_ID}.p8"
+
+          # A .dmg, because a ticket has to be stapled to a container.
+          hdiutil create -volname kameas-ml -srcfolder dist/kameas-ml \
+            -ov -format UDZO /tmp/kameas-ml.dmg
+
+          xcrun notarytool submit /tmp/kameas-ml.dmg \
+            --key "/tmp/ac/AuthKey_${AC_API_KEY_ID}.p8" \
+            --key-id "$AC_API_KEY_ID" \
+            --issuer "$AC_API_ISSUER_ID" \
+            --wait --timeout 45m
+          xcrun stapler staple /tmp/kameas-ml.dmg
+          rm -rf /tmp/ac
+
+      - name: Verify notarization (FR-012, NFR-005)
+        if: steps.creds.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+          # The submission result is not the gate; these three are. `--deep
+          # --strict` walks the nested Mach-O files rather than trusting the
+          # outer signature, `stapler validate` proves the ticket is attached
+          # (so a machine offline at first launch still passes), and `spctl`
+          # is the assessment Gatekeeper itself performs.
+          codesign --verify --deep --strict --verbose=2 dist/kameas-ml/kameas-ml
+          xcrun stapler validate /tmp/kameas-ml.dmg
+          spctl --assess --type open --context context:primary-signature -vv /tmp/kameas-ml.dmg
+          echo "### Notarization gate: PASSED" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify the notarized artifact serves a real feature call
+        if: steps.creds.outputs.configured == 'true'
+        # US4 acceptance scenario 3: it is not enough that the notarized artifact
+        # verifies — it has to work when mounted from the distributable image,
+        # with the application directory read-only, which is what a user gets.
+        # The mounted volume is read-only by construction, so this is the
+        # closest thing CI has to a clean-machine install.
+        run: |
+          set -euo pipefail
+          pip install -e ".[dev]"
+          MOUNT=$(hdiutil attach /tmp/kameas-ml.dmg -nobrowse -readonly | tail -1 | awk '{print $NF}')
+          KAMEAS_ML_FROZEN_BIN="$MOUNT/kameas-ml" pytest tests/test_frozen_smoke.py -v -s \
+            -k "feature_store or registry_records" || {
+              hdiutil detach "$MOUNT" || true
+              exit 1
+            }
+          hdiutil detach "$MOUNT"
+
+      - name: Upload notarized disk image
+        if: steps.creds.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kameas-ml-macos-arm64-notarized
+          path: /tmp/kameas-ml.dmg
+          retention-days: 14

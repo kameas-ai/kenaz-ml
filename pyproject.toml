@@ -36,11 +36,32 @@ dependencies = [
     "scikit-learn>=1.4",
     "joblib>=1.3",
     "numpy>=1.26",
+    # Feast is PINNED EXACTLY (plan.md D-007). The registry we ship is a
+    # serialized protobuf whose schema is coupled to the library version that
+    # produced it; a floating specifier would make the shipped registry a
+    # moving target across open-source installs and turn a version skew into a
+    # deserialization traceback instead of the diagnostic FR-016 requires.
+    # Do not relax this to >= or ~=.
+    #
+    # Measured and accepted cost (spec C-003, which supersedes the CLAUDE.md
+    # dependency ceiling for Feast's dependency tree specifically):
+    # +309 MB and +338 native libraries (137 MB/199 libs -> 446 MB/537 libs).
+    #
+    # No extra is specified: feast 0.65.0 publishes no `sqlite` extra (only
+    # `sqlite-vec`, which is the vector-search store, not what the local
+    # deployment uses). The SQLite online store the local config selects lives in
+    # feast core at `feast.infra.online_stores.sqlite`, so plain `feast` already
+    # provides it and `feast[sqlite]` would install nothing extra beyond emitting
+    # an "unknown extra" warning.
+    "feast==0.65.0",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.4"]
-cloud = ["psycopg2-binary>=2.9", "boto3>=1.34"]
+# The cloud deployment swaps SQLite for PostgreSQL on both halves of the store
+# (data-model.md §Deployment configuration). Same exact Feast pin as above —
+# both deployments must read a registry written by the identical version.
+cloud = ["psycopg2-binary>=2.9", "boto3>=1.34", "feast[postgres]==0.65.0"]
 # FR-3 (ADR-ml-packaging.md): build-time-only deps for producing the frozen,
 # self-contained `kameas-ml` executable. NOT a runtime dependency — the frozen
 # artifact carries only the runtime deps above (the CLAUDE.md "no heavyweight

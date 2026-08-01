@@ -36,7 +36,7 @@ The models themselves cross that boundary: we build **base models** centrally, s
 | Extra deps | none | `kameas-ml[cloud]` |
 | Privacy posture | No egress | Contractual, tenant-isolated |
 
-The split is enforced by optional dependencies. `pyproject.toml` already has the shape for this — a `cloud` extra carrying `psycopg2-binary`, `boto3`, and (per this design) MLflow and Feast. Nothing in the local import path may reference them.
+The split is enforced by optional dependencies: a `cloud` extra carrying `psycopg2-binary`, `boto3`, and `feast[postgres]`. **Feast itself is now an unconditional local dependency** (`feast==0.65.0`) — see the superseding note in §3.5. MLflow remains cloud-only and must not enter the local import path.
 
 ---
 
@@ -152,7 +152,9 @@ Extend `GET /introspect` (spec 060) to expose the registry: available features, 
 
 ### 3.5 Feast: cloud, build-time, offline half only
 
-**Decision: Feast is used in the cloud training pipeline. It is never imported by the local runtime.**
+> **SUPERSEDED 2026-07-31.** The product owner elected to migrate to Feast in **both** deployments, with the frozen binary retained. Local now runs a self-contained Feast — file registry plus SQLite online store — with no network path to cloud. Cloud runs the same shipped definitions over PostgreSQL. See the `feast-feature-store-migration` mission. The rationale below is retained because the reasoning about *where Feast earns its keep* still holds; only the local/cloud boundary changed.
+
+**Original decision: Feast is used in the cloud training pipeline. It is never imported by the local runtime.**
 
 Rationale:
 

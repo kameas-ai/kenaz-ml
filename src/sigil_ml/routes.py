@@ -10,7 +10,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from sigil_ml.config import ServingMode
-from sigil_ml.features import extract_duration_features, extract_stuck_features
+from sigil_ml.feature_store.resolve import resolve_duration_features, resolve_stuck_features
 from sigil_ml.models.duration import DurationEstimator
 from sigil_ml.models.quality import QualityEstimator
 from sigil_ml.models.stuck import StuckPredictor
@@ -378,7 +378,7 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
         if req.features is not None:
             features = req.features
         elif req.task_id is not None:
-            features = extract_stuck_features(state.store, req.task_id)
+            features = resolve_stuck_features(state.store, req.task_id)
         else:
             return StuckResponse(probability=0.5, confidence="weak")
 
@@ -475,7 +475,7 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
         if req.features is not None:
             features = req.features
         elif req.task_id is not None:
-            features = extract_duration_features(state.store, req.task_id)
+            features = resolve_duration_features(state.store, req.task_id)
         else:
             return DurationResponse(estimated_minutes=60.0, confidence_interval=[30.0, 90.0])
 

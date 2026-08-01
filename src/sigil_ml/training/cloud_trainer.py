@@ -3,6 +3,25 @@
 Supports per-tenant, batch (all-tenants), and aggregate training modes.
 Does NOT subclass or modify the local Trainer -- it is a parallel
 implementation that reuses model classes' .train() methods directly.
+
+Two ways to obtain a training set
+---------------------------------
+Without a feature store, this trainer *replays* the extractors over history,
+passing each example its own reference time. That is what it has always done and
+what the local trainer still does.
+
+With a feature store injected, it *retrieves* instead: it builds an entity frame
+of ``task_id`` + ``event_timestamp`` + label, one row per example, and asks Feast
+for each row's features as of that row's own moment (FR-007). The values come
+from ``ml_features``, stamped at materialization time with the moment they
+describe (FR-009), so no value recorded after an example can appear in it
+(FR-008).
+
+The labels are identical in both paths, expression for expression. This changes
+where features come from, not what is being learned. What it buys is that the
+training set is now a retrieval whose point-in-time correctness can be asserted,
+rather than a recomputation whose correctness rests on every caller remembering
+to pass ``as_of_ms``.
 """
 
 from __future__ import annotations
@@ -11,12 +30,20 @@ import io
 import logging
 import random
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
 import joblib
 import numpy as np
 
+from sigil_ml.feature_store.materialize import (
+    OFFLINE_FEATURE_VIEWS,
+    OfflineFeatureView,
+    OfflineStoreUnavailableError,
+    PartialRetrievalError,
+    feature_service_version,
+)
 from sigil_ml.features import (
     extract_duration_features_from_data,
     extract_stuck_features_from_data,
@@ -42,6 +69,53 @@ logger = logging.getLogger(__name__)
 
 AGGREGATE_TENANT_ID = "__aggregate__"
 
+#: Maps a model name to the feature view whose values it consumes. The feature
+#: *service* carries the same name as the model (definitions.py), because that
+#: name is what Go already queries in `ml_predictions.model` and is not
+#: renameable here.
+RETRIEVED_MODELS: dict[str, OfflineFeatureView] = {
+    "stuck": OFFLINE_FEATURE_VIEWS["stuck_features"],
+    "duration": OFFLINE_FEATURE_VIEWS["duration_features"],
+}
+
+
+@dataclass(frozen=True)
+class FeatureSetRecord:
+    """Which feature contract a training run consumed (FR-010).
+
+    ``version`` is a content hash of the service's ordered feature references,
+    so it moves exactly when the contract does. Recorded on the trainer, logged,
+    and written to ``ml_events`` -- the audit table Python owns -- so a model can
+    be traced back to the feature set that produced it after the fact.
+    """
+
+    model: str
+    feature_service: str
+    version: str
+    feature_names: tuple[str, ...]
+    rows: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "model": self.model,
+            "feature_service": self.feature_service,
+            "version": self.version,
+            "feature_names": list(self.feature_names),
+            "rows": self.rows,
+        }
+
+
+@dataclass(frozen=True)
+class _RetrievedFeatures:
+    """A point-in-time training set for one model, in entity-frame row order."""
+
+    task_ids: list[str]
+    #: Positional vectors, built against the model's FEATURE_NAMES ordering.
+    vectors: list[list[float]]
+    #: The same values keyed by name, for the label expressions.
+    features: list[dict[str, float]]
+    record: FeatureSetRecord
+
 
 class CloudTrainer:
     """Orchestrates model training for cloud deployments.
@@ -57,11 +131,25 @@ class CloudTrainer:
         model_store: ModelStore,
         config: CloudTrainingConfig | None = None,
         training_lock: Any | None = None,
+        feature_store: Any | None = None,
     ) -> None:
+        """Construct a cloud trainer.
+
+        Args:
+            feature_store: A Feast ``FeatureStore``. When given, training sets
+                are retrieved point-in-time from the offline store instead of
+                being recomputed. Build one with
+                :func:`sigil_ml.feature_store.materialize.feature_store_for_cloud`.
+                Left as ``None``, behaviour is unchanged from before this
+                migration.
+        """
         self.data_store = data_store
         self.model_store = model_store
         self.config = config or CloudTrainingConfig()
         self.training_lock = training_lock
+        self.feature_store = feature_store
+        #: Feature contracts consumed by the most recent training run (FR-010).
+        self.last_feature_sets: list[FeatureSetRecord] = []
 
     # ------------------------------------------------------------------
     # Per-tenant training (WP02)
@@ -257,23 +345,40 @@ class CloudTrainer:
         """
         models_trained: list[str] = []
 
+        # Retrieval happens up front and deliberately OUTSIDE the per-model
+        # try/except blocks below. Those blocks log-and-continue, which is right
+        # for a model that fails to fit but catastrophic for a store that failed
+        # to answer: it would leave the run reporting success having trained on
+        # nothing, or on a subset. FR-017 wants the opposite -- let it propagate.
+        retrieved: dict[str, _RetrievedFeatures] | None = None
+        if self.feature_store is not None:
+            retrieved = self._retrieve_offline_features(tasks, tenant_id)
+
         # --- Stuck predictor ---
         try:
             X_stuck_list: list[list[float]] = []
             y_stuck_list: list[float] = []
             stuck_skipped = 0
-            for task in tasks:
-                as_of = _reference_time_for(task)
-                if as_of is None:
-                    stuck_skipped += 1
-                    continue
-                events = task_events.get(task["id"], [])
-                feats = extract_stuck_features_from_data(task, events, as_of_ms=as_of)
-                x = [feats.get(f, 0.0) for f in STUCK_FEATURES]
-                X_stuck_list.append(x)
-                # Heuristic label: stuck if high test failures AND long time in phase
-                stuck = feats["test_failure_count"] > 3 and feats["time_in_phase_sec"] > 600
-                y_stuck_list.append(1.0 if stuck else 0.0)
+            if retrieved is not None:
+                stuck_retrieved = retrieved["stuck"]
+                X_stuck_list = list(stuck_retrieved.vectors)
+                for feats in stuck_retrieved.features:
+                    # Heuristic label: stuck if high test failures AND long time in phase
+                    stuck = feats["test_failure_count"] > 3 and feats["time_in_phase_sec"] > 600
+                    y_stuck_list.append(1.0 if stuck else 0.0)
+            else:
+                for task in tasks:
+                    as_of = _reference_time_for(task)
+                    if as_of is None:
+                        stuck_skipped += 1
+                        continue
+                    events = task_events.get(task["id"], [])
+                    feats = extract_stuck_features_from_data(task, events, as_of_ms=as_of)
+                    x = [feats.get(f, 0.0) for f in STUCK_FEATURES]
+                    X_stuck_list.append(x)
+                    # Heuristic label: stuck if high test failures AND long time in phase
+                    stuck = feats["test_failure_count"] > 3 and feats["time_in_phase_sec"] > 600
+                    y_stuck_list.append(1.0 if stuck else 0.0)
 
             if stuck_skipped:
                 logger.info(
@@ -301,23 +406,38 @@ class CloudTrainer:
             X_dur_list: list[list[float]] = []
             y_dur_list: list[float] = []
             dur_skipped = 0
-            for task in tasks:
-                as_of = _reference_time_for(task)
-                if as_of is None:
-                    dur_skipped += 1
-                    continue
-                events = task_events.get(task["id"], [])
-                feats = extract_duration_features_from_data(task, events, as_of_ms=as_of)
-                x = [feats.get(f, 0.0) for f in DURATION_FEATURES]
-                X_dur_list.append(x)
-                # Duration label: (completed_at - started_at) in minutes, min 1.0
-                started = task.get("started_at", 0)
-                completed = task.get("completed_at", 0)
-                if started and completed:
-                    duration_min = (completed - started) / 60000.0
-                    y_dur_list.append(max(duration_min, 1.0))
-                else:
-                    y_dur_list.append(60.0)  # default 60 min if timestamps missing
+            if retrieved is not None:
+                duration_retrieved = retrieved["duration"]
+                X_dur_list = list(duration_retrieved.vectors)
+                tasks_by_id = {t["id"]: t for t in tasks}
+                for task_id in duration_retrieved.task_ids:
+                    task = tasks_by_id[task_id]
+                    # Duration label: (completed_at - started_at) in minutes, min 1.0
+                    started = task.get("started_at", 0)
+                    completed = task.get("completed_at", 0)
+                    if started and completed:
+                        duration_min = (completed - started) / 60000.0
+                        y_dur_list.append(max(duration_min, 1.0))
+                    else:
+                        y_dur_list.append(60.0)  # default 60 min if timestamps missing
+            else:
+                for task in tasks:
+                    as_of = _reference_time_for(task)
+                    if as_of is None:
+                        dur_skipped += 1
+                        continue
+                    events = task_events.get(task["id"], [])
+                    feats = extract_duration_features_from_data(task, events, as_of_ms=as_of)
+                    x = [feats.get(f, 0.0) for f in DURATION_FEATURES]
+                    X_dur_list.append(x)
+                    # Duration label: (completed_at - started_at) in minutes, min 1.0
+                    started = task.get("started_at", 0)
+                    completed = task.get("completed_at", 0)
+                    if started and completed:
+                        duration_min = (completed - started) / 60000.0
+                        y_dur_list.append(max(duration_min, 1.0))
+                    else:
+                        y_dur_list.append(60.0)  # default 60 min if timestamps missing
 
             if dur_skipped:
                 logger.info(
@@ -678,6 +798,202 @@ class CloudTrainer:
             len(tenant_counts),
         )
         return sampled
+
+    # ------------------------------------------------------------------
+    # Point-in-time retrieval (WP04)
+    # ------------------------------------------------------------------
+
+    def _build_entity_frame(self, tasks: list[dict], tenant_id: str) -> Any:
+        """Build the entity frame: one row per example, with its own moment.
+
+        The ``event_timestamp`` of each row is that example's reference time,
+        resolved by the same rule the replay path uses. It is what the as-of join
+        joins against, so an example carrying "now" here would retrieve the
+        newest values in the store regardless of when it happened -- the leakage
+        FR-008 forbids, introduced on the retrieval side rather than the write
+        side.
+
+        Tasks with no resolvable reference time are dropped, matching the replay
+        path exactly; the count is logged once.
+
+        Raises:
+            OfflineStoreUnavailableError: If no example survives. A retrieval
+                that would return an empty set is reported, never trained on.
+        """
+        import pandas as pd
+
+        task_ids: list[str] = []
+        timestamps: list[datetime] = []
+        skipped = 0
+        for task in tasks:
+            as_of = _reference_time_for(task)
+            if as_of is None:
+                skipped += 1
+                continue
+            task_ids.append(task["id"])
+            timestamps.append(datetime.fromtimestamp(as_of / 1000.0, tz=timezone.utc))
+
+        if skipped:
+            logger.info(
+                "offline retrieval: skipped %d task(s) with no resolvable reference time (tenant %s)",
+                skipped,
+                tenant_id,
+            )
+
+        if not task_ids:
+            raise OfflineStoreUnavailableError(
+                f"No training example for tenant {tenant_id} has a resolvable reference time, so "
+                "no entity frame can be built. Refusing to train on an empty retrieval (FR-017)."
+            )
+
+        return pd.DataFrame({"task_id": task_ids, "event_timestamp": timestamps})
+
+    def _retrieve_offline_features(
+        self,
+        tasks: list[dict],
+        tenant_id: str,
+    ) -> dict[str, _RetrievedFeatures]:
+        """Retrieve every model's training set point-in-time from the offline store.
+
+        Tenant scoping is carried by ``tasks``, which the caller has already
+        scoped -- per-tenant runs retrieve one tenant's task ids, the aggregate
+        run retrieves the pooled set. The join key is the task id, so no query
+        can span a tenant that was not asked for.
+
+        Raises:
+            OfflineStoreUnavailableError: The store, or a feature service in it,
+                could not be reached.
+            PartialRetrievalError: The store answered, but incompletely.
+        """
+        entity_df = self._build_entity_frame(tasks, tenant_id)
+        retrieved: dict[str, _RetrievedFeatures] = {}
+        records: list[FeatureSetRecord] = []
+
+        for model_name, view in RETRIEVED_MODELS.items():
+            retrieved[model_name] = self._retrieve_one(entity_df, model_name, view, tenant_id)
+            records.append(retrieved[model_name].record)
+
+        self.last_feature_sets = records
+        for record in records:
+            logger.info(
+                "tenant %s: retrieved %d row(s) for %s from feature service %s@%s",
+                tenant_id,
+                record.rows,
+                record.model,
+                record.feature_service,
+                record.version,
+            )
+            self._record_feature_set_audit(tenant_id, record)
+        return retrieved
+
+    def _retrieve_one(
+        self,
+        entity_df: Any,
+        model_name: str,
+        view: Any,
+        tenant_id: str,
+    ) -> _RetrievedFeatures:
+        """Retrieve one model's feature set and verify it is complete."""
+        try:
+            service = self.feature_store.get_feature_service(model_name)
+        except Exception as exc:  # noqa: BLE001 - normalized to the retrieval contract
+            raise OfflineStoreUnavailableError(
+                f"Feature service {model_name!r} could not be resolved from the registry: {exc}"
+            ) from exc
+
+        try:
+            frame = self.feature_store.get_historical_features(
+                entity_df=entity_df,
+                features=service,
+            ).to_df()
+        except Exception as exc:  # noqa: BLE001 - normalized to the retrieval contract
+            raise OfflineStoreUnavailableError(
+                f"Point-in-time retrieval for {model_name!r} (tenant {tenant_id}) failed: {exc}. "
+                "Training is abandoned rather than continued on whatever did come back (FR-017)."
+            ) from exc
+
+        expected = list(entity_df["task_id"])
+        missing_columns = [name for name in view.feature_names if name not in frame.columns]
+        if missing_columns:
+            raise PartialRetrievalError(
+                f"Retrieval for {model_name!r} omitted feature column(s) {missing_columns}. "
+                f"The feature service names {list(view.feature_names)}; a vector built from a "
+                "partial answer would be silently wrong in a fixed position."
+            )
+
+        if len(frame) != len(expected):
+            raise PartialRetrievalError(
+                f"Retrieval for {model_name!r} returned {len(frame)} row(s) for {len(expected)} "
+                "example(s). A short training set trains successfully and is worse than an error."
+            )
+
+        # get_historical_features gives no row-order guarantee, so rows are
+        # re-keyed rather than zipped positionally -- a silent reordering would
+        # pair every vector with the wrong label.
+        indexed = frame.set_index("task_id")
+        if indexed.index.has_duplicates:
+            raise PartialRetrievalError(
+                f"Retrieval for {model_name!r} returned duplicate rows for the same task id, so "
+                "no vector can be matched to its example unambiguously."
+            )
+        try:
+            ordered = indexed.loc[expected]
+        except KeyError as exc:
+            raise PartialRetrievalError(
+                f"Retrieval for {model_name!r} is missing at least one requested task id: {exc}."
+            ) from exc
+
+        vectors: list[list[float]] = []
+        feature_dicts: list[dict[str, float]] = []
+        for position, (task_id, row) in enumerate(zip(expected, ordered.to_dict("records"))):
+            values: dict[str, float] = {}
+            for name in view.feature_names:
+                value = row[name]
+                if value is None or value != value:  # NaN is the only value unequal to itself
+                    raise PartialRetrievalError(
+                        f"Retrieval for {model_name!r} returned no value for {name!r} on task "
+                        f"{task_id!r} (row {position}). An empty as-of window means the offline "
+                        "store holds nothing for that moment; training on the default would "
+                        "quietly teach the model that the feature was zero."
+                    )
+                values[name] = float(value)
+            feature_dicts.append(values)
+            vectors.append([values[name] for name in view.feature_names])
+
+        return _RetrievedFeatures(
+            task_ids=list(expected),
+            vectors=vectors,
+            features=feature_dicts,
+            record=FeatureSetRecord(
+                model=model_name,
+                feature_service=service.name,
+                version=feature_service_version(service),
+                feature_names=tuple(view.feature_names),
+                rows=len(vectors),
+            ),
+        )
+
+    def _record_feature_set_audit(self, tenant_id: str, record: FeatureSetRecord) -> None:
+        """Write the consumed feature contract to ``ml_events`` (FR-010).
+
+        Best-effort, like the other audit writes here: a training run that
+        succeeded should not be reported as failed because its audit row could
+        not be written.
+        """
+        try:
+            self.data_store.insert_ml_event(
+                kind="feature_retrieval",
+                endpoint=f"feature_service:{record.feature_service}@{record.version}",
+                routing=tenant_id,
+                latency_ms=0,
+            )
+            self.data_store.commit()
+        except Exception:
+            logger.warning(
+                "Failed to record feature set audit for tenant %s",
+                tenant_id,
+                exc_info=True,
+            )
 
     # ------------------------------------------------------------------
     # Helper methods
