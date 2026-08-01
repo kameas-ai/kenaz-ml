@@ -29,7 +29,7 @@
 | T010 | Route `poller.py` and `routes.py` through the resolver | WP03 | | [D] |
 | T011 | Best-effort push semantics | WP03 | [D] |
 | T012 | Live-not-stale serving tests | WP03 | | [D] |
-| T013 | `ml_features` table and schema | WP04 | |
+| T013 | `ml_features` table and schema | WP04 | | [D] |
 | T014 | Materialization writing `event_timestamp` | WP04 | |
 | T015 | `PostgreSQLSource` wiring | WP04 | [P] |
 | T016 | Materialization tests | WP04 | |
@@ -122,7 +122,7 @@
 
 **Included subtasks**:
 
-- [ ] T013 `ml_features` table and schema (WP04)
+- [x] T013 `ml_features` table and schema (WP04)
 - [ ] T014 Materialization writing `event_timestamp` (WP04)
 - [ ] T015 `PostgreSQLSource` wiring (WP04)
 - [ ] T016 Materialization tests (WP04)
