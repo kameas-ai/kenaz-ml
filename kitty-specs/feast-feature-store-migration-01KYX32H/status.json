@@ -1,12 +1,12 @@
 {
-  "event_count": 26,
-  "last_event_id": "01KYXBFH6GF6HBP11G04FP3X4K",
-  "materialized_at": "2026-08-01T00:27:13.488947+00:00",
+  "event_count": 31,
+  "last_event_id": "01KYXBFJ50MYXYEN03CS8WTJ1J",
+  "materialized_at": "2026-08-01T00:27:14.464989+00:00",
   "mission_number": "",
   "mission_slug": "feast-feature-store-migration-01KYX32H",
   "mission_type": "software-dev",
   "summary": {
-    "approved": 4,
+    "approved": 5,
     "blocked": 0,
     "canceled": 0,
     "claimed": 0,
@@ -14,7 +14,7 @@
     "for_review": 0,
     "in_progress": 0,
     "in_review": 0,
-    "planned": 2
+    "planned": 1
   },
   "work_packages": {
     "WP01": {
@@ -46,11 +46,11 @@
       "last_transition_at": "2026-08-01T00:27:13.488947+00:00"
     },
     "WP05": {
-      "actor": "finalize-tasks",
+      "actor": "user",
       "force_count": 1,
-      "lane": "planned",
-      "last_event_id": "01KYX40C4VDXYC6M6N3GX4B7Q4",
-      "last_transition_at": "2026-07-31T22:16:36.763854+00:00"
+      "lane": "approved",
+      "last_event_id": "01KYXBFJ50MYXYEN03CS8WTJ1J",
+      "last_transition_at": "2026-08-01T00:27:14.464989+00:00"
     },
     "WP06": {
       "actor": "finalize-tasks",

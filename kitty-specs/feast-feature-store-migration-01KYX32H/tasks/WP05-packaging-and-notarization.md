@@ -182,3 +182,7 @@ spec-kitty agent action implement WP05 --agent <name> --mission feast-feature-st
 2. **Check the read-only test is automated** and actually makes the directory read-only.
 3. **Look at the printed bundle delta** — it should be near the measured +309 MB. Materially more means something unintended was collected.
 4. **Confirm the smoke-test race was addressed** or its deferral explicitly recorded.
+
+## Activity Log
+
+- 2026-08-01T00:27:14Z – unknown – Moved to approved
