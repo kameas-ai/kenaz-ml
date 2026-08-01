@@ -1,0 +1,10 @@
+{
+  "created_at": "2026-08-01T01:13:58.593856+00:00",
+  "friendly_name": "storage layer reorganization",
+  "mission_id": "01KYXE546B5CWCMHGFP08ZVGG7",
+  "mission_number": null,
+  "mission_slug": "storage-layer-reorganization-01KYXE54",
+  "mission_type": "software-dev",
+  "slug": "storage-layer-reorganization-01KYXE54",
+  "target_branch": "main"
+}
