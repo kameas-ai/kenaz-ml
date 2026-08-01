@@ -46,7 +46,7 @@ A shim left behind would let stale imports keep working and reintroduce the ambi
 ```python
 from sigil_ml.datastore import DataStore, create_store
 from sigil_ml.modelstore import (
-    ModelStore, LocalModelStore, S3ModelStore, CachedModelStore, create_model_store,
+    ModelStore, LocalModelStore, S3ModelStore, CachedModelStore, model_store_factory,
     ModelLoader, FilesystemModelLoader, ModelCache, create_model_cache,
 )
 ```

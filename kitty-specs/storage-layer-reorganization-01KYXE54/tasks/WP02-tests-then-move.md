@@ -166,7 +166,7 @@ spec-kitty agent action implement WP02 --agent <name> --mission storage-layer-re
 
 **Purpose**: FR-010, D-003 — the stable surface the registry mission will import.
 
-**Steps**: `datastore/__init__.py` exports `DataStore`, `create_store`. `modelstore/__init__.py` exports `ModelStore`, `LocalModelStore`, `S3ModelStore`, `CachedModelStore`, `create_model_store`, `ModelLoader`, `FilesystemModelLoader`, `ModelCache`, `create_model_cache`. Declare `__all__` in both. Watch for circular imports — `feature_store/` imports the data layer and `training/` imports both. Prefer plain imports; go lazy only if import time demands it, and measure before optimizing.
+**Steps**: `datastore/__init__.py` exports `DataStore`, `create_store`. `modelstore/__init__.py` exports `ModelStore`, `LocalModelStore`, `S3ModelStore`, `CachedModelStore`, `model_store_factory`, `ModelLoader`, `FilesystemModelLoader`, `ModelCache`, `create_model_cache`. Declare `__all__` in both. Watch for circular imports — `feature_store/` imports the data layer and `training/` imports both. Prefer plain imports; go lazy only if import time demands it, and measure before optimizing.
 
 **Validation**: every public name resolves from the package · `__all__` declared · no circular imports · import time within 10%
 
