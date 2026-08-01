@@ -32,7 +32,7 @@
 | T013 | `ml_features` table and schema | WP04 | | [D] |
 | T014 | Materialization writing `event_timestamp` | WP04 | | [D] |
 | T015 | `PostgreSQLSource` wiring | WP04 | [D] |
-| T016 | Materialization tests | WP04 | |
+| T016 | Materialization tests | WP04 | | [D] |
 | T017 | Cloud training via `get_historical_features` | WP04 | |
 | T018 | Point-in-time and leakage tests | WP04 | |
 | T019 | Build-time `feast apply`, ship registry read-only | WP05 | |
@@ -125,7 +125,7 @@
 - [x] T013 `ml_features` table and schema (WP04)
 - [x] T014 Materialization writing `event_timestamp` (WP04)
 - [x] T015 `PostgreSQLSource` wiring (WP04)
-- [ ] T016 Materialization tests (WP04)
+- [x] T016 Materialization tests (WP04)
 - [ ] T017 Cloud training via `get_historical_features` (WP04)
 - [ ] T018 Point-in-time and leakage tests (WP04)
 
