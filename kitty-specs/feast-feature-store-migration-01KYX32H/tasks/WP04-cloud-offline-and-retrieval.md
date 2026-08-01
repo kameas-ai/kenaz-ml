@@ -229,3 +229,7 @@ assert row["edit_velocity"] == 1.0        # not 9.0
 2. **Run the leakage test.** It is the reason this package exists.
 3. **Grep for placeholder or non-existent source paths** — the failure mode this mission was written to avoid.
 4. **Confirm `_reference_time_for` is imported**, not reimplemented.
+
+## Activity Log
+
+- 2026-08-01T00:27:13Z – unknown – Moved to approved
