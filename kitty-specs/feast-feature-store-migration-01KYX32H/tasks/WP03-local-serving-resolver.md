@@ -179,3 +179,7 @@ spec-kitty agent action implement WP03 --agent <name> --mission feast-feature-st
 2. **Run T012's seeded-wrong-value test first** — it is the one that proves the design.
 3. **Check the `poller.py`/`routes.py` diffs are small.** Logic appearing there belongs in the resolver.
 4. **Confirm NFR-002 was measured**, not just referenced.
+
+## Activity Log
+
+- 2026-08-01T00:27:12Z – unknown – Moved to approved
