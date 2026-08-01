@@ -39,7 +39,7 @@
 | T020 | PyInstaller hidden imports and binaries | WP05 | | [D] |
 | T021 | Read-only app-directory verification | WP05 | [D] |
 | T022 | Notarization and bundle-size gates in CI | WP05 | | [D] |
-| T023 | Pre-migration baseline capture | WP06 | |
+| T023 | Pre-migration baseline capture | WP06 | | [D] |
 | T024 | Value-equality regression tests | WP06 | |
 | T025 | Cross-deployment agreement tests | WP06 | [P] |
 
@@ -168,7 +168,7 @@
 
 **Included subtasks**:
 
-- [ ] T023 Pre-migration baseline capture (WP06)
+- [x] T023 Pre-migration baseline capture (WP06)
 - [ ] T024 Value-equality regression tests (WP06)
 - [ ] T025 Cross-deployment agreement tests (WP06)
 
