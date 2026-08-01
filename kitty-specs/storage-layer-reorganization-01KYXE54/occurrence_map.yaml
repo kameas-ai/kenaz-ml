@@ -1,0 +1,835 @@
+# Occurrence map — storage-layer-reorganization-01KYXE54 (WP01, NFR-004, C-006, D-006)
+#
+# Six modules move; every reference to them is rewritten. Nothing moves until
+# this map is approved.
+#
+#   src/sigil_ml/store.py                 -> src/sigil_ml/datastore/protocol.py
+#   src/sigil_ml/store_sqlite.py          -> src/sigil_ml/datastore/sqlite.py
+#   src/sigil_ml/store_postgres.py        -> src/sigil_ml/datastore/postgres.py
+#   src/sigil_ml/storage/model_store.py   -> src/sigil_ml/modelstore/stores.py
+#   src/sigil_ml/loader.py                -> src/sigil_ml/modelstore/loader.py
+#   src/sigil_ml/cache.py                 -> src/sigil_ml/modelstore/cache.py
+#
+# src/sigil_ml/storage/ disappears entirely.
+#
+# Method: `git grep` over tracked files only. This structurally excludes
+# __pycache__, *.pyc, .venv, and the stale worktree under .worktrees/ — none of
+# which are tracked — so no count here is inflated by a compiled artifact.
+# `\b` is unsupported by git grep's default engine and silently returns zero
+# matches; every pattern below was run with `-P`.
+#
+# Category actions are the gate-facing decision. They are also read by the
+# review-time diff-compliance heuristic (specify_cli/bulk_edit/diff_check.py),
+# which classifies each changed file to ONE category by path/extension:
+#   tests/**, test_*.py        -> tests_fixtures
+#   *.md, docs/**, README      -> user_facing_strings
+#   *.yaml *.yml *.json *.toml -> serialized_keys
+#   *.py (everything else)     -> code_symbols
+#   anything unmatched         -> BLOCKS review
+# The `exceptions:` block at the bottom exists to make that heuristic produce
+# the right verdicts for this repo. Read it before changing any action.
+
+target:
+  term: "sigil_ml.store | sigil_ml.store_sqlite | sigil_ml.store_postgres | sigil_ml.storage(.model_store) | sigil_ml.loader | sigil_ml.cache"
+  replacement: "sigil_ml.datastore(.protocol|.sqlite|.postgres) | sigil_ml.modelstore(.stores|.loader|.cache)"
+  operation: rename
+
+categories:
+
+  # =====================================================================
+  # 1. code_symbols
+  # =====================================================================
+  code_symbols:
+    action: rename
+    summary: >-
+      No public symbol is renamed. C-001 forbids logic, signature, or default
+      changes and D-002 keeps the moves 1:1, so every class and function keeps
+      its name; what changes inside .py files is the module path it is reached
+      through. The action is `rename` because the diff heuristic files every
+      src/**/*.py under this category and those files must be modifiable.
+    symbols_that_do_not_change:
+      - {name: DataStore,             from: src/sigil_ml/store.py:17,               to: src/sigil_ml/datastore/protocol.py}
+      - {name: create_store,          from: src/sigil_ml/store.py:166,              to: src/sigil_ml/datastore/protocol.py}
+      - {name: SqliteStore,           from: src/sigil_ml/store_sqlite.py:19,        to: src/sigil_ml/datastore/sqlite.py}
+      - {name: PostgresStore,         from: src/sigil_ml/store_postgres.py:19,      to: src/sigil_ml/datastore/postgres.py}
+      - {name: ModelStore,            from: src/sigil_ml/storage/model_store.py:21, to: src/sigil_ml/modelstore/stores.py}
+      - {name: LocalModelStore,       from: src/sigil_ml/storage/model_store.py:37, to: src/sigil_ml/modelstore/stores.py}
+      - {name: S3ModelStore,          from: src/sigil_ml/storage/model_store.py:87, to: src/sigil_ml/modelstore/stores.py}
+      - {name: CachedModelStore,      from: src/sigil_ml/storage/model_store.py:182, to: src/sigil_ml/modelstore/stores.py}
+      - {name: model_store_factory,   from: src/sigil_ml/storage/model_store.py:245, to: src/sigil_ml/modelstore/stores.py}
+      - {name: ModelLoader,           from: src/sigil_ml/loader.py:17,              to: src/sigil_ml/modelstore/loader.py}
+      - {name: FilesystemModelLoader, from: src/sigil_ml/loader.py:40,              to: src/sigil_ml/modelstore/loader.py}
+      - {name: ModelCache,            from: src/sigil_ml/cache.py:33,               to: src/sigil_ml/modelstore/cache.py}
+      - {name: create_model_cache,    from: src/sigil_ml/cache.py:158,              to: src/sigil_ml/modelstore/cache.py}
+      - {name: DEFAULT_TTL_SECONDS,   from: src/sigil_ml/cache.py:21,               to: src/sigil_ml/modelstore/cache.py}
+      - {name: DEFAULT_MAX_SIZE,      from: src/sigil_ml/cache.py:22,               to: src/sigil_ml/modelstore/cache.py}
+
+    occurrences:
+      - file: src/sigil_ml/storage/__init__.py
+        line: 1-16
+        current: 'Package docstring, re-export of 4 names from sigil_ml.storage.model_store, and __all__ = ["CachedModelStore", "LocalModelStore", "ModelStore", "model_store_factory"]'
+        intended: >-
+          Delete the file with the package (D-004: no shim at the old path).
+          Its role is taken by src/sigil_ml/modelstore/__init__.py, which
+          per plan.md §"Public import surface" also exports S3ModelStore,
+          ModelLoader, FilesystemModelLoader, ModelCache and create_model_cache
+          — all additive.
+      - file: src/sigil_ml/feature_store/materialize.py
+        line: 454
+        current: '        data_store: A :class:`~sigil_ml.store.DataStore`. Reads only.'
+        intended: '        data_store: A :class:`~sigil_ml.datastore.DataStore`. Reads only.'
+        note: >-
+          MISSED BY PLANNING'S COUNT. A dotted module path inside a Sphinx
+          cross-reference in a docstring — not an import statement, so it is
+          not one of the 41, and nothing fails if it is missed. It is the only
+          occurrence in a file WP02 otherwise has no reason to open.
+
+    planning_defect:
+      what: >-
+        `create_model_store` does not exist anywhere in the codebase. The real
+        factory is `model_store_factory` (src/sigil_ml/storage/model_store.py:245),
+        called at app.py:134 and cli.py:114.
+      named_at:
+        - kitty-specs/storage-layer-reorganization-01KYXE54/plan.md:92
+        - kitty-specs/storage-layer-reorganization-01KYXE54/quickstart.md:49
+        - kitty-specs/storage-layer-reorganization-01KYXE54/tasks/WP02-tests-then-move.md:169
+      why_it_matters: >-
+        All three instruct modelstore/__init__.py to export `create_model_store`.
+        Taken literally WP02 either exports a name that does not exist
+        (ImportError at package import — loud, but only after the move) or
+        renames `model_store_factory` to match, which violates C-001 and FR-005.
+      resolution_for_wp02: >-
+        Export `model_store_factory`. Do not rename it. Correcting plan.md,
+        quickstart.md and WP02's own text is a planning-artifact fix, outside
+        this WP's single owned file.
+
+  # =====================================================================
+  # 2. import_paths — the 41
+  # =====================================================================
+  import_paths:
+    action: rename
+    summary: >-
+      41 import statements in src/ and tests/, matching the measured figure
+      exactly, per-module and in total. A further 29 live in kitty-specs/ as
+      historical records of prior missions and are deliberately NOT rewritten
+      (see exceptions). Every one is a statement import; none is dynamic
+      (see logs_telemetry.dynamic_reference_audit and status.dynamic_reference_audit).
+    pattern_used: '^\s*(from|import)\s+(sigil_ml\.)?(store|store_sqlite|store_postgres|storage|loader|cache)(\.|\s|$)'
+    counts:
+      src_and_tests: 41
+      kitty_specs_historical: 29
+      total_tracked: 70
+
+    # --- sigil_ml.store_sqlite  (4 sites) ---
+    occurrences:
+      - file: src/sigil_ml/cli.py
+        line: 16
+        current: "from sigil_ml.store_sqlite import SqliteStore"
+        intended: "from sigil_ml.datastore.sqlite import SqliteStore"
+      - file: src/sigil_ml/store.py
+        line: 176
+        current: "from sigil_ml.store_sqlite import SqliteStore"
+        intended: "from sigil_ml.datastore.sqlite import SqliteStore"
+        note: "Lazy import inside create_store(); moves with the file to datastore/protocol.py."
+      - file: tests/test_features.py
+        line: 31
+        current: "from sigil_ml.store_sqlite import SqliteStore"
+        intended: "from sigil_ml.datastore.sqlite import SqliteStore"
+      - file: tests/test_serving_regression.py
+        line: 53
+        current: "from sigil_ml.store_sqlite import SqliteStore"
+        intended: "from sigil_ml.datastore.sqlite import SqliteStore"
+
+      # --- sigil_ml.store_postgres  (2 sites) ---
+      - file: src/sigil_ml/cli.py
+        line: 237
+        current: "from sigil_ml.store_postgres import PostgresStore"
+        intended: "from sigil_ml.datastore.postgres import PostgresStore"
+      - file: src/sigil_ml/store.py
+        line: 181
+        current: "from sigil_ml.store_postgres import PostgresStore"
+        intended: "from sigil_ml.datastore.postgres import PostgresStore"
+        note: "Lazy import inside create_store(); moves with the file to datastore/protocol.py."
+
+      # --- sigil_ml.storage  (22 sites) ---
+      - file: src/sigil_ml/app.py
+        line: 25
+        current: "from sigil_ml.storage.model_store import ModelStore, model_store_factory"
+        intended: "from sigil_ml.modelstore import ModelStore, model_store_factory"
+      - file: src/sigil_ml/cli.py
+        line: 14
+        current: "from sigil_ml.storage.model_store import model_store_factory"
+        intended: "from sigil_ml.modelstore import model_store_factory"
+      - file: src/sigil_ml/cli.py
+        line: 249
+        current: "from sigil_ml.storage.model_store import S3ModelStore"
+        intended: "from sigil_ml.modelstore import S3ModelStore"
+        note: "Lazy import inside _create_model_store(); S3ModelStore is not currently re-exported by storage/__init__.py, so this becomes a new package-level export."
+      - file: src/sigil_ml/models/activity.py
+        line: 13
+        current: "from sigil_ml.storage.model_store import LocalModelStore, ModelStore"
+        intended: "from sigil_ml.modelstore import LocalModelStore, ModelStore"
+      - file: src/sigil_ml/models/duration.py
+        line: 13
+        current: "from sigil_ml.storage.model_store import LocalModelStore, ModelStore"
+        intended: "from sigil_ml.modelstore import LocalModelStore, ModelStore"
+      - file: src/sigil_ml/models/fleet_focus.py
+        line: 14
+        current: "from sigil_ml.storage.model_store import LocalModelStore, ModelStore"
+        intended: "from sigil_ml.modelstore import LocalModelStore, ModelStore"
+      - file: src/sigil_ml/models/fleet_meeting.py
+        line: 13
+        current: "from sigil_ml.storage.model_store import LocalModelStore, ModelStore"
+        intended: "from sigil_ml.modelstore import LocalModelStore, ModelStore"
+      - file: src/sigil_ml/models/fleet_onboarding.py
+        line: 13
+        current: "from sigil_ml.storage.model_store import LocalModelStore, ModelStore"
+        intended: "from sigil_ml.modelstore import LocalModelStore, ModelStore"
+      - file: src/sigil_ml/models/quality.py
+        line: 16
+        current: "from sigil_ml.storage.model_store import LocalModelStore, ModelStore"
+        intended: "from sigil_ml.modelstore import LocalModelStore, ModelStore"
+      - file: src/sigil_ml/models/stuck.py
+        line: 13
+        current: "from sigil_ml.storage.model_store import LocalModelStore, ModelStore"
+        intended: "from sigil_ml.modelstore import LocalModelStore, ModelStore"
+      - file: src/sigil_ml/models/workflow.py
+        line: 14
+        current: "from sigil_ml.storage.model_store import LocalModelStore, ModelStore"
+        intended: "from sigil_ml.modelstore import LocalModelStore, ModelStore"
+      - file: src/sigil_ml/signals/file_recommender.py
+        line: 17
+        current: "from sigil_ml.storage.model_store import ModelStore"
+        intended: "from sigil_ml.modelstore import ModelStore"
+      - file: src/sigil_ml/signals/next_action.py
+        line: 15
+        current: "from sigil_ml.storage.model_store import ModelStore"
+        intended: "from sigil_ml.modelstore import ModelStore"
+      - file: src/sigil_ml/signals/pattern_detector.py
+        line: 14
+        current: "from sigil_ml.storage.model_store import ModelStore"
+        intended: "from sigil_ml.modelstore import ModelStore"
+      - file: src/sigil_ml/storage/__init__.py
+        line: 3
+        current: "from sigil_ml.storage.model_store import ("
+        intended: "File deleted. Replaced by src/sigil_ml/modelstore/__init__.py re-exporting from .stores, .loader and .cache."
+      - file: src/sigil_ml/training/cloud_trainer.py
+        line: 55
+        current: "from sigil_ml.storage.model_store import ModelStore"
+        intended: "from sigil_ml.modelstore import ModelStore"
+      - file: src/sigil_ml/training/scheduler.py
+        line: 8
+        current: "from sigil_ml.storage.model_store import ModelStore"
+        intended: "from sigil_ml.modelstore import ModelStore"
+      - file: src/sigil_ml/training/trainer.py
+        line: 16
+        current: "from sigil_ml.storage.model_store import ModelStore"
+        intended: "from sigil_ml.modelstore import ModelStore"
+      - file: tests/test_fleet_models.py
+        line: 12
+        current: "from sigil_ml.storage.model_store import LocalModelStore"
+        intended: "from sigil_ml.modelstore import LocalModelStore"
+      - file: tests/test_model_store.py
+        line: 10
+        current: "from sigil_ml.storage.model_store import CachedModelStore, LocalModelStore"
+        intended: "from sigil_ml.modelstore import CachedModelStore, LocalModelStore"
+      - file: tests/test_no_egress.py
+        line: 56
+        current: "from sigil_ml.storage.model_store import LocalModelStore"
+        intended: "from sigil_ml.modelstore import LocalModelStore"
+      - file: tests/test_server.py
+        line: 209
+        current: "from sigil_ml.storage.model_store import LocalModelStore"
+        intended: "from sigil_ml.modelstore import LocalModelStore"
+
+      # --- sigil_ml.loader  (1 site) ---
+      - file: src/sigil_ml/app.py
+        line: 199
+        current: "from sigil_ml.loader import FilesystemModelLoader"
+        intended: "from sigil_ml.modelstore import FilesystemModelLoader"
+        note: "Lazy import inside the cloud-mode startup branch."
+
+      # --- sigil_ml.cache  (1 site) ---
+      - file: src/sigil_ml/app.py
+        line: 198
+        current: "from sigil_ml.cache import create_model_cache"
+        intended: "from sigil_ml.modelstore import create_model_cache"
+        note: "Lazy import inside the cloud-mode startup branch."
+
+      # --- sigil_ml.store  (11 sites) ---
+      - file: src/sigil_ml/app.py
+        line: 26
+        current: "from sigil_ml.store import DataStore, create_store"
+        intended: "from sigil_ml.datastore import DataStore, create_store"
+      - file: src/sigil_ml/cli.py
+        line: 15
+        current: "from sigil_ml.store import create_store"
+        intended: "from sigil_ml.datastore import create_store"
+      - file: src/sigil_ml/feature_store/resolve.py
+        line: 83
+        current: "from sigil_ml.store import DataStore"
+        intended: "from sigil_ml.datastore import DataStore"
+        note: "TYPE_CHECKING-guarded. feature_store/ importing the data layer is one half of the circular-import risk flagged in WP02."
+      - file: src/sigil_ml/features.py
+        line: 13
+        current: "from sigil_ml.store import DataStore"
+        intended: "from sigil_ml.datastore import DataStore"
+      - file: src/sigil_ml/poller.py
+        line: 23
+        current: "from sigil_ml.store import DataStore"
+        intended: "from sigil_ml.datastore import DataStore"
+      - file: src/sigil_ml/signals/engine.py
+        line: 19
+        current: "from sigil_ml.store import DataStore"
+        intended: "from sigil_ml.datastore import DataStore"
+      - file: src/sigil_ml/training/cloud_trainer.py
+        line: 56
+        current: "from sigil_ml.store import DataStore"
+        intended: "from sigil_ml.datastore import DataStore"
+      - file: src/sigil_ml/training/locking.py
+        line: 10
+        current: "from sigil_ml.store import DataStore"
+        intended: "from sigil_ml.datastore import DataStore"
+        note: "TYPE_CHECKING-guarded."
+      - file: src/sigil_ml/training/scheduler.py
+        line: 9
+        current: "from sigil_ml.store import DataStore"
+        intended: "from sigil_ml.datastore import DataStore"
+      - file: src/sigil_ml/training/tenant_discovery.py
+        line: 9
+        current: "from sigil_ml.store import DataStore"
+        intended: "from sigil_ml.datastore import DataStore"
+        note: "TYPE_CHECKING-guarded."
+      - file: src/sigil_ml/training/trainer.py
+        line: 17
+        current: "from sigil_ml.store import DataStore"
+        intended: "from sigil_ml.datastore import DataStore"
+
+    not_rewritten:
+      reason: >-
+        Historical records of missions 001-005 and the two in-flight sibling
+        missions. They describe what was true when they were written. Rewriting
+        them would falsify the record and none of them is executable.
+        Enforced by the `kitty-specs/**` exception below.
+      files_by_mission:
+        kitty-specs/001-cloud-serving-mode: 2
+        kitty-specs/002-storage-abstraction: 7
+        kitty-specs/003-model-storage-abstraction: 17
+        kitty-specs/004-cloud-training-pipeline: 2
+        kitty-specs/005-ml-signal-pipeline: 1
+      total: 29
+
+  # =====================================================================
+  # 3. filesystem_paths
+  # =====================================================================
+  filesystem_paths:
+    action: rename
+    summary: >-
+      Source-tree paths only. No RUNTIME path changes: model artifacts stay at
+      ~/.local/share/sigild/ml-models/*.joblib and at the same S3 keys
+      ({tenant}/models/{name}/{version}/model.joblib), the sigild database stays
+      at ~/.local/share/sigild/data.db, and the frozen bundle layout
+      (_internal/sigil_ml/feature_store) is untouched. FR-007 and SC-005 depend
+      on that, and nothing in this category touches it.
+    occurrences:
+      - file: src/sigil_ml/store.py
+        line: whole-file
+        current: src/sigil_ml/store.py
+        intended: src/sigil_ml/datastore/protocol.py
+      - file: src/sigil_ml/store_sqlite.py
+        line: whole-file
+        current: src/sigil_ml/store_sqlite.py
+        intended: src/sigil_ml/datastore/sqlite.py
+      - file: src/sigil_ml/store_postgres.py
+        line: whole-file
+        current: src/sigil_ml/store_postgres.py
+        intended: src/sigil_ml/datastore/postgres.py
+      - file: src/sigil_ml/storage/model_store.py
+        line: whole-file
+        current: src/sigil_ml/storage/model_store.py
+        intended: src/sigil_ml/modelstore/stores.py
+      - file: src/sigil_ml/storage/__init__.py
+        line: whole-file
+        current: src/sigil_ml/storage/__init__.py
+        intended: "deleted — the storage/ package disappears (D-004)"
+      - file: src/sigil_ml/loader.py
+        line: whole-file
+        current: src/sigil_ml/loader.py
+        intended: src/sigil_ml/modelstore/loader.py
+      - file: src/sigil_ml/cache.py
+        line: whole-file
+        current: src/sigil_ml/cache.py
+        intended: src/sigil_ml/modelstore/cache.py
+      - file: NEW
+        line: n/a
+        current: "(does not exist)"
+        intended: "src/sigil_ml/datastore/__init__.py and src/sigil_ml/modelstore/__init__.py (D-003)"
+
+      # --- path literals in prose (also counted under user_facing_strings) ---
+      - file: CLAUDE.md
+        line: 48
+        current: "All data access goes through the `DataStore` protocol in `src/sigil_ml/store.py`"
+        intended: "…in `src/sigil_ml/datastore/`"
+      - file: docs/ML_ARCHITECTURE.md
+        line: 45
+        current: "All access goes through the `DataStore` protocol (`src/sigil_ml/store.py`), implemented by `SqliteStore` and `PostgresStore`."
+        intended: "(`src/sigil_ml/datastore/protocol.py`)"
+      - file: docs/ML_ARCHITECTURE.md
+        line: 224
+        current: "- `LocalModelStore` (`model_store.py:37`) — …"
+        intended: "(`modelstore/stores.py`) — drop the line number; it will not survive the move."
+      - file: docs/ML_ARCHITECTURE.md
+        line: 225
+        current: "- `S3ModelStore` (`model_store.py:87`) — …"
+        intended: "(`modelstore/stores.py`)"
+      - file: docs/ML_ARCHITECTURE.md
+        line: 226
+        current: "- `FilesystemModelLoader` (`loader.py:40`) — resolves tenant-specific, then shared fallback."
+        intended: "(`modelstore/loader.py`)"
+      - file: docs/ML_ARCHITECTURE.md
+        line: 227
+        current: "- `last_modified()` (`model_store.py:72`) — file mtime, used by `/introspect` …"
+        intended: "(`modelstore/stores.py`)"
+      - file: docs/ML_ARCHITECTURE.md
+        line: 228
+        current: "- `ModelCache` (`cache.py`) — in-memory TTL/LRU of loaded model objects."
+        intended: "(`modelstore/cache.py`)"
+
+    escalation_follow_on_mission:
+      severity: needs-a-decision
+      what: >-
+        The follow-on mission model-registry-and-base-refresh-01KYTW5S declares
+        src/sigil_ml/loader.py as an OWNED FILE, not merely as prose. These are
+        machine-read by spec-kitty's staging/ownership check, so the stale path
+        will misfire when that mission is claimed — it will not simply read wrong.
+      sites:
+        - file: kitty-specs/model-registry-and-base-refresh-01KYTW5S/lanes.json
+          line: 20
+          current: '        "src/sigil_ml/loader.py",'
+          intended: '        "src/sigil_ml/modelstore/loader.py",'
+        - file: kitty-specs/model-registry-and-base-refresh-01KYTW5S/tasks/WP05-integration.md
+          line: 23
+          current: "authoritative_surface: src/sigil_ml/loader.py"
+          intended: "authoritative_surface: src/sigil_ml/modelstore/loader.py"
+        - file: kitty-specs/model-registry-and-base-refresh-01KYTW5S/tasks/WP05-integration.md
+          line: 26
+          current: "- src/sigil_ml/loader.py"
+          intended: "- src/sigil_ml/modelstore/loader.py"
+        - file: kitty-specs/model-registry-and-base-refresh-01KYTW5S/tasks/WP05-integration.md
+          line: 72
+          current: "**Files**: `src/sigil_ml/loader.py`"
+          intended: "**Files**: `src/sigil_ml/modelstore/loader.py`"
+      also_prose_only:
+        - kitty-specs/model-registry-and-base-refresh-01KYTW5S/plan.md:75-76
+        - kitty-specs/model-registry-and-base-refresh-01KYTW5S/research.md:64,98,99
+        - kitty-specs/model-registry-and-base-refresh-01KYTW5S/tasks.md:39,149
+        - kitty-specs/model-registry-and-base-refresh-01KYTW5S/tasks/WP05-integration.md:61,68,70,165,167,184
+      decision_required: >-
+        Fix inside this mission, or leave for the registry mission to absorb when
+        it re-plans? The `kitty-specs/model-registry-and-base-refresh-01KYTW5S/**`
+        exception is set to manual_review so either answer is permitted and
+        neither is silent.
+
+  # =====================================================================
+  # 4. serialized_keys — NOT EMPTY, and all of it stays
+  # =====================================================================
+  serialized_keys:
+    action: do_not_change
+    summary: >-
+      Every packaging, config, and API key that names sigil_ml names it at
+      PACKAGE level, so the move is invisible to all of them. Nothing in this
+      category requires an edit, and C-004 forbids touching the :7774 response
+      shape. Verified non-empty rather than assumed empty.
+    occurrences:
+      - file: pyproject.toml
+        line: 11
+        current: 'packages = ["src/sigil_ml"]'
+        intended: "unchanged — whole-package, no per-module listing exists"
+      - file: pyproject.toml
+        line: 79
+        current: 'kameas-ml = "sigil_ml.cli:main"'
+        intended: "unchanged — cli is not moving"
+      - file: pyproject.toml
+        line: 106
+        current: 'known-first-party = ["sigil_ml"]'
+        intended: "unchanged — package level"
+      - file: .pyre_configuration
+        line: 2
+        current: '"source_directories": [{"root": "src", "subdirectory": "sigil_ml"}]'
+        intended: "unchanged — package level"
+      - file: .github/workflows/ci.yml
+        line: whole-file
+        current: "no reference to any moving module (verified by grep)"
+        intended: "unchanged"
+      - file: docs/openapi.json
+        line: whole-file
+        current: "committed OpenAPI spec, regenerated by `make openapi-check` in CI"
+        intended: >-
+          unchanged. C-004 keeps the :7774 surface fixed, so a diff here is a
+          signal that behaviour changed. NOTE: this file needs an explicit
+          exception (below) — the heuristic's `docs/` rule outranks its `.json`
+          rule, so it would otherwise classify as user_facing_strings and be
+          freely editable despite this category's do_not_change.
+      - file: src/sigil_ml/routes.py
+        line: 238
+        current: '                "cache": cache_stats,'
+        intended: "unchanged — API response key, not a module reference (C-004)"
+      - file: src/sigil_ml/models/fleet_routes.py
+        line: 127
+        current: '            "store": type(state.model_store).__name__ if state.model_store else "none",'
+        intended: >-
+          unchanged. Both the key ("store") and the value (a class name, which
+          D-002 preserves) are stable across the move.
+      - file: src/sigil_ml/config.py
+        line: 121
+        current: 'return float(os.environ.get("SIGIL_MODEL_CACHE_TTL", "300"))'
+        intended: "unchanged — env var contains 'CACHE' but names no module"
+
+  # =====================================================================
+  # 5. cli_commands — EMPTY, verified
+  # =====================================================================
+  cli_commands:
+    action: do_not_change
+    summary: >-
+      EMPTY. Verified, not assumed. No subcommand, flag, or console script is
+      named after a moving module, and none resolves a moving module by string.
+    verified_surface:
+      subcommands: ["serve", "train", "health-check", "feature-store-selfcheck (frozen entrypoint only)"]
+      flags: ["--host", "--port", "--db"]
+      console_script: 'kameas-ml = "sigil_ml.cli:main"  (pyproject.toml:79 — not moving)'
+      uvicorn_target: 'src/sigil_ml/cli.py:98  "sigil_ml.app:app"  — not moving'
+    occurrences: []
+
+  # =====================================================================
+  # 6. user_facing_strings
+  # =====================================================================
+  user_facing_strings:
+    action: rename_if_user_visible
+    summary: >-
+      Two live documents name a moving module and must be updated; one
+      superseded document names them and must not be. No RUNTIME user-visible
+      string (error message, HTTP response, CLI help text) references a moving
+      module — checked across all six modules plus routes.py and cli.py.
+      README.md, CHANGELOG.md and CONTRIBUTING.md are clean.
+    occurrences:
+      - file: CLAUDE.md
+        line: 48
+        current: >-
+          5. **Never import `sqlite3` or `psycopg2` directly.** All data access
+          goes through the `DataStore` protocol in `src/sigil_ml/store.py`, so
+          both deployments stay behaviourally identical
+        intended: "…the `DataStore` protocol in `src/sigil_ml/datastore/`…"
+        note: >-
+          plan.md §Charter Check calls this out: the invariant is strengthened,
+          not weakened — the protocol gains a package that names it.
+      - file: docs/ML_ARCHITECTURE.md
+        line: 45
+        current: "All access goes through the `DataStore` protocol (`src/sigil_ml/store.py`), implemented by `SqliteStore` and `PostgresStore`."
+        intended: "(`src/sigil_ml/datastore/protocol.py`)"
+      - file: docs/ML_ARCHITECTURE.md
+        line: 224-228
+        current: "§Model lifecycle inventory citing `model_store.py:37`, `model_store.py:87`, `loader.py:40`, `model_store.py:72`, `cache.py`"
+        intended: "Repoint at modelstore/stores.py, modelstore/loader.py, modelstore/cache.py. Drop the `:NN` line numbers — they do not survive the move and are already drifting."
+      - file: docs/plan.md
+        line: "45, 60, 63, 158, 226-234, 257-258, 277-279, 360, 402-404, 457, 494, 928"
+        current: "References to src/sigil_ml/storage/{protocol,sqlite_store,postgres_store,model_store,local_model_store,s3_model_store,model_cache}.py"
+        intended: >-
+          UNCHANGED. Dated 2026-03-29, superseded. It describes a layout that
+          was never built (sqlite_store.py, model_cache.py etc. do not exist and
+          never did). Rewriting it would invent history. Enforced by the
+          `docs/plan.md` exception below.
+      - file: docs/SIGIL_CLOUD_ARCHITECTURE.md
+        line: "183, 397, 434"
+        current: "Generic prose about 'model storage' / 'storage'"
+        intended: "unchanged — no module reference"
+      - file: docs/SIGILD_CLOUD_ENHANCEMENTS.md
+        line: 44
+        current: "`internal/store/` — all table access is already in the store package"
+        intended: "unchanged — this is the Go daemon's package, not Python"
+
+  # =====================================================================
+  # 7. tests_fixtures
+  # =====================================================================
+  tests_fixtures:
+    action: rename
+    summary: >-
+      Six import sites across five test files (already itemised under
+      import_paths). No test references a moving module by string, by logger
+      name, or by mock.patch target — so the whole test-side surface is
+      statement imports, and a missed one fails at collection.
+    occurrences:
+      - {file: tests/test_features.py,             line: 31,  current: "from sigil_ml.store_sqlite import SqliteStore",                       intended: "from sigil_ml.datastore.sqlite import SqliteStore"}
+      - {file: tests/test_serving_regression.py,   line: 53,  current: "from sigil_ml.store_sqlite import SqliteStore",                       intended: "from sigil_ml.datastore.sqlite import SqliteStore"}
+      - {file: tests/test_fleet_models.py,         line: 12,  current: "from sigil_ml.storage.model_store import LocalModelStore",            intended: "from sigil_ml.modelstore import LocalModelStore"}
+      - {file: tests/test_model_store.py,          line: 10,  current: "from sigil_ml.storage.model_store import CachedModelStore, LocalModelStore", intended: "from sigil_ml.modelstore import CachedModelStore, LocalModelStore"}
+      - {file: tests/test_no_egress.py,            line: 56,  current: "from sigil_ml.storage.model_store import LocalModelStore",            intended: "from sigil_ml.modelstore import LocalModelStore"}
+      - {file: tests/test_server.py,               line: 209, current: "from sigil_ml.storage.model_store import LocalModelStore",            intended: "from sigil_ml.modelstore import LocalModelStore"}
+    new_files_expected:
+      note: >-
+        FR-008 and FR-009 require new coverage for ModelCache and
+        FilesystemModelLoader, written BEFORE the move against the current paths
+        and carried across (D-005). WP02 chooses the filenames; they are new
+        surface, not occurrences.
+    verified_absent:
+      - "No test asserts on a moving module's logger name. caplog/at_level targets are sigil_ml.feature_store.resolve, sigil_ml.feature_store.materialize, sigil_ml.training.trainer, sigil_ml.training.cloud_trainer — none moving."
+      - "No mock.patch string targets a moving module. The only patch targets are sigil_ml.features.time.time and sigil_ml.features.time.localtime (tests/test_features.py:221,240)."
+      - "tests/test_frozen_smoke.py references only _internal/sigil_ml/feature_store — a bundle path, not a module."
+      - "Occurrences of `model_store` in test_cloud_training.py, test_feature_store_cloud.py, test_migration_regression.py and test_training_as_of.py are parameter/variable names (model_store=FakeModelStore()), not module references. C-001 leaves parameter names alone."
+
+  # =====================================================================
+  # 8. logs_telemetry — NOT EMPTY. Read the side effect.
+  # =====================================================================
+  logs_telemetry:
+    action: do_not_change
+    summary: >-
+      No log message, metric label, or log key may be hand-edited. But five of
+      the six moving modules call logging.getLogger(__name__), so the EMITTED
+      LOGGER NAME changes as a mechanical consequence of the move. That is the
+      one externally observable change this otherwise behaviour-preserving
+      mission makes, and it is unavoidable without pinning the names by hand.
+    logger_name_side_effect:
+      severity: informational-but-real
+      mechanism: "logging.getLogger(__name__) — the name is the module path"
+      changes:
+        - {file: "src/sigil_ml/store_sqlite.py:16",          from: sigil_ml.store_sqlite,          to: sigil_ml.datastore.sqlite}
+        - {file: "src/sigil_ml/store_postgres.py:16",        from: sigil_ml.store_postgres,        to: sigil_ml.datastore.postgres}
+        - {file: "src/sigil_ml/storage/model_store.py:17",   from: sigil_ml.storage.model_store,   to: sigil_ml.modelstore.stores}
+        - {file: "src/sigil_ml/loader.py:13",                from: sigil_ml.loader,                to: sigil_ml.modelstore.loader}
+        - {file: "src/sigil_ml/cache.py:16",                 from: sigil_ml.cache,                 to: sigil_ml.modelstore.cache}
+      not_affected: "src/sigil_ml/store.py declares no logger."
+      blast_radius: >-
+        Nothing in-repo filters on these names — no test, no logging_config.py
+        entry, no CI assertion. The root "sigil_ml" logger configured in
+        logging_config.py:32 still captures all five, so console output is
+        unchanged in shape. Only an external consumer filtering on the exact
+        child logger name would notice. Recorded so it is a known consequence
+        rather than a surprise.
+    message_prefixes_that_must_not_change:
+      - {file: "src/sigil_ml/cache.py:155",         current: '"cache: evicted oldest entry %s"'}
+      - {file: "src/sigil_ml/cache.py:167",         current: '"cache: created with ttl=%.0fs, max_size=%d"'}
+      - {file: "src/sigil_ml/loader.py:75",         current: '"loader: using shared model for %s/%s"'}
+      - {file: "src/sigil_ml/loader.py:81",         current: '"loader: no model found for %s/%s"'}
+      - {file: "src/sigil_ml/loader.py:90",         current: '"loader: loaded %s/%s from %s"'}
+      - {file: "src/sigil_ml/loader.py:94",         current: '"loader: failed to load %s/%s from %s"'}
+      - {file: "src/sigil_ml/store_postgres.py:112", current: '"postgres: ml_cursor and ml_signals tables ensured in schema %s"'}
+      - {file: "src/sigil_ml/store_sqlite.py:85",   current: '"schema: ml_cursor and ml_signals tables ensured"'}
+      - {file: "src/sigil_ml/app.py:213",           current: '"store connection closed"'}
+      - {file: "src/sigil_ml/poller.py:60",         current: '"poller: store error (will retry): %s"'}
+      - {file: "src/sigil_ml/app.py:203",           current: '"kameas-ml: cloud mode -- stateless serving, cache and loader initialized"'}
+    prefix_note: >-
+      The "cache:" and "loader:" prefixes read as module names but are
+      operator-facing labels. They stay as written — that is what
+      do_not_change means here.
+
+# =========================================================================
+# Exceptions — ordered; the FIRST match wins (diff_check._exception_for).
+# These exist because the review-time heuristic classifies by path, and
+# without them correct work would block and incorrect work would pass.
+# =========================================================================
+exceptions:
+
+  - path: "kitty-specs/storage-layer-reorganization-01KYXE54/**"
+    action: manual_review
+    reason: >-
+      This mission's own artifacts. Without this, occurrence_map.yaml (this
+      file), status.json and lanes.json classify as serialized_keys ->
+      do_not_change and would block WP01's own review, and spec-kitty rewrites
+      status.json/lanes.json automatically on every claim. MUST STAY FIRST.
+
+  - path: "kitty-specs/model-registry-and-base-refresh-01KYTW5S/**"
+    action: manual_review
+    reason: >-
+      The follow-on mission carries a stale owned-file path
+      (lanes.json:20 and WP05-integration.md:23,26 both name
+      src/sigil_ml/loader.py). Whether it is fixed here or absorbed there is an
+      open decision — see filesystem_paths.escalation_follow_on_mission. This
+      permits either and warns on both.
+
+  - path: "kitty-specs/**"
+    action: do_not_change
+    reason: >-
+      Historical records of missions 001-005 and the sibling feast/
+      feature-extraction missions. 29 of the 70 tracked import statements live
+      here, describing what was true when written. Rewriting them falsifies the
+      record; none is executable.
+
+  - path: "docs/openapi.json"
+    action: do_not_change
+    reason: >-
+      Needs an explicit exception because the heuristic's `docs/` rule outranks
+      its `.json` rule, so this file classifies as user_facing_strings
+      (rename_if_user_visible) and would otherwise be freely editable. C-004
+      fixes the :7774 surface, so a diff here means behaviour changed. This
+      makes the review gate agree with CI's `make openapi-check`.
+
+  - path: "docs/plan.md"
+    action: do_not_change
+    reason: >-
+      Superseded design document dated 2026-03-29. It describes a storage layout
+      that was never built (sqlite_store.py, postgres_store.py, model_cache.py,
+      local_model_store.py, s3_model_store.py). Editing it would invent history.
+      docs/ML_ARCHITECTURE.md is the live document and is NOT excepted.
+
+  - path: "freeze/*.spec"
+    action: manual_review
+    reason: >-
+      `.spec` matches no path heuristic, so touching freeze/kameas-ml.spec would
+      block review as unclassified surface. It is expected to need NO edit —
+      collect_submodules("sigil_ml") at line 269 reaches relocated subpackages,
+      and the only explicit sigil_ml hidden import is "sigil_ml.app" (line 267),
+      which is not moving. FR-006/SC-004 require this be verified by building,
+      not assumed; manual_review keeps a real edit visible rather than blocked.
+
+  - path: "Makefile"
+    action: do_not_change
+    reason: >-
+      Unclassified by the heuristic. Contains no module reference — targets are
+      openapi/install/lint/format/test/build/freeze/freeze-smoke, all
+      package-level. A diff here means something unplanned.
+
+  - path: ".pyre_configuration"
+    action: do_not_change
+    reason: >-
+      Unclassified by the heuristic. References sigil_ml at package level only
+      ({"root": "src", "subdirectory": "sigil_ml"}); the move is invisible to it.
+
+# =========================================================================
+# status — T002 audit and T003 reconciliation
+# =========================================================================
+status:
+
+  work_package: WP01
+  produced_by: claude
+  date: "2026-08-01"
+  scope: "This map is the WP03 verification checklist. Nothing moves until it is approved (C-006, D-006)."
+
+  # -------- T002 --------
+  dynamic_reference_audit:
+    verdict: >-
+      CONFIRMED — no moving module is referenced by string anywhere in the
+      repository. The plan's central safety claim holds. Every one of the 41
+      references is a statement import, so a missed rewrite fails loudly at
+      import or collection time; there is no silent-failure path.
+    conclusion_independent_of_planning: true
+    searches_run:
+      - id: S1
+        what: "importlib / __import__ / import_module / pkgutil / entry_points / load_entry_point / pkg_resources across src, tests, freeze, scripts, pyproject.toml, Makefile, .github"
+        result: >-
+          11 hits. 5 are prose comments about Feast's dynamic backend loading.
+          tests/test_feature_store_defs.py:196 does
+          importlib.import_module(f"sigil_ml.models.{info.name}") over
+          pkgutil.iter_modules(sigil_ml.models.__path__) — scoped to
+          sigil_ml.models, which is not moving.
+          tests/test_migration_regression.py:893 uses spec_from_file_location on
+          a checked-in pre-migration copy of features.py. No moving module.
+      - id: S2
+        what: 'every quoted string containing "sigil_ml" (regex ["'']([A-Za-z_]\w*\.)*sigil_ml[\w.:]*["'']) across src, tests, freeze, scripts, pyproject.toml, Makefile, .github, docs'
+        result: >-
+          26 hits, ZERO naming a moving module. The full set is: "sigil_ml.app:app"
+          (src/sigil_ml/cli.py:98 and freeze/kameas-ml.spec:265 comment + :267
+          hiddenimport); "sigil_ml.cli:main" (pyproject.toml:79);
+          "sigil_ml.cli" as a -m target (tests/test_cloud_training.py:1091,1106,1129,1148);
+          logger names "sigil_ml", "sigil_ml.feature_store.*", "sigil_ml.training.*";
+          bundle path fragments "sigil_ml"/"feature_store"; Feast project name
+          "sigil_ml"; and collect_submodules("sigil_ml") at freeze/kameas-ml.spec:269.
+      - id: S3
+        what: "mock.patch / patch.object / monkeypatch.setattr / getattr( across src, tests, freeze, scripts"
+        result: >-
+          26 hits. The only string-target patches are
+          mock.patch("sigil_ml.features.time.time") and
+          mock.patch("sigil_ml.features.time.localtime")
+          (tests/test_features.py:221,240) — features.py is not moving. All
+          monkeypatch.setattr calls pass module/class OBJECTS, which follow the
+          move automatically. All getattr calls take attribute names on
+          instances (last_modified, is_trained, model, _MEIPASS), not modules.
+      - id: S4
+        what: "any quoted string containing store/storage/loader/cache/model_store/store_sqlite/store_postgres across src, freeze, scripts, pyproject.toml, .github"
+        result: >-
+          25 hits after filtering feature-store noise. All are log message
+          prefixes, docstrings, API response keys, or __all__ entries — none is
+          a module path used for resolution. Itemised under logs_telemetry and
+          serialized_keys.
+      - id: S5
+        what: "relative imports (from .X), `from sigil_ml import X`, and `import sigil_ml.X` forms — the shapes S1's import regex could not see"
+        result: >-
+          Zero relative imports in the whole package. `from sigil_ml import X`
+          resolves only config, __version__ and features. `import sigil_ml.X`
+          resolves only sigil_ml.models and sigil_ml.features. No moving module
+          is reached by any of these forms, so none adds to the 41.
+    string_referenced_modules_in_repo:
+      - {module: "sigil_ml.app", form: "sigil_ml.app:app", sites: ["src/sigil_ml/cli.py:98", "freeze/kameas-ml.spec:265 (comment)", "freeze/kameas-ml.spec:267 (hiddenimports)"], moving: false}
+      - {module: "sigil_ml.cli", form: "sigil_ml.cli:main", sites: ["pyproject.toml:79"], moving: false}
+      - {module: "sigil_ml.cli", form: "python -m sigil_ml.cli", sites: ["tests/test_cloud_training.py:1091,1106,1129,1148"], moving: false}
+      - {module: "sigil_ml.models.*", form: "importlib.import_module(f'sigil_ml.models.{name}')", sites: ["tests/test_feature_store_defs.py:196"], moving: false}
+      - {module: "sigil_ml (package)", form: 'collect_submodules("sigil_ml")', sites: ["freeze/kameas-ml.spec:269"], moving: false, note: "package-level; reaches datastore/ and modelstore/ without edit, but FR-006 requires a real build to confirm"}
+    moving_modules_string_referenced: []
+
+  # -------- T003 --------
+  reconciliation:
+    measured_by_planning: 41
+    counted_by_this_map: 41
+    difference: 0
+    per_module:
+      - {module: sigil_ml.store,           planning: 11, counted: 11, delta: 0}
+      - {module: sigil_ml.storage,         planning: 22, counted: 22, delta: 0}
+      - {module: sigil_ml.store_sqlite,    planning: 4,  counted: 4,  delta: 0}
+      - {module: sigil_ml.store_postgres,  planning: 2,  counted: 2,  delta: 0}
+      - {module: sigil_ml.loader,          planning: 1,  counted: 1,  delta: 0}
+      - {module: sigil_ml.cache,           planning: 1,  counted: 1,  delta: 0}
+    scope_of_the_41: "src/ and tests/ only, tracked files only, one row per import STATEMENT (a parenthesised multi-line import counts once)."
+    what_the_41_excludes:
+      - "29 import statements in kitty-specs/ (historical mission records, do_not_change)."
+      - "The Sphinx :class: cross-reference at src/sigil_ml/feature_store/materialize.py:454 — a dotted module path, not an import. Recorded under code_symbols."
+      - "__pycache__ and *.pyc — structurally excluded by searching tracked files only."
+      - ".worktrees/feature-extraction-correctness-01KYTR7N-lane-a/ — an untracked sibling worktree a naive filesystem grep would double-count the entire repo through."
+    verdict: >-
+      Exact agreement, per-module and in total. Planning neither missed an
+      import statement nor double-counted a line.
+
+  # -------- findings planning did not anticipate --------
+  findings:
+    - id: F1
+      severity: blocks-wp02-if-followed-literally
+      category: code_symbols
+      what: >-
+        `create_model_store` does not exist. plan.md:92, quickstart.md:49 and
+        WP02-tests-then-move.md:169 all instruct modelstore/__init__.py to
+        export it. The real symbol is model_store_factory
+        (storage/model_store.py:245, called at app.py:134 and cli.py:114).
+      action: "WP02 exports model_store_factory. Renaming it would violate C-001 and FR-005."
+    - id: F2
+      severity: needs-a-decision
+      category: filesystem_paths
+      what: >-
+        model-registry-and-base-refresh-01KYTW5S names src/sigil_ml/loader.py in
+        MACHINE-READ fields — lanes.json:20 owned_files and WP05-integration.md
+        frontmatter authoritative_surface/owned_files — not just prose. Stale
+        after this mission.
+      action: "Fix here or absorb there. The mission's exception is manual_review so neither is silent."
+    - id: F3
+      severity: informational
+      category: logs_telemetry
+      what: >-
+        Five moving modules use logging.getLogger(__name__), so five emitted
+        logger names change. Nothing in-repo depends on them and the root
+        sigil_ml logger still captures all five, but it is the one observable
+        change in a mission whose claim is that nothing changes.
+      action: "Accept and record. Do not pin names by hand — that would be a real edit to satisfy an appearance."
+    - id: F4
+      severity: informational
+      category: code_symbols
+      what: >-
+        src/sigil_ml/feature_store/materialize.py:454 carries a Sphinx
+        :class:`~sigil_ml.store.DataStore` reference. Not an import, so outside
+        the 41, and it fails silently (a dead doc link) rather than loudly. The
+        only occurrence in a file WP02 has no other reason to open.
+      action: "Rewrite to ~sigil_ml.datastore.DataStore."
+    - id: F5
+      severity: informational
+      category: serialized_keys
+      what: >-
+        Nothing in packaging needs to change. pyproject.toml uses
+        packages = ["src/sigil_ml"], the freeze spec uses
+        collect_submodules("sigil_ml"), and .pyre_configuration points at the
+        package directory. No per-module list exists anywhere.
+      action: "No edit. FR-006/SC-004 still require an actual `make freeze` to confirm."
