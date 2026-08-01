@@ -23,7 +23,7 @@
 | T004 | Definition-vs-constant conformance tests | WP01 | | [D] |
 | T005 | Local `feature_store.yaml` — no network surface | WP02 | | [D] |
 | T006 | Cloud `feature_store.yaml` — Postgres both halves | WP02 | [D] |
-| T007 | Config resolution by operating mode | WP02 | |
+| T007 | Config resolution by operating mode | WP02 | | [D] |
 | T008 | Structural no-egress test and config lint | WP02 | |
 | T009 | Live-compute-then-push resolver | WP03 | |
 | T010 | Route `poller.py` and `routes.py` through the resolver | WP03 | |
@@ -80,7 +80,7 @@
 
 - [x] T005 Local `feature_store.yaml` — no network surface (WP02)
 - [x] T006 Cloud `feature_store.yaml` — Postgres both halves (WP02)
-- [ ] T007 Config resolution by operating mode (WP02)
+- [x] T007 Config resolution by operating mode (WP02)
 - [ ] T008 Structural no-egress test and config lint (WP02)
 
 **Risks**: This encodes a **hard product requirement** (C-001). Feast supports remote registries, remote online stores, and remote providers by configuration, so a guarantee resting on "we didn't configure that" is one edit from false. The test must assert no socket at all, not the absence of known upload calls.
