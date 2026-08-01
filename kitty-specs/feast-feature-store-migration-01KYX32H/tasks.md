@@ -41,7 +41,7 @@
 | T022 | Notarization and bundle-size gates in CI | WP05 | | [D] |
 | T023 | Pre-migration baseline capture | WP06 | | [D] |
 | T024 | Value-equality regression tests | WP06 | | [D] |
-| T025 | Cross-deployment agreement tests | WP06 | [P] |
+| T025 | Cross-deployment agreement tests | WP06 | [D] |
 
 ---
 
@@ -170,7 +170,7 @@
 
 - [x] T023 Pre-migration baseline capture (WP06)
 - [x] T024 Value-equality regression tests (WP06)
-- [ ] T025 Cross-deployment agreement tests (WP06)
+- [x] T025 Cross-deployment agreement tests (WP06)
 
 **Risks**: T023 is order-sensitive — baselines captured after the migration prove nothing. Derive them from the pre-migration commit and commit them as literals with documented provenance.
 
