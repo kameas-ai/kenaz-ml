@@ -38,7 +38,7 @@
 | T019 | Build-time `feast apply`, ship registry read-only | WP05 | | [D] |
 | T020 | PyInstaller hidden imports and binaries | WP05 | | [D] |
 | T021 | Read-only app-directory verification | WP05 | [D] |
-| T022 | Notarization and bundle-size gates in CI | WP05 | |
+| T022 | Notarization and bundle-size gates in CI | WP05 | | [D] |
 | T023 | Pre-migration baseline capture | WP06 | |
 | T024 | Value-equality regression tests | WP06 | |
 | T025 | Cross-deployment agreement tests | WP06 | [P] |
@@ -149,7 +149,7 @@
 - [x] T019 Build-time `feast apply`, ship registry read-only (WP05)
 - [x] T020 PyInstaller hidden imports and binaries (WP05)
 - [x] T021 Read-only app-directory verification (WP05)
-- [ ] T022 Notarization and bundle-size gates in CI (WP05)
+- [x] T022 Notarization and bundle-size gates in CI (WP05)
 
 **Risks**: **Highest-risk package in the mission.** Feast resolves providers and stores by dynamic import, which static analysis cannot follow — the expected failure is a binary that builds cleanly and fails on first feature call. Test the call path, not startup. Note also that CI's existing `build` job is currently flaky for unrelated reasons (fixed `sleep 3` racing server startup); fix or account for that before trusting a green result here.
 
