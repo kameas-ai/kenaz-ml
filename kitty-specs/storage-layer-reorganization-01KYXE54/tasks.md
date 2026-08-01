@@ -20,9 +20,9 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 
 | ID | Description | WP |
 |---|---|---|
-| T001 | Enumerate occurrences across all 8 bulk-edit categories | WP01 |
-| T002 | Confirm no moved module is string-referenced | WP01 |
-| T003 | Reconcile the map against the measured 41 imports | WP01 |
+| T001 | Enumerate occurrences across all 8 bulk-edit categories | WP01 | [D] |
+| T002 | Confirm no moved module is string-referenced | WP01 | [D] |
+| T003 | Reconcile the map against the measured 41 imports | WP01 | [D] |
 | T004 | `ModelCache` tests — TTL expiry, LRU eviction, statistics | WP02 |
 | T005 | `FilesystemModelLoader` tests — tenant scoping, shared fallback, `None` on missing | WP02 |
 | T006 | Prove the new tests fail when the behaviour is broken | WP02 |
@@ -51,9 +51,9 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 
 **Included subtasks**:
 
-- [ ] T001 Enumerate occurrences across all 8 bulk-edit categories (WP01)
-- [ ] T002 Confirm no moved module is string-referenced (WP01)
-- [ ] T003 Reconcile the map against the measured 41 imports (WP01)
+- [x] T001 Enumerate occurrences across all 8 bulk-edit categories (WP01)
+- [x] T002 Confirm no moved module is string-referenced (WP01)
+- [x] T003 Reconcile the map against the measured 41 imports (WP01)
 
 **Risks**: The categories most likely to be missed are the ones that are not code — documentation, `CLAUDE.md`'s direct module references, and the freeze spec. A map covering only `src/` and `tests/` is incomplete.
 
