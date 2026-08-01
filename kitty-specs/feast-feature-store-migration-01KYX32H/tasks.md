@@ -26,7 +26,7 @@
 | T007 | Config resolution by operating mode | WP02 | | [D] |
 | T008 | Structural no-egress test and config lint | WP02 | | [D] |
 | T009 | Live-compute-then-push resolver | WP03 | | [D] |
-| T010 | Route `poller.py` and `routes.py` through the resolver | WP03 | |
+| T010 | Route `poller.py` and `routes.py` through the resolver | WP03 | | [D] |
 | T011 | Best-effort push semantics | WP03 | [P] |
 | T012 | Live-not-stale serving tests | WP03 | |
 | T013 | `ml_features` table and schema | WP04 | |
@@ -101,7 +101,7 @@
 **Included subtasks**:
 
 - [x] T009 Live-compute-then-push resolver (WP03)
-- [ ] T010 Route `poller.py` and `routes.py` through the resolver (WP03)
+- [x] T010 Route `poller.py` and `routes.py` through the resolver (WP03)
 - [ ] T011 Best-effort push semantics (WP03)
 - [ ] T012 Live-not-stale serving tests (WP03)
 
