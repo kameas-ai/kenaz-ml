@@ -30,7 +30,7 @@
 | T011 | Best-effort push semantics | WP03 | [D] |
 | T012 | Live-not-stale serving tests | WP03 | | [D] |
 | T013 | `ml_features` table and schema | WP04 | | [D] |
-| T014 | Materialization writing `event_timestamp` | WP04 | |
+| T014 | Materialization writing `event_timestamp` | WP04 | | [D] |
 | T015 | `PostgreSQLSource` wiring | WP04 | [P] |
 | T016 | Materialization tests | WP04 | |
 | T017 | Cloud training via `get_historical_features` | WP04 | |
@@ -123,7 +123,7 @@
 **Included subtasks**:
 
 - [x] T013 `ml_features` table and schema (WP04)
-- [ ] T014 Materialization writing `event_timestamp` (WP04)
+- [x] T014 Materialization writing `event_timestamp` (WP04)
 - [ ] T015 `PostgreSQLSource` wiring (WP04)
 - [ ] T016 Materialization tests (WP04)
 - [ ] T017 Cloud training via `get_historical_features` (WP04)
