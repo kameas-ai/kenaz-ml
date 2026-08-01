@@ -33,7 +33,7 @@
 | T014 | Materialization writing `event_timestamp` | WP04 | | [D] |
 | T015 | `PostgreSQLSource` wiring | WP04 | [D] |
 | T016 | Materialization tests | WP04 | | [D] |
-| T017 | Cloud training via `get_historical_features` | WP04 | |
+| T017 | Cloud training via `get_historical_features` | WP04 | | [D] |
 | T018 | Point-in-time and leakage tests | WP04 | |
 | T019 | Build-time `feast apply`, ship registry read-only | WP05 | |
 | T020 | PyInstaller hidden imports and binaries | WP05 | |
@@ -126,7 +126,7 @@
 - [x] T014 Materialization writing `event_timestamp` (WP04)
 - [x] T015 `PostgreSQLSource` wiring (WP04)
 - [x] T016 Materialization tests (WP04)
-- [ ] T017 Cloud training via `get_historical_features` (WP04)
+- [x] T017 Cloud training via `get_historical_features` (WP04)
 - [ ] T018 Point-in-time and leakage tests (WP04)
 
 **Risks**: `event_timestamp` must carry the moment the values *describe* — the `as_of_ms` reference time — never the write time. Store the write time and every point-in-time guarantee silently becomes false while the API still returns rows.
