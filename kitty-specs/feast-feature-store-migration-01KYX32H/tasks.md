@@ -28,7 +28,7 @@
 | T009 | Live-compute-then-push resolver | WP03 | | [D] |
 | T010 | Route `poller.py` and `routes.py` through the resolver | WP03 | | [D] |
 | T011 | Best-effort push semantics | WP03 | [D] |
-| T012 | Live-not-stale serving tests | WP03 | |
+| T012 | Live-not-stale serving tests | WP03 | | [D] |
 | T013 | `ml_features` table and schema | WP04 | |
 | T014 | Materialization writing `event_timestamp` | WP04 | |
 | T015 | `PostgreSQLSource` wiring | WP04 | [P] |
@@ -103,7 +103,7 @@
 - [x] T009 Live-compute-then-push resolver (WP03)
 - [x] T010 Route `poller.py` and `routes.py` through the resolver (WP03)
 - [x] T011 Best-effort push semantics (WP03)
-- [ ] T012 Live-not-stale serving tests (WP03)
+- [x] T012 Live-not-stale serving tests (WP03)
 
 **Risks**: Reading the online store for an active task is the conventional Feast pattern and the wrong choice here (D-003) — it would serve a value stale by up to a poll interval on the exact path where freshness is the product. This is what the April attempt got backwards.
 
