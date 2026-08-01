@@ -2,7 +2,7 @@
   "created_at": "2026-07-31T22:00:19.902187+00:00",
   "friendly_name": "Feast Feature Store Migration",
   "mission_id": "01KYX32HVM37J05TZHXC6XCPNX",
-  "mission_number": null,
+  "mission_number": 2,
   "mission_slug": "feast-feature-store-migration-01KYX32H",
   "mission_type": "software-dev",
   "slug": "feast-feature-store-migration-01KYX32H",
