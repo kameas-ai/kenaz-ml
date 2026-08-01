@@ -35,7 +35,7 @@
 | T016 | Materialization tests | WP04 | | [D] |
 | T017 | Cloud training via `get_historical_features` | WP04 | | [D] |
 | T018 | Point-in-time and leakage tests | WP04 | | [D] |
-| T019 | Build-time `feast apply`, ship registry read-only | WP05 | |
+| T019 | Build-time `feast apply`, ship registry read-only | WP05 | | [D] |
 | T020 | PyInstaller hidden imports and binaries | WP05 | |
 | T021 | Read-only app-directory verification | WP05 | [P] |
 | T022 | Notarization and bundle-size gates in CI | WP05 | |
@@ -146,7 +146,7 @@
 
 **Included subtasks**:
 
-- [ ] T019 Build-time `feast apply`, ship registry read-only (WP05)
+- [x] T019 Build-time `feast apply`, ship registry read-only (WP05)
 - [ ] T020 PyInstaller hidden imports and binaries (WP05)
 - [ ] T021 Read-only app-directory verification (WP05)
 - [ ] T022 Notarization and bundle-size gates in CI (WP05)
