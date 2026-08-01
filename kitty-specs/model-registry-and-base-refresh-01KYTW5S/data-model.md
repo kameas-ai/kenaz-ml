@@ -59,7 +59,8 @@ One JSON file per artifact, named `{model_name}.json`. This schema is the shared
   },
 
   "feature_contract": {
-    "version": "2",
+    "service": "stuck",
+    "service_version": "9f2c4a71b3e05d18",
     "names": ["test_failure_count", "time_in_phase_sec", "edit_velocity",
               "file_switch_rate", "session_length_sec", "time_since_last_commit_sec"],
     "dtypes": ["float64", "float64", "float64", "float64", "float64", "float64"]

@@ -1,10 +1,13 @@
 {
+  "change_mode": "bulk_edit",
   "created_at": "2026-08-01T01:13:58.593856+00:00",
-  "friendly_name": "storage layer reorganization",
+  "friendly_name": "Storage Layer Reorganization",
   "mission_id": "01KYXE546B5CWCMHGFP08ZVGG7",
   "mission_number": null,
   "mission_slug": "storage-layer-reorganization-01KYXE54",
   "mission_type": "software-dev",
   "slug": "storage-layer-reorganization-01KYXE54",
-  "target_branch": "main"
+  "source_description": "Resolve the overloaded meaning of 'store': data access (DataStore) and model-artifact storage (ModelStore) become separately named packages, and the scattered model-object loader and cache move into the model-artifact package. Behaviour-preserving move of 41 import statements across 6 modules, plus first test coverage for the model-loading path so the move is verifiable. Runs before model-registry-and-base-refresh, which adds four more model-artifact modules.",
+  "target_branch": "main",
+  "vcs": "git"
 }

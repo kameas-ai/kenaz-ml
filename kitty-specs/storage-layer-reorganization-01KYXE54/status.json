@@ -1,0 +1,42 @@
+{
+  "event_count": 3,
+  "last_event_id": "01KYYTPY21MWFSX9GNJ3ZW1S65",
+  "materialized_at": "2026-08-01T14:12:39.105927+00:00",
+  "mission_number": "",
+  "mission_slug": "storage-layer-reorganization-01KYXE54",
+  "mission_type": "software-dev",
+  "summary": {
+    "approved": 0,
+    "blocked": 0,
+    "canceled": 0,
+    "claimed": 0,
+    "done": 0,
+    "for_review": 0,
+    "in_progress": 0,
+    "in_review": 0,
+    "planned": 3
+  },
+  "work_packages": {
+    "WP01": {
+      "actor": "finalize-tasks",
+      "force_count": 1,
+      "lane": "planned",
+      "last_event_id": "01KYYTPXZ4Y2CD57VREA9KN096",
+      "last_transition_at": "2026-08-01T14:12:39.012372+00:00"
+    },
+    "WP02": {
+      "actor": "finalize-tasks",
+      "force_count": 1,
+      "lane": "planned",
+      "last_event_id": "01KYYTPY20VC45FWEGMSNPA2KW",
+      "last_transition_at": "2026-08-01T14:12:39.104725+00:00"
+    },
+    "WP03": {
+      "actor": "finalize-tasks",
+      "force_count": 1,
+      "lane": "planned",
+      "last_event_id": "01KYYTPY21MWFSX9GNJ3ZW1S65",
+      "last_transition_at": "2026-08-01T14:12:39.105927+00:00"
+    }
+  }
+}

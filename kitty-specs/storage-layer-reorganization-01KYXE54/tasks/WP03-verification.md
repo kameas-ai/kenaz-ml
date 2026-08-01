@@ -1,19 +1,16 @@
 ---
-work_package_id: WP04
+work_package_id: WP03
 title: Verification and Documentation
 dependencies:
-- WP03
+- WP02
 requirement_refs:
-- FR-004
 - FR-006
 - FR-007
-- FR-010
 - NFR-001
 - NFR-003
-- NFR-004
 planning_base_branch: main
 merge_target_branch: main
-branch_strategy: Planning artifacts are committed to main. Execution happens in a per-lane worktree allocated by finalize-tasks; consult lanes.json for this WP's workspace path and branch. Completed work merges into main.
+branch_strategy: Planning artifacts for this feature were generated on main. During /spec-kitty.implement this WP may branch from a dependency-specific base, but completed changes must merge back into main unless the human explicitly redirects the landing branch.
 subtasks:
 - T014
 - T015
@@ -31,7 +28,7 @@ owned_files:
 tags: []
 ---
 
-# WP04 — Verification and Documentation
+# WP03 — Verification and Documentation
 
 ## Objective
 
@@ -39,19 +36,19 @@ Prove the move changed nothing, and update the documentation that names the old 
 
 ## Context
 
-WP03 moved the code and the suite passed. That establishes the *tests* still pass — not that a shipped artifact still loads, that the frozen binary still builds, or that nothing survives at an old path by accident.
+WP02 moved the code and the suite passed. That establishes the *tests* still pass — not that a shipped artifact still loads, that the frozen binary still builds, or that nothing survives at an old path by accident.
 
-`CLAUDE.md` names `src/sigil_ml/store.py` directly, so it is wrong the moment WP03 lands. `docs/ML_ARCHITECTURE.md` references it too.
+`CLAUDE.md` names `src/sigil_ml/store.py` directly, so it is wrong the moment WP02 lands. `docs/ML_ARCHITECTURE.md` references it too.
 
 Read first: [quickstart.md](../quickstart.md), [spec.md](../spec.md) FR-004/006/007/010, and `occurrence_map.yaml`.
 
 ## Branch Strategy
 
 ```bash
-spec-kitty agent action implement WP04 --agent <name> --mission storage-layer-reorganization-01KYXE54
+spec-kitty agent action implement WP03 --agent <name> --mission storage-layer-reorganization-01KYXE54
 ```
 
-**Depends on WP03.**
+**Depends on WP02.**
 
 ---
 
@@ -87,7 +84,7 @@ spec-kitty agent action implement WP04 --agent <name> --mission storage-layer-re
 3. **Exercise a real prediction in the built binary.** A clean build proves very little: the Feast mission's WP05 found two packaging bugs that appeared only on first *use*, both of the shape "builds clean, dies on first call".
 4. If the build is not possible in this environment, say so plainly and report exactly how far you got. A partial honest result beats an untested claim.
 
-**Files**: verification only; report findings rather than editing `freeze/` (WP03 owns it)
+**Files**: verification only; report findings rather than editing `freeze/` (WP02 owns it)
 
 **Validation**:
 - [ ] Binary builds, or the blocker is reported precisely
@@ -102,7 +99,7 @@ spec-kitty agent action implement WP04 --agent <name> --mission storage-layer-re
 
 **Steps**:
 
-1. Load the `.joblib` fixture WP02 recorded before the move and assert the model is equivalent — same type, same predictions on a fixed input. Nothing about the artifact format was meant to change, so a failure means something moved that should not have.
+1. Load the `.joblib` fixture WP02's Part 1 recorded before the move and assert the model is equivalent — same type, same predictions on a fixed input. Nothing about the artifact format was meant to change, so a failure means something moved that should not have.
 2. Measure `python -X importtime -c "import sigil_ml.app"` and compare against WP02's recorded baseline. Budget is 10% (NFR-003). Two new `__init__.py` files doing re-exports could plausibly pull more at import time than the flat modules did.
 3. If import time regressed past budget, report it with the number — lazy re-exports are the fix, but that is a decision, not something to slip in here.
 

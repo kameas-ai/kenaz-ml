@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "mission_slug": "storage-layer-reorganization-01KYXE54",
+  "mission_id": "01KYXE546B5CWCMHGFP08ZVGG7",
+  "mission_branch": "kitty/mission-storage-layer-reorganization-01KYXE54",
+  "target_branch": "main",
+  "lanes": [
+    {
+      "lane_id": "lane-a",
+      "wp_ids": [
+        "WP02",
+        "WP03"
+      ],
+      "write_scope": [
+        "CLAUDE.md",
+        "docs/ML_ARCHITECTURE.md",
+        "freeze/kameas-ml.spec",
+        "src/sigil_ml/**",
+        "tests/test_features.py",
+        "tests/test_fleet_models.py",
+        "tests/test_model_cache.py",
+        "tests/test_model_loader.py",
+        "tests/test_model_store.py",
+        "tests/test_no_egress.py",
+        "tests/test_server.py",
+        "tests/test_serving_regression.py",
+        "tests/test_storage_reorganization.py"
+      ],
+      "predicted_surfaces": [
+        "api",
+        "app-shell",
+        "artifact-rendering",
+        "legacy-cleanup"
+      ],
+      "depends_on_lanes": [],
+      "parallel_group": 0
+    },
+    {
+      "lane_id": "lane-planning",
+      "wp_ids": [
+        "WP01"
+      ],
+      "write_scope": [
+        "kitty-specs/storage-layer-reorganization-01KYXE54/occurrence_map.yaml"
+      ],
+      "predicted_surfaces": [
+        "planning"
+      ],
+      "depends_on_lanes": [],
+      "parallel_group": 0
+    }
+  ],
+  "computed_at": "2026-08-01T14:12:39.109161+00:00",
+  "computed_from": "dependency_graph+ownership",
+  "planning_artifact_wps": [
+    "WP01"
+  ],
+  "collapse_report": {
+    "events": [
+      {
+        "wp_a": "WP03",
+        "wp_b": "WP02",
+        "rule": "dependency",
+        "evidence": "WP03 depends on WP02"
+      }
+    ],
+    "total_merges": 1,
+    "independent_wps_collapsed": 0,
+    "by_rule": {
+      "dependency": 1
+    }
+  }
+}
