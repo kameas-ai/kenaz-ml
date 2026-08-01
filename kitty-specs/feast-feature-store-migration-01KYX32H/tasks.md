@@ -22,7 +22,7 @@
 | T003 | Feature services, one per model | WP01 | | [D] |
 | T004 | Definition-vs-constant conformance tests | WP01 | | [D] |
 | T005 | Local `feature_store.yaml` — no network surface | WP02 | | [D] |
-| T006 | Cloud `feature_store.yaml` — Postgres both halves | WP02 | [P] |
+| T006 | Cloud `feature_store.yaml` — Postgres both halves | WP02 | [D] |
 | T007 | Config resolution by operating mode | WP02 | |
 | T008 | Structural no-egress test and config lint | WP02 | |
 | T009 | Live-compute-then-push resolver | WP03 | |
@@ -79,7 +79,7 @@
 **Included subtasks**:
 
 - [x] T005 Local `feature_store.yaml` — no network surface (WP02)
-- [ ] T006 Cloud `feature_store.yaml` — Postgres both halves (WP02)
+- [x] T006 Cloud `feature_store.yaml` — Postgres both halves (WP02)
 - [ ] T007 Config resolution by operating mode (WP02)
 - [ ] T008 Structural no-egress test and config lint (WP02)
 
