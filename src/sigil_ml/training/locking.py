@@ -7,7 +7,7 @@ import os
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from sigil_ml.store import DataStore
+    from sigil_ml.datastore import DataStore
 
 logger = logging.getLogger(__name__)
 

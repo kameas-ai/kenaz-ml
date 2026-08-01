@@ -80,7 +80,7 @@ from sigil_ml.features import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - import-time cost is the whole point
-    from sigil_ml.store import DataStore
+    from sigil_ml.datastore import DataStore
 
 logger = logging.getLogger(__name__)
 

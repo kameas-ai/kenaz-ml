@@ -10,9 +10,9 @@ import logging
 from collections import Counter, defaultdict
 from typing import Any
 
+from sigil_ml.modelstore import ModelStore
 from sigil_ml.signals import Signal
 from sigil_ml.signals.profile import BehaviorProfile
-from sigil_ml.storage.model_store import ModelStore
 
 logger = logging.getLogger(__name__)
 

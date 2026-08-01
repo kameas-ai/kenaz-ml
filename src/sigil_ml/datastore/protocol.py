@@ -173,12 +173,12 @@ def create_store(mode: str | None = None) -> DataStore:
         A DataStore implementation (SqliteStore or PostgresStore).
     """
     from sigil_ml import config
-    from sigil_ml.store_sqlite import SqliteStore
+    from sigil_ml.datastore.sqlite import SqliteStore
 
     resolved_mode = mode or config.operating_mode()
 
     if resolved_mode == "cloud":
-        from sigil_ml.store_postgres import PostgresStore
+        from sigil_ml.datastore.postgres import PostgresStore
 
         url = config.postgres_url()
         if not url:

@@ -13,7 +13,7 @@ from typing import Any
 
 import numpy as np
 
-from sigil_ml.storage.model_store import LocalModelStore, ModelStore
+from sigil_ml.modelstore import LocalModelStore, ModelStore
 
 logger = logging.getLogger(__name__)
 

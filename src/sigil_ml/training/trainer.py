@@ -8,13 +8,13 @@ import time
 
 import numpy as np
 
+from sigil_ml.datastore import DataStore
 from sigil_ml.features import extract_duration_features, extract_stuck_features
 from sigil_ml.models.duration import FEATURE_NAMES as DURATION_FEATURES
 from sigil_ml.models.duration import DurationEstimator
 from sigil_ml.models.stuck import FEATURE_NAMES as STUCK_FEATURES
 from sigil_ml.models.stuck import StuckPredictor
-from sigil_ml.storage.model_store import ModelStore
-from sigil_ml.store import DataStore
+from sigil_ml.modelstore import ModelStore
 from sigil_ml.training.synthetic import generate_duration_data, generate_stuck_data
 
 logger = logging.getLogger(__name__)

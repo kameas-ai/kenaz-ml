@@ -10,7 +10,7 @@ import math
 import time
 from typing import Any
 
-from sigil_ml.store import DataStore
+from sigil_ml.datastore import DataStore
 
 # --- Reference-time helpers ---
 #

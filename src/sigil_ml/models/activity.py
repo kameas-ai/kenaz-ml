@@ -10,7 +10,7 @@ import numpy as np
 from sklearn.linear_model import SGDClassifier
 
 from sigil_ml.features import extract_activity_features
-from sigil_ml.storage.model_store import LocalModelStore, ModelStore
+from sigil_ml.modelstore import LocalModelStore, ModelStore
 
 logger = logging.getLogger(__name__)
 

@@ -44,12 +44,8 @@ import time
 
 import pytest
 
-from sigil_ml.cache import (
-    DEFAULT_MAX_SIZE,
-    DEFAULT_TTL_SECONDS,
-    ModelCache,
-    create_model_cache,
-)
+from sigil_ml.modelstore import ModelCache, create_model_cache
+from sigil_ml.modelstore.cache import DEFAULT_MAX_SIZE, DEFAULT_TTL_SECONDS
 
 
 class _Clock:

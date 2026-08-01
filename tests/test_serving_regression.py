@@ -41,6 +41,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from sigil_ml import features
+from sigil_ml.datastore.sqlite import SqliteStore
 from sigil_ml.features import (
     extract_activity_features,
     extract_duration_features,
@@ -50,7 +51,6 @@ from sigil_ml.features import (
     extract_stuck_features_from_data,
     extract_workflow_features,
 )
-from sigil_ml.store_sqlite import SqliteStore
 
 # ---------------------------------------------------------------------------
 # Pinned clock

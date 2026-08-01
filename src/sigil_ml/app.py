@@ -14,16 +14,16 @@ if TYPE_CHECKING:
 from fastapi import FastAPI
 
 from sigil_ml.config import ServingMode, resolve_mode
+from sigil_ml.datastore import DataStore, create_store
 from sigil_ml.models.activity import ActivityClassifier
 from sigil_ml.models.duration import DurationEstimator
 from sigil_ml.models.fleet_routes import register_fleet_routes
 from sigil_ml.models.quality import QualityEstimator
 from sigil_ml.models.stuck import StuckPredictor
 from sigil_ml.models.workflow import WorkflowStatePredictor
+from sigil_ml.modelstore import ModelStore, model_store_factory
 from sigil_ml.poller import EventPoller
 from sigil_ml.routes import register_routes
-from sigil_ml.storage.model_store import ModelStore, model_store_factory
-from sigil_ml.store import DataStore, create_store
 from sigil_ml.training.scheduler import TrainingScheduler
 
 logger = logging.getLogger("sigil_ml")
@@ -195,8 +195,7 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
         else:
             # Cloud mode: no SQLite, no poller, no scheduler.
             # Models loaded lazily per-tenant via cache + loader.
-            from sigil_ml.cache import create_model_cache
-            from sigil_ml.loader import FilesystemModelLoader
+            from sigil_ml.modelstore import FilesystemModelLoader, create_model_cache
 
             state.model_cache = create_model_cache()
             state.model_loader = FilesystemModelLoader()

@@ -53,7 +53,7 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sigil_ml.feature_store import config as fsc
 from sigil_ml.feature_store.definitions import stuck_feature_view, task
 from sigil_ml.models.stuck import FEATURE_NAMES, StuckPredictor
-from sigil_ml.storage.model_store import LocalModelStore
+from sigil_ml.modelstore import LocalModelStore
 
 # ---------------------------------------------------------------------------
 # The guard

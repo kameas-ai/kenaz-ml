@@ -19,6 +19,7 @@ from unittest import mock
 
 import pytest
 
+from sigil_ml.datastore.sqlite import SqliteStore
 from sigil_ml.features import (
     extract_duration_features,
     extract_duration_features_from_data,
@@ -28,7 +29,6 @@ from sigil_ml.features import (
 )
 from sigil_ml.models import duration as duration_model
 from sigil_ml.models import stuck as stuck_model
-from sigil_ml.store_sqlite import SqliteStore
 
 
 @pytest.fixture

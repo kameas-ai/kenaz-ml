@@ -9,9 +9,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from sigil_ml.modelstore import ModelStore
 from sigil_ml.signals import Signal
 from sigil_ml.signals.profile import BehaviorProfile, RollingStat
-from sigil_ml.storage.model_store import ModelStore
 
 logger = logging.getLogger(__name__)
 

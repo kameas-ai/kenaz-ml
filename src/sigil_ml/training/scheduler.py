@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 import time
 
-from sigil_ml.storage.model_store import ModelStore
-from sigil_ml.store import DataStore
+from sigil_ml.datastore import DataStore
+from sigil_ml.modelstore import ModelStore
 from sigil_ml.training.trainer import Trainer
 
 logger = logging.getLogger(__name__)

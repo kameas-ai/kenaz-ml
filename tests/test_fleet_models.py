@@ -9,7 +9,7 @@ import pytest
 from sigil_ml.models.fleet_focus import FleetFocusModel
 from sigil_ml.models.fleet_meeting import FleetMeetingModel
 from sigil_ml.models.fleet_onboarding import FleetOnboardingModel
-from sigil_ml.storage.model_store import LocalModelStore
+from sigil_ml.modelstore import LocalModelStore
 
 
 @pytest.fixture

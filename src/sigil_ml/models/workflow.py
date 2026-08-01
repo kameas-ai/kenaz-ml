@@ -11,7 +11,7 @@ import numpy as np
 from sklearn.ensemble import GradientBoostingClassifier
 
 from sigil_ml.features import extract_workflow_features
-from sigil_ml.storage.model_store import LocalModelStore, ModelStore
+from sigil_ml.modelstore import LocalModelStore, ModelStore
 
 logger = logging.getLogger(__name__)
 

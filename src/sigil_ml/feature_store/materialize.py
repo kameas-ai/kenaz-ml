@@ -451,7 +451,7 @@ def materialize_tasks(
     point-in-time guarantee degenerates into "we passed the right argument".
 
     Args:
-        data_store: A :class:`~sigil_ml.store.DataStore`. Reads only.
+        data_store: A :class:`~sigil_ml.datastore.DataStore`. Reads only.
         sink: Where rows are persisted.
         tenant_id: Scopes the task query. Rows for one tenant are computed from
             that tenant's tasks and no others.

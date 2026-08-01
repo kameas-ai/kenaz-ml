@@ -10,7 +10,7 @@ import joblib
 import numpy as np
 from sklearn.ensemble import GradientBoostingRegressor
 
-from sigil_ml.storage.model_store import LocalModelStore, ModelStore
+from sigil_ml.modelstore import LocalModelStore, ModelStore
 
 logger = logging.getLogger(__name__)
 

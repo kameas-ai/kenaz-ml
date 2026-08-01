@@ -93,7 +93,7 @@ import joblib
 import numpy as np
 import pytest
 
-from sigil_ml.loader import FilesystemModelLoader, ModelLoader
+from sigil_ml.modelstore import FilesystemModelLoader, ModelLoader
 
 # A genuine joblib artifact serialized by the pre-move tree. Do not regenerate:
 # its value is that it predates the move (FR-007).

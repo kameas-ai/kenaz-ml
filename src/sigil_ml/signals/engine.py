@@ -10,13 +10,13 @@ from __future__ import annotations
 import logging
 import time
 
+from sigil_ml.datastore import DataStore
 from sigil_ml.features import extract_action_token
 from sigil_ml.signals import Signal
 from sigil_ml.signals.file_recommender import FileRecommender
 from sigil_ml.signals.next_action import NextActionPredictor
 from sigil_ml.signals.pattern_detector import PatternDetector
 from sigil_ml.signals.profile import BehaviorProfile
-from sigil_ml.store import DataStore
 
 logger = logging.getLogger(__name__)
 

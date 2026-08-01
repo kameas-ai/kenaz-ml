@@ -10,10 +10,10 @@ import sys
 import uvicorn
 
 from sigil_ml.config import resolve_mode
+from sigil_ml.datastore import create_store
+from sigil_ml.datastore.sqlite import SqliteStore
 from sigil_ml.logging_config import setup_logging
-from sigil_ml.storage.model_store import model_store_factory
-from sigil_ml.store import create_store
-from sigil_ml.store_sqlite import SqliteStore
+from sigil_ml.modelstore import model_store_factory
 from sigil_ml.training.trainer import Trainer
 
 
@@ -234,7 +234,7 @@ def _create_data_store(db_url: str) -> object:
     """Create a DataStore from the Postgres URL."""
     try:
         from sigil_ml import config
-        from sigil_ml.store_postgres import PostgresStore
+        from sigil_ml.datastore.postgres import PostgresStore
 
         tenant = config.tenant_id()
         return PostgresStore(connection_url=db_url, tenant=tenant)
@@ -246,7 +246,7 @@ def _create_model_store(s3_bucket_name: str) -> object:
     """Create a ModelStore from the S3 bucket config."""
     try:
         from sigil_ml import config
-        from sigil_ml.storage.model_store import S3ModelStore
+        from sigil_ml.modelstore import S3ModelStore
 
         return S3ModelStore(
             bucket=s3_bucket_name,

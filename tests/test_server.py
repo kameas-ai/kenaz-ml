@@ -206,7 +206,7 @@ class TestIntrospectEndpoint:
         import numpy as np
         from sklearn.ensemble import GradientBoostingClassifier
 
-        from sigil_ml.storage.model_store import LocalModelStore
+        from sigil_ml.modelstore import LocalModelStore
 
         clf = GradientBoostingClassifier(n_estimators=2)
         clf.fit(np.zeros((4, 6)), [0, 1, 0, 1])

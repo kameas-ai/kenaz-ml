@@ -11,7 +11,7 @@ import numpy as np
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.metrics import mean_squared_error, r2_score
 
-from sigil_ml.storage.model_store import LocalModelStore, ModelStore
+from sigil_ml.modelstore import LocalModelStore, ModelStore
 
 logger = logging.getLogger(__name__)
 

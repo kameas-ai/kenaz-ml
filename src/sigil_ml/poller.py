@@ -15,12 +15,12 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from sigil_ml.signals.engine import SignalEngine
 
+from sigil_ml.datastore import DataStore
 from sigil_ml.feature_store.resolve import (
     resolve_duration_features,
     resolve_stuck_features,
     resolve_stuck_features_from_buffer,
 )
-from sigil_ml.store import DataStore
 
 logger = logging.getLogger(__name__)
 
