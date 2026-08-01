@@ -17,7 +17,7 @@
 
 | ID | Description | WP | Parallel |
 |---|---|---|---|
-| T001 | Entities: task, node, tenant | WP01 | |
+| T001 | Entities: task, node, tenant | WP01 | | [D] |
 | T002 | Feature views mirroring `FEATURE_NAMES` exactly | WP01 | |
 | T003 | Feature services, one per model | WP01 | |
 | T004 | Definition-vs-constant conformance tests | WP01 | |
@@ -56,7 +56,7 @@
 
 **Included subtasks**:
 
-- [ ] T001 Entities: task, node, tenant (WP01)
+- [x] T001 Entities: task, node, tenant (WP01)
 - [ ] T002 Feature views mirroring `FEATURE_NAMES` exactly (WP01)
 - [ ] T003 Feature services, one per model (WP01)
 - [ ] T004 Definition-vs-constant conformance tests (WP01)
