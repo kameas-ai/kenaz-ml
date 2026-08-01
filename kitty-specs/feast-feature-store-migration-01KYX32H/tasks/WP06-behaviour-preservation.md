@@ -159,3 +159,7 @@ assert list(v.keys()) == stuck_model.FEATURE_NAMES
 2. **Check ordered key assertions exist** separately from value equality.
 3. **Look for `pytest.approx` on values that were previously exact** — that is a drifted value being hidden.
 4. If any value legitimately had to change, it belongs in the spec as an amendment, not absorbed into a tolerance here.
+
+## Activity Log
+
+- 2026-08-01T00:27:15Z – unknown – Moved to approved
