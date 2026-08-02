@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "mission_slug": "kenaz-ml-rebrand-01KZ1AMQ",
+  "mission_id": "01KZ1AMQAM1F5H9HETBPFVCTQ9",
+  "mission_branch": "kitty/mission-kenaz-ml-rebrand-01KZ1AMQ",
+  "target_branch": "main",
+  "lanes": [
+    {
+      "lane_id": "lane-a",
+      "wp_ids": [
+        "WP02"
+      ],
+      "write_scope": [
+        ".github/**",
+        "CHANGELOG.md",
+        "CLAUDE.md",
+        "CONTRIBUTING.md",
+        "Makefile",
+        "README.md",
+        "SECURITY.md",
+        "docs/**",
+        "freeze/**",
+        "pyproject.toml",
+        "scripts/**",
+        "src/**",
+        "tests/**"
+      ],
+      "predicted_surfaces": [
+        "api",
+        "app-shell",
+        "artifact-rendering"
+      ],
+      "depends_on_lanes": [],
+      "parallel_group": 0
+    },
+    {
+      "lane_id": "lane-planning",
+      "wp_ids": [
+        "WP01"
+      ],
+      "write_scope": [
+        "kitty-specs/kenaz-ml-rebrand-01KZ1AMQ/occurrence_map.yaml"
+      ],
+      "predicted_surfaces": [
+        "planning"
+      ],
+      "depends_on_lanes": [],
+      "parallel_group": 0
+    }
+  ],
+  "computed_at": "2026-08-02T13:36:46.939632+00:00",
+  "computed_from": "dependency_graph+ownership",
+  "planning_artifact_wps": [
+    "WP01"
+  ]
+}
