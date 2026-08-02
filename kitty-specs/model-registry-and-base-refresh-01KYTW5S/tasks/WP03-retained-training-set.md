@@ -185,3 +185,4 @@ spec-kitty agent action implement WP03 --agent <name>
 ## Activity Log
 
 - 2026-08-02T01:09:44Z – claude – shell_pid=35725 – Started implementation via action command
+- 2026-08-02T01:20:41Z – claude – shell_pid=35725 – WP03 deliverables committed in bb3487c (retained.py + test_registry_retained.py only). --force is required because the shared lane-a worktree also holds WP02's in-flight, uncommitted config.py/slots.py work, which WP03 must not stage.
