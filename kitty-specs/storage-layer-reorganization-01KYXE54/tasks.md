@@ -33,10 +33,10 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 | T011 | Rewrite all import sites named in the occurrence map | WP02 | [D] |
 | T012 | Delete the old module paths — no shims | WP02 | [D] |
 | T013 | Carry the Stack B tests across to the new paths | WP02 | [D] |
-| T014 | Verify old paths are gone and the public surface resolves | WP03 |
-| T015 | Verify the frozen binary builds and serves | WP03 |
-| T016 | Verify pre-change artifacts still load; check import time | WP03 |
-| T017 | Update `CLAUDE.md` module references; cross-check the occurrence map | WP03 |
+| T014 | Verify old paths are gone and the public surface resolves | WP03 | [D] |
+| T015 | Verify the frozen binary builds and serves | WP03 | [D] |
+| T016 | Verify pre-change artifacts still load; check import time | WP03 | [D] |
+| T017 | Update `CLAUDE.md` module references; cross-check the occurrence map | WP03 | [D] |
 
 ---
 
@@ -100,10 +100,10 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 
 **Included subtasks**:
 
-- [ ] T014 Verify old paths are gone and the public surface resolves (WP03)
-- [ ] T015 Verify the frozen binary builds and serves (WP03)
-- [ ] T016 Verify pre-change artifacts still load; check import time (WP03)
-- [ ] T017 Update `CLAUDE.md` module references; cross-check the occurrence map (WP03)
+- [x] T014 Verify old paths are gone and the public surface resolves (WP03)
+- [x] T015 Verify the frozen binary builds and serves (WP03)
+- [x] T016 Verify pre-change artifacts still load; check import time (WP03)
+- [x] T017 Update `CLAUDE.md` module references; cross-check the occurrence map (WP03)
 
 **Risks**: A clean frozen build proves little — the Feast mission found two packaging bugs that appeared only on first *use*. Exercise a real prediction in the built binary. `CLAUDE.md` names `src/sigil_ml/store.py` directly and is wrong the moment WP02 lands.
 
