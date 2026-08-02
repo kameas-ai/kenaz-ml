@@ -145,3 +145,4 @@ spec-kitty agent action implement WP01 --agent <name> --mission kenaz-ml-rebrand
 - 2026-08-02T14:21:07Z – claude – shell_pid=95042 – Occurrence map complete; findings corrected downstream
 - 2026-08-02T14:44:46Z – claude – shell_pid=95042 – Moved to planned
 - 2026-08-02T14:51:18Z – claude – shell_pid=27629 – Started implementation via action command
+- 2026-08-02T14:51:18Z – claude – shell_pid=27629 – rev 2: schema-valid; counts corrected to 242/91 in-scope; downstream spec.md and WP02 fixed; Q1 (SIGIL_ML_* env vars) escalated
