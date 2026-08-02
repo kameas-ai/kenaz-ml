@@ -28,10 +28,10 @@ Each WP owns its own test module, so file ownership is disjoint throughout.
 | T007 | Two-slot resolution order | WP02 | |
 | T008 | Unusable-artifact fallthrough | WP02 | [P] |
 | T009 | Slot resolution tests | WP02 | |
-| T010 | Retained-set JSONL writer with header | WP03 | |
-| T011 | Tolerant reader | WP03 | |
-| T012 | Bound enforcement and eviction | WP03 | [P] |
-| T013 | Deletion and generation increment, plus tests | WP03 | |
+| T010 | Retained-set JSONL writer with header | WP03 | | [D] |
+| T011 | Tolerant reader | WP03 | | [D] |
+| T012 | Bound enforcement and eviction | WP03 | [D] |
+| T013 | Deletion and generation increment, plus tests | WP03 | | [D] |
 | T014 | Base-version change detection | WP04 | |
 | T015 | Same-contract rebuild | WP04 | |
 | T016 | Changed-contract reset | WP04 | [P] |
@@ -102,10 +102,10 @@ Each WP owns its own test module, so file ownership is disjoint throughout.
 
 **Included subtasks**:
 
-- [ ] T010 Retained-set JSONL writer with header (WP03)
-- [ ] T011 Tolerant reader (WP03)
-- [ ] T012 Bound enforcement and eviction (WP03)
-- [ ] T013 Deletion and generation increment, plus tests (WP03)
+- [x] T010 Retained-set JSONL writer with header (WP03)
+- [x] T011 Tolerant reader (WP03)
+- [x] T012 Bound enforcement and eviction (WP03)
+- [x] T013 Deletion and generation increment, plus tests (WP03)
 
 **Risks**: This is new retention of user-derived data in a product whose central promise is that nothing leaves the machine. The no-egress guarantee is verified in WP06, but nothing in this package may open a socket or add a code path that could.
 
