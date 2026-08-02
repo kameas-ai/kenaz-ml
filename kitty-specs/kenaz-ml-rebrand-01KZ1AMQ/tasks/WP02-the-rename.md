@@ -16,6 +16,7 @@ requirement_refs:
 - FR-011
 - FR-012
 - FR-013
+- FR-014
 - NFR-001
 - NFR-002
 - NFR-004
@@ -28,6 +29,7 @@ subtasks:
 - T007
 - T008
 - T008b
+- T009c
 - T009
 - T010
 - T011
@@ -90,7 +92,7 @@ spec-kitty agent action implement WP02 --agent <name> --mission kenaz-ml-rebrand
 
 **Depends on WP01** — do not start until the map is approved (C-005).
 
-**BLOCKED ON Q1.** The map found 21 occurrences of this product's own `SIGIL_ML_*` environment variables (`SIGIL_ML_MODE`, `SIGIL_ML_SRC`, `SIGIL_ML_TRAIN_*`, ...), distinct from the ledger's `SIGILD_*`. Renaming them to `KENAZ_ML_*` completes the rebrand but breaks every existing deployment, container spec and shell profile that sets them. The product owner must choose: rename, rename-with-deprecation-shim, or leave. Do not guess.
+**Q1 resolved** (product owner, 2026-08-02): rename `SIGIL_ML_*` → `KENAZ_ML_*` **with a deprecation shim**. See T009c — it is the only part of this mission that adds behaviour rather than renaming.
 
 ---
 
@@ -168,6 +170,25 @@ spec-kitty agent action implement WP02 --agent <name> --mission kenaz-ml-rebrand
 
 ---
 
+### T009c — `SIGIL_ML_*` → `KENAZ_ML_*` with a deprecation shim (FR-014)
+
+**Purpose**: The only subtask here that writes new behaviour. 21 occurrences across 8 files.
+
+These are **this product's** env vars — distinct from the ledger's `SIGILD_*`, which never change.
+
+**Steps**:
+
+1. Add a helper (in `config.py`) that reads `KENAZ_ML_<X>`, falls back to `SIGIL_ML_<X>` when the new name is unset, and emits a deprecation warning naming both. **The new name wins when both are set.**
+2. Route every read through it. Access is scattered across six modules — `cli.py`, `config.py`, `logging_config.py`, `modelstore/cache.py`, `tenant.py`, `training/locking.py` — with no existing accessor.
+3. **`cli.py:96` writes `os.environ["SIGIL_ML_MODE"] = mode.value`.** Move the write to the new name in the same change. If the write keeps the old name while the read gains a fallback, the product emits a deprecation warning about its own internal handoff on every CLI-started run.
+4. **`training/locking.py:15` reads at module import time** (`STALE_LOCK_TIMEOUT_SEC = int(os.environ.get(...))`). Its warning fires before logging is configured; route it through the helper anyway and accept the warning may land on stderr.
+5. Update `freeze/*.spec` (`SIGIL_ML_SRC`), tests (`SIGIL_ML_TEST_POSTGRES_URL`), and the docs that name these vars.
+6. Test all three paths: old name only (works + warns), new name only (works, silent), both set (new wins).
+
+**Validation**: helper exists and every read routes through it · the `cli.py` write uses the new name · all three precedence cases tested · docs updated
+
+---
+
 ### T009 — Log prefixes, docs, CI, Makefile
 
 **Steps**:
@@ -223,7 +244,7 @@ spec-kitty agent action implement WP02 --agent <name> --mission kenaz-ml-rebrand
 
 ## Definition of Done
 
-- [ ] All eight subtasks complete
+- [ ] All nine subtasks complete
 - [ ] `import kenaz_ml` works; `import sigil_ml` raises
 - [ ] The 242-occurrence in-scope daemon surface unchanged, asserted by a committed test
 - [ ] `db_path()` still resolves to `~/.local/share/sigild/data.db`
@@ -231,7 +252,7 @@ spec-kitty agent action implement WP02 --agent <name> --mission kenaz-ml-rebrand
 - [ ] `kitty-specs/` for merged missions untouched
 - [ ] `pytest tests/` with no count regression; `ruff` clean both ways
 - [ ] Frozen binary builds and serves a real prediction
-- [ ] No behaviour change anywhere
+- [ ] No behaviour change anywhere except the FR-014 env-var shim, which is additive and backward-compatible
 
 ## Risks
 
