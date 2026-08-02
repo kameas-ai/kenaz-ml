@@ -190,3 +190,4 @@ x = [features[f] for f in contract.names]
 ## Activity Log
 
 - 2026-08-02T01:29:27Z – claude – shell_pid=49242 – Started implementation via action command
+- 2026-08-02T02:03:37Z – claude – shell_pid=49242 – T018-T021 done, plus T022: pre-registry artifact migration (added at the user's direction - without it every existing install silently loses its five trained models). 915 passed, 9 skipped; the single failure is the pre-existing TestNfr002ServingLatency[500] flake, which reproduces identically with these changes stashed. ruff check and format clean.
