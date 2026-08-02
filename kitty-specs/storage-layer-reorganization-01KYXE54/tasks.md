@@ -28,7 +28,7 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 | T006 | Prove the new tests fail when the behaviour is broken | WP02 | [D] |
 | T007 | Capture a pre-move behavioural baseline | WP02 | [D] |
 | T008 | Create `datastore/` and move the three data modules | WP02 | [D] |
-| T009 | Create `modelstore/` and move the three model modules | WP02 |
+| T009 | Create `modelstore/` and move the three model modules | WP02 | [D] |
 | T010 | Package `__init__.py` re-exports for both | WP02 |
 | T011 | Rewrite all import sites named in the occurrence map | WP02 |
 | T012 | Delete the old module paths — no shims | WP02 |
@@ -77,7 +77,7 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 - [x] T006 Prove the new tests fail when the behaviour is broken (WP02)
 - [x] T007 Capture a pre-move behavioural baseline (WP02)
 - [x] T008 Create `datastore/` and move the three data modules (WP02)
-- [ ] T009 Create `modelstore/` and move the three model modules (WP02)
+- [x] T009 Create `modelstore/` and move the three model modules (WP02)
 - [ ] T010 Package `__init__.py` re-exports for both (WP02)
 - [ ] T011 Rewrite all import sites named in the occurrence map (WP02)
 - [ ] T012 Delete the old module paths — no shims (WP02)
