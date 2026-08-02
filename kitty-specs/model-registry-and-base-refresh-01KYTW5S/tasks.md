@@ -36,10 +36,10 @@ Each WP owns its own test module, so file ownership is disjoint throughout.
 | T015 | Same-contract rebuild | WP04 | | [D] |
 | T016 | Changed-contract reset | WP04 | [D] |
 | T017 | Atomicity and refresh tests | WP04 | | [D] |
-| T018 | `loader.py` uses registry validation | WP05 | |
-| T019 | `trainer.py` retains examples, strict lookup | WP05 | |
-| T020 | `cloud_trainer.py` strict lookup | WP05 | [P] |
-| T021 | Manifest written on every local training run | WP05 | |
+| T018 | `loader.py` uses registry validation | WP05 | | [D] |
+| T019 | `trainer.py` retains examples, strict lookup | WP05 | | [D] |
+| T020 | `cloud_trainer.py` strict lookup | WP05 | [D] |
+| T021 | Manifest written on every local training run | WP05 | | [D] |
 | T022 | No-base default-state verification | WP06 | [P] |
 | T023 | No-egress verification | WP06 | [P] |
 | T024 | End-to-end provenance verification | WP06 | |
@@ -146,10 +146,10 @@ Each WP owns its own test module, so file ownership is disjoint throughout.
 
 **Included subtasks**:
 
-- [ ] T018 `loader.py` uses registry validation (WP05)
-- [ ] T019 `trainer.py` retains examples, strict lookup (WP05)
-- [ ] T020 `cloud_trainer.py` strict lookup (WP05)
-- [ ] T021 Manifest written on every local training run (WP05)
+- [x] T018 `loader.py` uses registry validation (WP05)
+- [x] T019 `trainer.py` retains examples, strict lookup (WP05)
+- [x] T020 `cloud_trainer.py` strict lookup (WP05)
+- [x] T021 Manifest written on every local training run (WP05)
 
 **Risks**: This package edits `trainer.py` and `cloud_trainer.py`, which the `feature-extraction-correctness` mission also owns — that mission must be merged first. Replacing `.get(f, 0.0)` with strict lookup is only safe after contract validation has run; the order matters and a `KeyError` here means validation was skipped.
 
