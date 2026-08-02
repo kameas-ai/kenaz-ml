@@ -24,10 +24,10 @@ Each WP owns its own test module, so file ownership is disjoint throughout.
 | T003 | Ordered feature-contract validation | WP01 | [D] |
 | T004 | Runtime version compatibility check | WP01 | [D] |
 | T005 | Manifest and validation tests | WP01 | | [D] |
-| T006 | `base_models_dir()` and `retained_data_dir()` resolution | WP02 | |
-| T007 | Two-slot resolution order | WP02 | |
-| T008 | Unusable-artifact fallthrough | WP02 | [P] |
-| T009 | Slot resolution tests | WP02 | |
+| T006 | `base_models_dir()` and `retained_data_dir()` resolution | WP02 | | [D] |
+| T007 | Two-slot resolution order | WP02 | | [D] |
+| T008 | Unusable-artifact fallthrough | WP02 | [D] |
+| T009 | Slot resolution tests | WP02 | | [D] |
 | T010 | Retained-set JSONL writer with header | WP03 | | [D] |
 | T011 | Tolerant reader | WP03 | | [D] |
 | T012 | Bound enforcement and eviction | WP03 | [D] |
@@ -80,10 +80,10 @@ Each WP owns its own test module, so file ownership is disjoint throughout.
 
 **Included subtasks**:
 
-- [ ] T006 `base_models_dir()` and `retained_data_dir()` resolution (WP02)
-- [ ] T007 Two-slot resolution order (WP02)
-- [ ] T008 Unusable-artifact fallthrough (WP02)
-- [ ] T009 Slot resolution tests (WP02)
+- [x] T006 `base_models_dir()` and `retained_data_dir()` resolution (WP02)
+- [x] T007 Two-slot resolution order (WP02)
+- [x] T008 Unusable-artifact fallthrough (WP02)
+- [x] T009 Slot resolution tests (WP02)
 
 **Risks**: The base slot has a different root from the local slot (D-001) and resolves differently under a frozen bundle versus a source install. Getting the frozen-bundle path wrong fails only in the packaged build, which ordinary tests will not catch — assert the resolution logic directly.
 
