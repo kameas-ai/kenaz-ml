@@ -21,13 +21,13 @@ Two packages rather than three, deliberately. The storage-layer reorganization w
 | T002 | Classify every `sigil` hit: this product vs the Sigil daemon | WP01 | [D] |
 | T003 | Enumerate string-resolved and grep-invisible references | WP01 | [D] |
 | T004 | Re-probe serialized artifacts; reconcile counts | WP01 | [D] |
-| T005 | `git mv` the package directory | WP02 |
-| T006 | Rewrite imports and intra-package references | WP02 |
-| T007 | `pyproject.toml` — distribution, packages, entry point, URLs | WP02 |
-| T008 | String-resolved references: uvicorn target, PyInstaller, freeze spec filename | WP02 |
-| T009 | Log prefixes, docs, `CLAUDE.md`, `README`, `CHANGELOG`, CI, `Makefile` | WP02 |
-| T010 | Preserve the frozen-history alias key; verify the Sigil surface is untouched | WP02 |
-| T011 | Verification tests and the map cross-check | WP02 |
+| T005 | `git mv` the package directory | WP02 | [D] |
+| T006 | Rewrite imports and intra-package references | WP02 | [D] |
+| T007 | `pyproject.toml` — distribution, packages, entry point, URLs | WP02 | [D] |
+| T008 | String-resolved references: uvicorn target, PyInstaller, freeze spec filename | WP02 | [D] |
+| T009 | Log prefixes, docs, `CLAUDE.md`, `README`, `CHANGELOG`, CI, `Makefile` | WP02 | [D] |
+| T010 | Preserve the frozen-history alias key; verify the Sigil surface is untouched | WP02 | [D] |
+| T011 | Verification tests and the map cross-check | WP02 | [D] |
 
 ---
 
@@ -64,13 +64,13 @@ Two packages rather than three, deliberately. The storage-layer reorganization w
 
 **Included subtasks**:
 
-- [ ] T005 `git mv` the package directory (WP02)
-- [ ] T006 Rewrite imports and intra-package references (WP02)
-- [ ] T007 `pyproject.toml` — distribution, packages, entry point, URLs (WP02)
-- [ ] T008 String-resolved references: uvicorn target, PyInstaller, freeze spec filename (WP02)
-- [ ] T009 Log prefixes, docs, `CLAUDE.md`, `README`, `CHANGELOG`, CI, `Makefile` (WP02)
-- [ ] T010 Preserve the frozen-history alias key; verify the Sigil surface is untouched (WP02)
-- [ ] T011 Verification tests and the map cross-check (WP02)
+- [x] T005 `git mv` the package directory (WP02)
+- [x] T006 Rewrite imports and intra-package references (WP02)
+- [x] T007 `pyproject.toml` — distribution, packages, entry point, URLs (WP02)
+- [x] T008 String-resolved references: uvicorn target, PyInstaller, freeze spec filename (WP02)
+- [x] T009 Log prefixes, docs, `CLAUDE.md`, `README`, `CHANGELOG`, CI, `Makefile` (WP02)
+- [x] T010 Preserve the frozen-history alias key; verify the Sigil surface is untouched (WP02)
+- [x] T011 Verification tests and the map cross-check (WP02)
 
 **Risks**: A blanket `sigil` → `kenaz` substitution is the failure mode — fast, plausible, and catastrophic. T010 exists to make the Sigil surface an asserted invariant rather than a hope. The string-resolved references (T008) fail at runtime rather than at import, and the PyInstaller ones fail only in the packaged binary on first use.
 
