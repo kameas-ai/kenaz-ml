@@ -19,11 +19,11 @@ Each WP owns its own test module, so file ownership is disjoint throughout.
 
 | ID | Description | WP | Parallel |
 |---|---|---|---|
-| T001 | Manifest schema and JSON read/write | WP01 | |
-| T002 | Integrity verification before deserialization | WP01 | [P] |
-| T003 | Ordered feature-contract validation | WP01 | [P] |
-| T004 | Runtime version compatibility check | WP01 | [P] |
-| T005 | Manifest and validation tests | WP01 | |
+| T001 | Manifest schema and JSON read/write | WP01 | | [D] |
+| T002 | Integrity verification before deserialization | WP01 | [D] |
+| T003 | Ordered feature-contract validation | WP01 | [D] |
+| T004 | Runtime version compatibility check | WP01 | [D] |
+| T005 | Manifest and validation tests | WP01 | | [D] |
 | T006 | `base_models_dir()` and `retained_data_dir()` resolution | WP02 | |
 | T007 | Two-slot resolution order | WP02 | |
 | T008 | Unusable-artifact fallthrough | WP02 | [P] |
@@ -57,11 +57,11 @@ Each WP owns its own test module, so file ownership is disjoint throughout.
 
 **Included subtasks**:
 
-- [ ] T001 Manifest schema and JSON read/write (WP01)
-- [ ] T002 Integrity verification before deserialization (WP01)
-- [ ] T003 Ordered feature-contract validation (WP01)
-- [ ] T004 Runtime version compatibility check (WP01)
-- [ ] T005 Manifest and validation tests (WP01)
+- [x] T001 Manifest schema and JSON read/write (WP01)
+- [x] T002 Integrity verification before deserialization (WP01)
+- [x] T003 Ordered feature-contract validation (WP01)
+- [x] T004 Runtime version compatibility check (WP01)
+- [x] T005 Manifest and validation tests (WP01)
 
 **Risks**: Contract comparison must be ordered — a set comparison passes on a reordering that silently permutes every model input. Integrity must run before `joblib.load`, not after; verifying a checksum post-deserialization provides no protection.
 
