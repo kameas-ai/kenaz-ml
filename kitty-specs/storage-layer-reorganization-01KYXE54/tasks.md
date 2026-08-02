@@ -23,7 +23,7 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 | T001 | Enumerate occurrences across all 8 bulk-edit categories | WP01 | [D] |
 | T002 | Confirm no moved module is string-referenced | WP01 | [D] |
 | T003 | Reconcile the map against the measured 41 imports | WP01 | [D] |
-| T004 | `ModelCache` tests — TTL expiry, LRU eviction, statistics | WP02 |
+| T004 | `ModelCache` tests — TTL expiry, LRU eviction, statistics | WP02 | [D] |
 | T005 | `FilesystemModelLoader` tests — tenant scoping, shared fallback, `None` on missing | WP02 |
 | T006 | Prove the new tests fail when the behaviour is broken | WP02 |
 | T007 | Capture a pre-move behavioural baseline | WP02 |
@@ -72,7 +72,7 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 
 **Included subtasks** — Part 1 (coverage) must be committed before Part 2 (the move) begins:
 
-- [ ] T004 `ModelCache` tests — TTL expiry, LRU eviction, statistics (WP02)
+- [x] T004 `ModelCache` tests — TTL expiry, LRU eviction, statistics (WP02)
 - [ ] T005 `FilesystemModelLoader` tests — tenant scoping, shared fallback, `None` on missing (WP02)
 - [ ] T006 Prove the new tests fail when the behaviour is broken (WP02)
 - [ ] T007 Capture a pre-move behavioural baseline (WP02)
