@@ -193,6 +193,24 @@ The retained training data is derived from the user's own activity. It is writte
 - Runtime compatibility checking targets serialization-format compatibility. The frozen binary pins its runtime; source installs do not, which is where the check earns its keep.
 - Refresh is triggered by comparing recorded base version against the shipped base version at startup or on demand, not on a schedule.
 
+## Known Limitation — the local serving path does not consult the registry
+
+**Found by WP06, verified, and not fixed in this mission.**
+
+`app.py` wires `FilesystemModelLoader` only in the **cloud** branch. In local mode each predictor loads its own artifact directly — `StuckPredictor.__init__` calls `LocalModelStore.load()` then `joblib.load()` — bypassing `resolve_model`, integrity verification, ordered contract validation, the runtime check, and **the base slot entirely**.
+
+Consequences, stated plainly:
+
+- **FR-004's base-slot step is unreachable in the open-source local deployment.** A shipped base model would not be served locally today.
+- FR-005, FR-006 and FR-008 gate *training* and the *cloud* loader, not local serving.
+- This is also *why* SC-008 holds so cleanly: local serving is literally untouched.
+
+So this mission delivers the registry, the slot model, retained data, the refresh policy, and validated loading for training and cloud — but **not** the end-to-end "ship a base model and serve it locally" path that motivated it. Wiring that requires changing eight predictor classes and would alter local serving behaviour, which is precisely what SC-008 protects; it belongs in its own mission with its own verification.
+
+No work package owned `app.py` or `models/*.py`, so this is a gap in the task decomposition rather than a work package failing its brief.
+
+---
+
 ## Out of Scope
 
 - The discovery surface exposing this registry — deferred to the feature-discovery mission.
