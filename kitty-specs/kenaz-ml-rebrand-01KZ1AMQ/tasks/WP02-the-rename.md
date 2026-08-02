@@ -30,6 +30,7 @@ subtasks:
 - T008
 - T008b
 - T009c
+- T009b
 - T009
 - T010
 - T011
@@ -197,6 +198,30 @@ Distinct from the ledger's `SIGILD_*`, which never change. **WP01 rev 2 missed t
 
 ---
 
+### T009b — The two carry-forwards from WP01's approval
+
+**Purpose**: Both are leftovers a mechanical pass produces while the invariant test still passes. Neither is caught by grepping for `sigil_ml`.
+
+**1. The `sigil_config` alias (7 occurrences).**
+
+```python
+src/kenaz_ml/feature_store/config.py:51   from kenaz_ml import config as sigil_config   # after a naive rename
+```
+
+Used at `:153`, `:169`, `:359`, `:402`, `:426` and `tests/test_no_egress.py:438`. Rename the alias to `kenaz_config`. A rename that produces `from kenaz_ml import config as sigil_config` is visibly half-done, and the 163-occurrence ledger assertion passes anyway because `sigil_config` is not matched by the ledger pattern. Also `sigil_features`, a fixture Postgres database name at `tests/test_no_egress.py:607` — product-owned test data, rename for consistency.
+
+**2. `"Sigil ML sidecar"` — the prose rule WP01 left implicit.**
+
+Three sites: `src/kenaz_ml/app.py:217`, `src/kenaz_ml/cli.py:22`, `docs/openapi.json:5`. This sits two lines from `title="kameas-ml"` (`app.py:215`), which *is* a rename site.
+
+**The rule, stated explicitly so it is applied consistently**: in prose, **this product is `kenaz-ml`**; `Sigil`/`sigild` survives only where it names *the ledger*. `"Sigil ML sidecar"` names **this product**, so it renames. Two further reasons: "sidecar" is stale post-pivot (kenaz-ml runs host-side), and leaving it means the OpenAPI description says "Sigil ML" while the title says "kenaz-ml". Prefer something like `"kenaz-ml — ML prediction service for the Sigil ledger"`, which renames the product and keeps `Sigil` where it correctly names what this reads.
+
+Regenerate `docs/openapi.json` from the app rather than hand-editing it, so title and description cannot drift.
+
+**Validation**: no `sigil_config`/`sigil_features` identifiers remain · the three description strings name kenaz-ml · `docs/openapi.json` regenerated, not hand-edited · `Sigil` retained wherever it names the ledger
+
+---
+
 ### T009 — Log prefixes, docs, CI, Makefile
 
 **Steps**:
@@ -252,7 +277,7 @@ Distinct from the ledger's `SIGILD_*`, which never change. **WP01 rev 2 missed t
 
 ## Definition of Done
 
-- [ ] All nine subtasks complete
+- [ ] All ten subtasks complete
 - [ ] `import kenaz_ml` works; `import sigil_ml` raises
 - [ ] The 163-occurrence in-scope ledger surface unchanged, asserted by a committed test
 - [ ] `db_path()` still resolves to `~/.local/share/sigild/data.db`
