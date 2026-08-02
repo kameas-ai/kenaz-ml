@@ -17,10 +17,10 @@ Two packages rather than three, deliberately. The storage-layer reorganization w
 
 | ID | Description | WP |
 |---|---|---|
-| T001 | Enumerate occurrences across all 8 bulk-edit categories | WP01 |
-| T002 | Classify every `sigil` hit: this product vs the Sigil daemon | WP01 |
-| T003 | Enumerate string-resolved and grep-invisible references | WP01 |
-| T004 | Re-probe serialized artifacts; reconcile counts | WP01 |
+| T001 | Enumerate occurrences across all 8 bulk-edit categories | WP01 | [D] |
+| T002 | Classify every `sigil` hit: this product vs the Sigil daemon | WP01 | [D] |
+| T003 | Enumerate string-resolved and grep-invisible references | WP01 | [D] |
+| T004 | Re-probe serialized artifacts; reconcile counts | WP01 | [D] |
 | T005 | `git mv` the package directory | WP02 |
 | T006 | Rewrite imports and intra-package references | WP02 |
 | T007 | `pyproject.toml` — distribution, packages, entry point, URLs | WP02 |
@@ -42,10 +42,10 @@ Two packages rather than three, deliberately. The storage-layer reorganization w
 
 **Included subtasks**:
 
-- [ ] T001 Enumerate occurrences across all 8 bulk-edit categories (WP01)
-- [ ] T002 Classify every `sigil` hit: this product vs the Sigil daemon (WP01)
-- [ ] T003 Enumerate string-resolved and grep-invisible references (WP01)
-- [ ] T004 Re-probe serialized artifacts; reconcile counts (WP01)
+- [x] T001 Enumerate occurrences across all 8 bulk-edit categories (WP01)
+- [x] T002 Classify every `sigil` hit: this product vs the Sigil daemon (WP01)
+- [x] T003 Enumerate string-resolved and grep-invisible references (WP01)
+- [x] T004 Re-probe serialized artifacts; reconcile counts (WP01)
 
 **Risks**: T002 is the whole mission. A map that cannot tell `sigil_ml` (rename) from `sigild` (never rename) would authorise a change that points every install at a nonexistent database — and the code would still import cleanly, so it would look like it worked.
 
