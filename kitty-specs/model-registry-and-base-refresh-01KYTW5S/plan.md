@@ -72,8 +72,8 @@ src/sigil_ml/
 │   ├── retained.py            # Retained training set (JSONL), bounds, deletion
 │   └── refresh.py             # Base-version detection and rebuild policy
 ├── config.py                  # + base_models_dir(), retained_data_dir()
-├── loader.py                  # FilesystemModelLoader gains validation
-├── storage/model_store.py     # UNCHANGED (D-005)
+├── modelstore/loader.py       # FilesystemModelLoader gains validation
+├── modelstore/stores.py       # UNCHANGED (D-005)
 └── training/
     ├── trainer.py             # Retain examples; strict vector lookup
     └── cloud_trainer.py       # Strict vector lookup

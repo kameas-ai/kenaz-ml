@@ -92,7 +92,8 @@ One JSON file per artifact, named `{model_name}.json`. This schema is the shared
 | `provenance.reset_reason` | no | Set when personalization was discarded, e.g. `contract_version_changed`. Answers FR-014's "recorded" requirement. |
 | `runtime.sklearn_version` | yes | Checked at load (FR-008). |
 | `feature_contract.names` | yes | **Ordered.** This list is the vector layout. |
-| `feature_contract.version` | yes | Bumped on any change to names, order, semantics, or scaling. |
+| `feature_contract.service` | yes | Feast feature service name. The contract is *sourced* from Feast, not authored here. |
+| `feature_contract.service_version` | yes | From `feature_store.materialize.feature_service_version()` — changes exactly when the contract does. Primary check. |
 | `training.retained_generation` | no | Which generation of retained data trained this; increments on reset. |
 | `artifact_sha256` | yes | Verified before deserialization (FR-005). |
 
@@ -178,7 +179,7 @@ Otherwise a base refresh is due:
 
 ## Vector Construction
 
-Replaces the current silent-default construction at `trainer.py:101` and `cloud_trainer.py:263`.
+Replaces the current silent-default construction at `trainer.py:126/175` and `cloud_trainer.py:377/431`.
 
 | Today | After |
 |---|---|

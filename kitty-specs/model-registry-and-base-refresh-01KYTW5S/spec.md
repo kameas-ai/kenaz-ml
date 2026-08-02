@@ -154,7 +154,7 @@ The retained training data is derived from the user's own activity. It is writte
 
 | ID | Constraint | Status |
 |---|---|---|
-| C-001 | The local runtime dependency set stays limited to `scikit-learn`, `numpy`, `fastapi`, `uvicorn`, `joblib` per `CLAUDE.md`. Manifest handling uses the standard library. | Draft |
+| C-001 | Manifest handling uses the standard library only — no new dependencies. Note the project ceiling now also permits `feast` (recorded exception in `CLAUDE.md`); that does not license anything further. | Draft |
 | C-002 | The manifest schema is a shared interface with the cloud registry; it MUST be implementable by an MLflow export job without local-only assumptions. | Draft |
 | C-003 | Retained training data is local-only. No configuration may enable its transmission from the open-source deployment. | Draft |
 | C-004 | The base slot is read-only at runtime; it is written only by installation or upgrade. | Draft |
