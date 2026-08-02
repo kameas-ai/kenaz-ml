@@ -40,7 +40,7 @@ Each WP owns its own test module, so file ownership is disjoint throughout.
 | T019 | `trainer.py` retains examples, strict lookup | WP05 | | [D] |
 | T020 | `cloud_trainer.py` strict lookup | WP05 | [D] |
 | T021 | Manifest written on every local training run | WP05 | | [D] |
-| T022 | No-base default-state verification | WP06 | [P] |
+| T022 | No-base default-state verification | WP06 | [D] |
 | T023 | No-egress verification | WP06 | [P] |
 | T024 | End-to-end provenance verification | WP06 | |
 
@@ -168,7 +168,7 @@ Each WP owns its own test module, so file ownership is disjoint throughout.
 
 **Included subtasks**:
 
-- [ ] T022 No-base default-state verification (WP06)
+- [x] T022 No-base default-state verification (WP06)
 - [ ] T023 No-egress verification (WP06)
 - [ ] T024 End-to-end provenance verification (WP06)
 
