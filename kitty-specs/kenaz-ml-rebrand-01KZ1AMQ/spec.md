@@ -23,7 +23,9 @@ Measured surface: **1,738 occurrences of `sigil_ml` across 165 files**, **420 of
 
 ## The distinction that governs this mission
 
-**`sigil` is not always this product.** `kenaz-ml` is the ML sidecar for [`sigil`](https://github.com/wambozi/sigil), a *separate* Go daemon called `sigild` that owns `~/.local/share/sigild/data.db` and the `events`/`tasks` tables.
+**`sigil` is not always this product.** `sigild` is the ledger `kenaz-ml` reads — it owns `~/.local/share/sigild/data.db` and the `events`/`tasks` tables.
+
+Confirmed 2026-08-02 with the product owner, and corroborated by two post-pivot `CHANGELOG.md` entries dated `2026-05-16` in this repo and in `kenaz-fleet`: the workbench programme pivoted to host-rendered and `kenaz-ml` moved host-side, but **the ledger kept the name `sigild`**. kenaz-ml continues to interact with it. Its name is therefore a live runtime contract, independent of how the product is branded.
 
 - **`sigil_ml`** — this package. Renames to `kenaz_ml`.
 - **`sigild`, `sigil`, `~/.local/share/sigild/`, `SIGILD_PLUGIN_URL`, "the Sigil daemon"** — the other product. **138 references. None may be renamed.** Renaming any of them would point this product at a path that does not exist and break the integration it exists to serve.
