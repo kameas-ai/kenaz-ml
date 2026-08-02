@@ -32,10 +32,10 @@ Each WP owns its own test module, so file ownership is disjoint throughout.
 | T011 | Tolerant reader | WP03 | | [D] |
 | T012 | Bound enforcement and eviction | WP03 | [D] |
 | T013 | Deletion and generation increment, plus tests | WP03 | | [D] |
-| T014 | Base-version change detection | WP04 | |
-| T015 | Same-contract rebuild | WP04 | |
-| T016 | Changed-contract reset | WP04 | [P] |
-| T017 | Atomicity and refresh tests | WP04 | |
+| T014 | Base-version change detection | WP04 | | [D] |
+| T015 | Same-contract rebuild | WP04 | | [D] |
+| T016 | Changed-contract reset | WP04 | [D] |
+| T017 | Atomicity and refresh tests | WP04 | | [D] |
 | T018 | `loader.py` uses registry validation | WP05 | |
 | T019 | `trainer.py` retains examples, strict lookup | WP05 | |
 | T020 | `cloud_trainer.py` strict lookup | WP05 | [P] |
@@ -124,10 +124,10 @@ Each WP owns its own test module, so file ownership is disjoint throughout.
 
 **Included subtasks**:
 
-- [ ] T014 Base-version change detection (WP04)
-- [ ] T015 Same-contract rebuild (WP04)
-- [ ] T016 Changed-contract reset (WP04)
-- [ ] T017 Atomicity and refresh tests (WP04)
+- [x] T014 Base-version change detection (WP04)
+- [x] T015 Same-contract rebuild (WP04)
+- [x] T016 Changed-contract reset (WP04)
+- [x] T017 Atomicity and refresh tests (WP04)
 
 **Risks**: Rebuild is full retraining per D-003 — do not reach for warm-start, which is a later mission. Atomicity is load-bearing: a half-written artifact leaves the install with no servable model, which is worse than not refreshing.
 
