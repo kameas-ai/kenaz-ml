@@ -25,7 +25,7 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 | T003 | Reconcile the map against the measured 41 imports | WP01 | [D] |
 | T004 | `ModelCache` tests — TTL expiry, LRU eviction, statistics | WP02 | [D] |
 | T005 | `FilesystemModelLoader` tests — tenant scoping, shared fallback, `None` on missing | WP02 | [D] |
-| T006 | Prove the new tests fail when the behaviour is broken | WP02 |
+| T006 | Prove the new tests fail when the behaviour is broken | WP02 | [D] |
 | T007 | Capture a pre-move behavioural baseline | WP02 |
 | T008 | Create `datastore/` and move the three data modules | WP02 |
 | T009 | Create `modelstore/` and move the three model modules | WP02 |
@@ -74,7 +74,7 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 
 - [x] T004 `ModelCache` tests — TTL expiry, LRU eviction, statistics (WP02)
 - [x] T005 `FilesystemModelLoader` tests — tenant scoping, shared fallback, `None` on missing (WP02)
-- [ ] T006 Prove the new tests fail when the behaviour is broken (WP02)
+- [x] T006 Prove the new tests fail when the behaviour is broken (WP02)
 - [ ] T007 Capture a pre-move behavioural baseline (WP02)
 - [ ] T008 Create `datastore/` and move the three data modules (WP02)
 - [ ] T009 Create `modelstore/` and move the three model modules (WP02)
