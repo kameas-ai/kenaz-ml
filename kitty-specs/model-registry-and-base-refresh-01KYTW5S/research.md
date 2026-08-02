@@ -95,6 +95,6 @@ Resolution differs by distribution form: `sys._MEIPASS` under a frozen bundle, p
 ## Prior art consulted
 
 - `docs/ML_ARCHITECTURE.md` §5 — established the manifest shape, two-slot layout, and the MLflow export seam this schema must satisfy.
-- `src/sigil_ml/storage/model_store.py` — `S3ModelStore` already implements versioned keys with a `latest` pointer, reviewed to confirm the manifest schema can describe both local and cloud artifacts (C-002).
-- `src/sigil_ml/loader.py` — the existing tenant-then-shared fallback, whose resolution shape the local-then-base slot order deliberately mirrors.
+- `src/sigil_ml/modelstore/stores.py` — `S3ModelStore` already implements versioned keys with a `latest` pointer, reviewed to confirm the manifest schema can describe both local and cloud artifacts (C-002).
+- `src/sigil_ml/modelstore/loader.py` — the existing tenant-then-shared fallback, whose resolution shape the local-then-base slot order deliberately mirrors.
 - `src/sigil_ml/config.py` — XDG path resolution, confirming `models_dir()` is user-writable and therefore unsuitable for the base slot.

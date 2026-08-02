@@ -17,7 +17,7 @@
       ],
       "write_scope": [
         "src/sigil_ml/config.py",
-        "src/sigil_ml/loader.py",
+        "src/sigil_ml/modelstore/loader.py",
         "src/sigil_ml/registry/__init__.py",
         "src/sigil_ml/registry/manifest.py",
         "src/sigil_ml/registry/refresh.py",
