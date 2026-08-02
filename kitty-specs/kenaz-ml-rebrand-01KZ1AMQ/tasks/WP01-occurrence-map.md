@@ -149,3 +149,4 @@ spec-kitty agent action implement WP01 --agent <name> --mission kenaz-ml-rebrand
 - 2026-08-02T14:51:28Z – claude – shell_pid=27999 – Started review via action command
 - 2026-08-02T15:02:54Z – claude – shell_pid=27999 – Moved to planned
 - 2026-08-02T15:22:04Z – claude – shell_pid=43138 – Started implementation via action command
+- 2026-08-02T15:22:05Z – claude – shell_pid=43138 – rev 3: SIGIL_* family (65) added per Q3; ledger surface corrected 242->163; F2/F3/F4 fixed
