@@ -37,6 +37,10 @@ Resolution differs by distribution form: `sys._MEIPASS` under a frozen bundle, p
 
 **Decision**: Full retraining on the retained set, seeded from the new base where the estimator supports it, without incremental extension mechanics.
 
+> **Clarified during WP04.** "Seeded from the new base" was ambiguous and read as warm-start, which C-006 forbids. Settled reading: `sklearn.base.clone` takes the new base's **hyperparameters** and discards its fitted state, then fits on the retained set.
+>
+> The consequence is worth stating plainly rather than leaving implicit: the rebuilt model's **learned parameters come entirely from local data**. What the user inherits from base v2 is its *tuning*, not its *fit*. That is a real limitation of deferring warm-start, and it narrows User Story 3's promise — "the improved starting point" means improved hyperparameters, not an improved starting fit. Genuine base-fit inheritance is exactly what the deferred warm-start mission would add.
+
 **Rationale**: C-006 defers warm-start to a later feature. Full retraining satisfies every acceptance scenario in User Story 3, works uniformly across the estimator roster — which includes several with no `partial_fit` support — and at these data volumes takes seconds. The later warm-start feature can optimize this path without altering its inputs, outputs, or the manifest it writes.
 
 **Alternatives considered**:
