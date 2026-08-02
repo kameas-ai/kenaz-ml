@@ -26,7 +26,7 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 | T004 | `ModelCache` tests — TTL expiry, LRU eviction, statistics | WP02 | [D] |
 | T005 | `FilesystemModelLoader` tests — tenant scoping, shared fallback, `None` on missing | WP02 | [D] |
 | T006 | Prove the new tests fail when the behaviour is broken | WP02 | [D] |
-| T007 | Capture a pre-move behavioural baseline | WP02 |
+| T007 | Capture a pre-move behavioural baseline | WP02 | [D] |
 | T008 | Create `datastore/` and move the three data modules | WP02 |
 | T009 | Create `modelstore/` and move the three model modules | WP02 |
 | T010 | Package `__init__.py` re-exports for both | WP02 |
@@ -75,7 +75,7 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 - [x] T004 `ModelCache` tests — TTL expiry, LRU eviction, statistics (WP02)
 - [x] T005 `FilesystemModelLoader` tests — tenant scoping, shared fallback, `None` on missing (WP02)
 - [x] T006 Prove the new tests fail when the behaviour is broken (WP02)
-- [ ] T007 Capture a pre-move behavioural baseline (WP02)
+- [x] T007 Capture a pre-move behavioural baseline (WP02)
 - [ ] T008 Create `datastore/` and move the three data modules (WP02)
 - [ ] T009 Create `modelstore/` and move the three model modules (WP02)
 - [ ] T010 Package `__init__.py` re-exports for both (WP02)
