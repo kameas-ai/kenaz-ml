@@ -19,7 +19,7 @@ Each WP owns its own test module, so file ownership is disjoint throughout.
 
 | ID | Description | WP | Parallel |
 |---|---|---|---|
-| T001 | Manifest schema and JSON read/write | WP01 | | [D] |
+| T001 | Manifest schema and JSON read/write | WP01 | | [D] | [D] |
 | T002 | Integrity verification before deserialization | WP01 | [D] |
 | T003 | Ordered feature-contract validation | WP01 | [D] |
 | T004 | Runtime version compatibility check | WP01 | [D] |
