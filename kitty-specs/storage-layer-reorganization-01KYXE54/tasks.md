@@ -32,7 +32,7 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 | T010 | Package `__init__.py` re-exports for both | WP02 | [D] |
 | T011 | Rewrite all import sites named in the occurrence map | WP02 | [D] |
 | T012 | Delete the old module paths — no shims | WP02 | [D] |
-| T013 | Carry the Stack B tests across to the new paths | WP02 |
+| T013 | Carry the Stack B tests across to the new paths | WP02 | [D] |
 | T014 | Verify old paths are gone and the public surface resolves | WP03 |
 | T015 | Verify the frozen binary builds and serves | WP03 |
 | T016 | Verify pre-change artifacts still load; check import time | WP03 |
@@ -81,7 +81,7 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 - [x] T010 Package `__init__.py` re-exports for both (WP02)
 - [x] T011 Rewrite all import sites named in the occurrence map (WP02)
 - [x] T012 Delete the old module paths — no shims (WP02)
-- [ ] T013 Carry the Stack B tests across to the new paths (WP02)
+- [x] T013 Carry the Stack B tests across to the new paths (WP02)
 
 **Risks**: The commit boundary between Part 1 and Part 2 is the only remaining evidence the tests were written against pre-move code — the package boundary that used to enforce it is gone. Moves must be 1:1 with no logic edits (C-001, D-002); tidying while moving is what makes a safe refactor unreviewable. No compatibility shims (D-004). The two caches must not be reconciled (C-002). If an assertion needs changing to pass, the move was not behaviour-preserving — that is a finding, not a fix.
 
