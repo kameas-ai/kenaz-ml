@@ -20,16 +20,24 @@ categories:
     files: 84
     note: src/sigil_ml/ -> src/kenaz_ml/ via `git mv` (D-002), plus every identifier-position
       reference. No module moves.
+    kameas_ml_occurrences: 259
+    kameas_ml_files: 34
+    kameas_ml_measurement: git grep -oP 'kameas[-_]ml' -- ':!kitty-specs' ':!.worktrees' =
+      259/34 (pyproject.toml holds 8). A reviewer measuring 'kameas-ml' hyphen-only got 258/7;
+      the delta is the underscore form in the editable-install .pth name.
   import_paths:
     action: rename
-    occurrences: 229
-    files: 40
+    occurrences: 385
+    files: 68
     scope:
     - src/
     - tests/
     - scripts/
     note: Statement-shaped imports fail loudly at collection if missed, making this the safest
       category. The dangerous forms are in `string_resolved`.
+    measurement: git grep -oP '^\s*(?:from|import)\s+sigil_ml'
+    correction: 'rev 2 said 229/40, which was actually ''sigil_ml occurrences in src/'' —
+      a different measurement wearing this label. Real import statements: 385/68.'
   filesystem_paths:
     action: manual_review
     note: MIXED — this is the category that can destroy the product. Some paths rename, one
@@ -49,10 +57,12 @@ categories:
       why: if missed, pyre type-checks nothing
     do_not_change:
     - path: ~/.local/share/sigild/
-      occurrences: 70
+      occurrences: 15
       why: THE critical invariant. config.py:59 hardcodes `_data_home() / "sigild" / "data.db"`.
         Renaming points every install at a database that does not exist WHILE IMPORTING PERFECTLY
         — it would look like the rename worked and fail only at runtime.
+      measurement: git grep -oP 'share/sigild' -> 15 occ / 11 files. rev 2 said 70, which
+        was the repo-wide figure including kitty-specs/.
     - path: ~/.local/share/sigild/ml-models/
   serialized_keys:
     action: manual_review
@@ -128,6 +138,35 @@ categories:
         - src/sigil_ml/cli.py:96 (write), :272, :273, :276 (SIGIL_ML_TRAIN_*)
         - src/sigil_ml/training/locking.py:15 (SIGIL_ML_LOCK_TIMEOUT_SEC)
         - tests/ (SIGIL_ML_TEST_POSTGRES_URL), freeze/*.spec (SIGIL_ML_SRC)
+      scope_was_too_narrow: rev 2 asserted SIGIL_ML_* and SIGILD_* were the only two families.
+        FALSE — it erased a third, 3x larger, also product-owned. See env_vars_SIGIL_family
+        below.
+    env_vars_SIGIL_family:
+      pattern: SIGIL_* (case-sensitive, excluding SIGIL_ML_*)
+      occurrences: 65
+      files: 15
+      members:
+        SIGIL_MODE: 17
+        SIGIL_POSTGRES_URL: 17
+        SIGIL_MODEL_*: 12
+        SIGIL_S3_*: 9
+        SIGIL_TENANT*: 8
+        SIGIL_CLOUD_ARCHITECTURE: 2
+      ownership: THIS PRODUCT. All read by src/sigil_ml/config.py. Not the ledger's.
+      evidence: config.py:124 SIGIL_MODE, :136 SIGIL_POSTGRES_URL, :145 SIGIL_TENANT, :155
+        SIGIL_S3_BUCKET, :160 SIGIL_S3_ENDPOINT_URL
+      why_rev2_missing_this_was_serious: config.py:43 reads SIGIL_ML_MODE and config.py:124
+        reads SIGIL_MODE — twelve lines apart in one file. rev 2 listed the first as a rename
+        site and made the second invisible, so an implementer renames one and leaves the other.
+        Worse, rev 2's 242 was labelled 'the in-scope daemon surface' while ~27% of it was
+        this product's own config keys — WP02 would have committed a test asserting a false
+        belief about ownership.
+      decision: 'B-extended (product owner, 2026-08-02): same treatment as SIGIL_ML_* — rename
+        to KENAZ_* with a deprecation shim reading the old name and warning; new name wins
+        when both are set.'
+      blast_radius_note: Mostly cloud-path configuration (Postgres URL, S3, tenancy), so breakage
+        lands on container specs and deployment manifests rather than a developer's shell
+        profile.
   cli_commands:
     action: rename
     note: 'The skill''s default here is do_not_change (users'' scripts break), but renaming
@@ -180,7 +219,10 @@ categories:
     note: Default posture is do_not_change (dashboards key off exact strings), but FR-005
       mandates renaming the prefixes and no external dashboard consumes them — this is a local
       sidecar. Overlaps user_facing_strings; logging_config.py is the hub.
-    occurrences: 17
+    occurrences: 3
+    measurement: git grep -oP 'kameas-ml:' -- src   (actual log-prefix literals)
+    correction: rev 2 said 17, unreproducible. Only 3 literal 'kameas-ml:' prefixes exist
+      in src/. The wider set of user-visible strings is in user_facing_strings.
 exceptions:
 - path: kitty-specs/**
   action: do_not_change
@@ -219,32 +261,27 @@ status:
       currently points at a repository name that no longer exists. Rev 1 listed this rename
       but enumerated no occurrences.
   do_not_change_surface:
-    measurement: git grep -oPi 'sigil(?!_ml)' -- ':!kitty-specs' ':!.worktrees'
+    measurement: git grep -oPi 'sigil(?!_ml\b)(?!-ml\b)(?!_[A-Z])' -- ':!kitty-specs' ':!.worktrees'
     in_scope_total:
-      occurrences: 242
-      files: 46
+      occurrences: 163
+      files: 39
     breakdown:
       sigild:
-        occurrences: 91
+        occurrences: 95
         files: 32
-      bare_Sigil_prose:
-        occurrences: 23
-        files: 11
       sigilctl:
         occurrences: 11
         files: 7
       daemon_urls:
         occurrences: 9
         files: 6
-      SIGILD_env:
-        occurrences: 3
-        files: 2
-    meaning: 'sigild is the ledger kenaz-ml reads. Confirmed with the product owner 2026-08-02:
-      after the 2026-05-16 workbench host-rendered pivot, kenaz-ml moved host-side but STILL
-      INTERACTS WITH sigild. Corroborated by post-pivot CHANGELOG.md entries here and in kenaz-fleet.'
-    wp02_instruction: Assert 242 in-scope / 91 sigild. Do NOT assert 524 or 194 — those were
-      rev 1 errors, are repo-wide rather than in-scope, and are currently committed into spec.md
-      and WP02 T010. Both must be corrected.
+      bare_Sigil_prose_and_remainder:
+        occurrences: 48
+    supersedes: rev 2's 242/46. That figure counted 65 product-owned SIGIL_* vars and 5 hyphenated
+      sigil-ml as though they were the ledger's. 242 - 65 - 5 - overlap = 163.
+    wp02_instruction: Assert 163 in-scope / 95 sigild, using the pattern above — it must exclude
+      SIGIL_<UPPERCASE> or it re-counts this product's own config keys as the ledger's. Do
+      NOT assert 138, 524 or 242.
   string_resolved:
   - file: src/sigil_ml/cli.py
     line: 98
@@ -311,6 +348,12 @@ status:
         named callables and raises InvalidModelError for undefined ones; `pyre analyze` fails
         by default and suppression is an explicit opt-out. The impact direction is right (taint
         coverage over every /predict endpoint is lost) but it is loud, not silent.
+      also_contains: 'line 1: ''# Sigil-ML Pysa taint model definitions.'' — the hyphenated
+        brand form'
+    - path: .pyre/taint_models/taint.config
+      impact: low
+      verified: 'line 2: ''Sigil-ML taint configuration for Pysa security analysis'''
+      note: covered by WP02's .pyre/** ownership; enumeration gap only in rev 2.
     - path: .pyre_configuration
       impact: high
       verified: true
@@ -330,11 +373,13 @@ status:
       note: MIXED FILE. Rename kameas-ml; keep every sigil. Do NOT rename the file itself
         — "sigil-daemon" in the filename is correct.
   open_questions:
-  - id: Q2
-    question: Two daemon URLs coexist — github.com/wambozi/sigil and github.com/kameas-ai/sigil.
-      One is presumably stale.
-    blocks: nothing
-    detail: both are do_not_change for this mission; flagged as a separate issue
+  - id: Q4
+    question: SIGIL_MODE and SIGIL_ML_MODE both exist and both select local-vs-cloud.
+    blocks: nothing — filed as a separate issue at the product owner's direction
+    detail: config.py:43 resolve_mode() reads SIGIL_ML_MODE; config.py:124 reads SIGIL_MODE.
+      Two switches for one decision. This mission renames both to KENAZ_* and PRESERVES the
+      duplication under new names. Consolidating them is a behaviour change and must not be
+      smuggled into a rename.
   revision_history:
     rev1_rejected_at_review:
     - error: Schema violation — invented action values (mixed, none_required, rename_except_one)
@@ -368,7 +413,16 @@ status:
     - 'Artifact re-probe: registry.db 0 hits, 5/5 joblib clean.'
     - The git-object alias entry and its reasoning.
     - All 7 out-of-scope files exist and carry the claimed content.
-    - wp02_checklist sums to exactly 647 with complete coverage.
+    rev2_rejected_at_review:
+    - error: Erased the SIGIL_* env-var family (65 occ / 15 files), asserting a false two-family
+        split. 3x larger than the SIGIL_ML_* set Q1 was about.
+      consequence: config.py:43 listed as a rename site while config.py:124 was invisible;
+        and 242 was labelled 'daemon surface' when 27% was product-owned.
+    - error: 'import_paths 229/40 was ''sigil_ml in src/'' mislabelled. Real: 385/68.'
+    - error: 'logs_telemetry 17 and share/sigild 70 unreproducible. Real: 3 and 15.'
+    - error: No kameas-ml count in categories; no reconciliation against 138/1738/420.
+    - error: rev1_confirmed_correct attested to a wp02_checklist key removed during the schema
+        restructuring — an attestation to something not in the file.
   measurement_scope: 'All counts are IN-SCOPE: git grep -oP <pattern> -- '':!kitty-specs''
     '':!.worktrees''. kitty-specs/ is excluded because D-003/FR-013 forbid rewriting merged
     missions'' records; .worktrees/ is an untracked husk. Counting either inflates the figure
@@ -379,3 +433,24 @@ status:
   - id: Q1
     question: Rename SIGIL_ML_* to KENAZ_ML_*?
     answer: B — rename with a deprecation shim (product owner, 2026-08-02)
+  - id: Q3
+    question: Extend the shim to the SIGIL_* family (65 occ)?
+    answer: B-extended (product owner, 2026-08-02) — yes, same treatment.
+  reconciliation_against_pre_planning:
+    pre_planning_claimed:
+      sigil_ml: 1738
+      kameas_ml: 420
+      daemon: 138
+    measured_now_repo_wide:
+      sigil_ml: 1810
+      kameas_ml: 458
+    measured_now_in_scope:
+      sigil_ml: 647
+      kameas_ml: 259
+      daemon: 163
+    explanation: 'The pre-planning figures were repo-wide and did NOT undercount. The +72/+38
+      deltas are this mission''s own spec directory (75 sigil_ml + 40 kameas-ml), written
+      after that measurement. rev 1 mistook self-measurement for a plan error; that claim
+      is retracted. The 138 daemon figure was a genuine undercount of a differently-scoped
+      quantity: it appears to have counted only `sigild`, repo-wide, and the correct in-scope
+      ledger surface is 163.'

@@ -78,7 +78,7 @@ Rename `sigil_ml` → `kenaz_ml` and `kameas-ml` → `kenaz-ml` across every sit
 `kenaz-ml` is the ML sidecar for [`sigil`](https://github.com/wambozi/sigil), a **separate Go daemon** owning `~/.local/share/sigild/data.db`.
 
 - **RENAME**: `sigil_ml` (this package), `kameas-ml` (this distribution and CLI)
-- **NEVER**: `sigild`, `sigil` the daemon, `~/.local/share/sigild/`, `SIGILD_PLUGIN_URL`, `sigilctl`, `github.com/wambozi/sigil`, prose about "the Sigil daemon" — **242 in-scope references** (WP01 rev 2)
+- **NEVER**: `sigild`, `sigil` the daemon, `~/.local/share/sigild/`, `SIGILD_PLUGIN_URL`, `sigilctl`, `github.com/wambozi/sigil`, prose about "the Sigil daemon" — **163 in-scope references** (WP01 rev 3)
 
 A blanket `sigil` → `kenaz` substitution would rewrite the data path. Every install would then point at a database that does not exist, **while importing perfectly** — it would look like it worked. T010 makes this an asserted invariant rather than a hope.
 
@@ -172,20 +172,28 @@ spec-kitty agent action implement WP02 --agent <name> --mission kenaz-ml-rebrand
 
 ### T009c — `SIGIL_ML_*` → `KENAZ_ML_*` with a deprecation shim (FR-014)
 
-**Purpose**: The only subtask here that writes new behaviour. 21 occurrences across 8 files.
+**Purpose**: The only subtask here that writes new behaviour. **86 occurrences across 20 files — two families, not one.**
 
-These are **this product's** env vars — distinct from the ledger's `SIGILD_*`, which never change.
+Two families, **both owned by this product**, both read by `src/sigil_ml/config.py`:
+
+| Family | Count | Members |
+|---|---|---|
+| `SIGIL_ML_*` → `KENAZ_ML_*` | 21 | `MODE`, `SRC`, `TRAIN_*`, `LOCK_TIMEOUT_SEC`, `TEST_POSTGRES_URL` |
+| `SIGIL_*` → `KENAZ_*` | 65 | `MODE`(17), `POSTGRES_URL`(17), `MODEL_*`(12), `S3_*`(9), `TENANT*`(8) |
+
+Distinct from the ledger's `SIGILD_*`, which never change. **WP01 rev 2 missed the second family entirely** — it listed `config.py:43` (`SIGIL_ML_MODE`) as a rename site while `config.py:124` (`SIGIL_MODE`) was invisible, twelve lines apart in the same file. Do not repeat that: grep both patterns.
 
 **Steps**:
 
-1. Add a helper (in `config.py`) that reads `KENAZ_ML_<X>`, falls back to `SIGIL_ML_<X>` when the new name is unset, and emits a deprecation warning naming both. **The new name wins when both are set.**
+1. Add a helper (in `config.py`) that maps `KENAZ_ML_<X>`→`SIGIL_ML_<X>` and `KENAZ_<X>`→`SIGIL_<X>`, reading the new name first, falling back to the old, and emitting a deprecation warning naming both. **The new name wins when both are set.**
 2. Route every read through it. Access is scattered across six modules — `cli.py`, `config.py`, `logging_config.py`, `modelstore/cache.py`, `tenant.py`, `training/locking.py` — with no existing accessor.
 3. **`cli.py:96` writes `os.environ["SIGIL_ML_MODE"] = mode.value`.** Move the write to the new name in the same change. If the write keeps the old name while the read gains a fallback, the product emits a deprecation warning about its own internal handoff on every CLI-started run.
 4. **`training/locking.py:15` reads at module import time** (`STALE_LOCK_TIMEOUT_SEC = int(os.environ.get(...))`). Its warning fires before logging is configured; route it through the helper anyway and accept the warning may land on stderr.
 5. Update `freeze/*.spec` (`SIGIL_ML_SRC`), tests (`SIGIL_ML_TEST_POSTGRES_URL`), and the docs that name these vars.
-6. Test all three paths: old name only (works + warns), new name only (works, silent), both set (new wins).
+6. Test all three paths **for both families**: old name only (works + warns), new name only (works, silent), both set (new wins).
+7. **Do NOT consolidate `SIGIL_MODE` and `SIGIL_ML_MODE`.** They duplicate each other's purpose (both select local-vs-cloud) and that is a real defect — but it is filed as Q4, a separate issue. Rename both, preserve the duplication. Mixing a semantic consolidation into a rename is how a 165-file diff stops being reviewable.
 
-**Validation**: helper exists and every read routes through it · the `cli.py` write uses the new name · all three precedence cases tested · docs updated
+**Validation**: helper covers both families · every read routes through it · the `cli.py` write uses the new name · all three precedence cases tested for each family · `SIGIL_MODE`/`SIGIL_ML_MODE` both renamed and still distinct · docs updated
 
 ---
 
@@ -210,7 +218,7 @@ These are **this product's** env vars — distinct from the ledger's `SIGILD_*`,
 
 **Steps**:
 
-1. **The Sigil surface is unchanged.** After the rename, assert by count that the daemon surface is still present. **Both the plan's "138" and WP01 rev 1's "524" were wrong.** The correct figure is **242 in-scope occurrences of `sigil` not followed by `_ml`, across 46 files, 91 of them `sigild`** — measured excluding `kitty-specs/` and `.worktrees/`, which this mission must not touch. Assert those numbers, scoped the same way, and do not loosen the assertion to make it pass. Then assert at runtime, because text can be present and still wrong:
+1. **The Sigil surface is unchanged.** After the rename, assert by count that the daemon surface is still present. **Both the plan's "138" and WP01 rev 1's "524" were wrong.** The correct figure is **163 in-scope occurrences across 39 files, 95 of them `sigild`**, matched by `sigil(?!_ml\b)(?!-ml\b)(?!_[A-Z])` — the trailing exclusion matters, or this product's own `SIGIL_*` config keys get counted as the ledger's — measured excluding `kitty-specs/` and `.worktrees/`, which this mission must not touch. Assert those numbers, scoped the same way, and do not loosen the assertion to make it pass. Then assert at runtime, because text can be present and still wrong:
    ```python
    assert config.db_path() == Path.home()/".local/share/sigild/data.db"
    ```
@@ -246,7 +254,7 @@ These are **this product's** env vars — distinct from the ledger's `SIGILD_*`,
 
 - [ ] All nine subtasks complete
 - [ ] `import kenaz_ml` works; `import sigil_ml` raises
-- [ ] The 242-occurrence in-scope daemon surface unchanged, asserted by a committed test
+- [ ] The 163-occurrence in-scope ledger surface unchanged, asserted by a committed test
 - [ ] `db_path()` still resolves to `~/.local/share/sigild/data.db`
 - [ ] The frozen-history alias key preserved and commented
 - [ ] `kitty-specs/` for merged missions untouched

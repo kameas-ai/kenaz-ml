@@ -28,7 +28,7 @@ Measured surface: **1,738 occurrences of `sigil_ml` across 165 files**, **420 of
 Confirmed 2026-08-02 with the product owner, and corroborated by two post-pivot `CHANGELOG.md` entries dated `2026-05-16` in this repo and in `kenaz-fleet`: the workbench programme pivoted to host-rendered and `kenaz-ml` moved host-side, but **the ledger kept the name `sigild`**. kenaz-ml continues to interact with it. Its name is therefore a live runtime contract, independent of how the product is branded.
 
 - **`sigil_ml`** — this package. Renames to `kenaz_ml`.
-- **`sigild`, `sigil`, `~/.local/share/sigild/`, `SIGILD_PLUGIN_URL`, "the Sigil daemon"** — the other product. **242 in-scope occurrences across 46 files, 91 of them `sigild` (WP01 rev 2, measured excluding `kitty-specs/` and `.worktrees/`). None may be renamed.** Renaming any of them would point this product at a path that does not exist and break the integration it exists to serve.
+- **`sigild`, `sigil`, `~/.local/share/sigild/`, `SIGILD_PLUGIN_URL`, "the Sigil daemon"** — the other product. **163 in-scope occurrences across 39 files, 95 of them `sigild` (WP01 rev 3). None may be renamed.** Note this excludes the `SIGIL_*` and `SIGIL_ML_*` environment variables, which look like the ledger's and are in fact this product's own — see FR-014. Renaming any of them would point this product at a path that does not exist and break the integration it exists to serve.
 
 The GitHub organisation `kameas-ai` also stays; only the repository name within it was wrong.
 
@@ -59,7 +59,7 @@ The daemon this product talks to keeps its name, its data path, and its configur
 
 **Why this priority**: `sigild` is a different product. Renaming `~/.local/share/sigild/` would point this service at a database that does not exist, silently breaking every install. This is the single way this mission could cause real damage.
 
-**Independent Test**: After the rename, the service reads the same database path, honours the same environment variables, and all 242 in-scope `sigild`/`sigil` daemon references are unchanged.
+**Independent Test**: After the rename, the service reads the same database path, honours the same environment variables, and all 163 in-scope ledger references are unchanged.
 
 **Acceptance Scenarios**:
 
@@ -115,7 +115,7 @@ Predictions, endpoints, model artifacts, and the frozen binary work exactly as b
 | FR-011 | Module references resolved by string rather than by import statement MUST be updated. | Draft |
 | FR-012 | Historical source loaded from git objects MUST continue to execute; aliases matching historical text MUST keep the old name. | Draft |
 | FR-013 | Prior missions' specification records MUST NOT be rewritten. | Draft |
-| FR-014 | This product's own `SIGIL_ML_*` environment variables MUST be renamed to `KENAZ_ML_*`, with a deprecation shim that reads the old name when the new one is unset and emits a warning naming both. The new name MUST take precedence when both are set. | Draft |
+| FR-014 | This product's own environment variables — **both** the `SIGIL_ML_*` family (21 occurrences) and the `SIGIL_*` family (65 occurrences: `SIGIL_MODE`, `SIGIL_POSTGRES_URL`, `SIGIL_S3_*`, `SIGIL_MODEL_*`, `SIGIL_TENANT*`) — MUST be renamed to `KENAZ_ML_*` and `KENAZ_*` respectively, with a deprecation shim that reads the old name when the new one is unset and emits a warning naming both. The new name MUST take precedence when both are set. | Draft |
 
 ### Non-Functional Requirements
 
@@ -150,17 +150,17 @@ Predictions, endpoints, model artifacts, and the frozen binary work exactly as b
 - **SC-001**: `import kenaz_ml` succeeds; `import sigil_ml` raises `ModuleNotFoundError`.
 - **SC-002**: Distribution metadata reads `kenaz-ml` with URLs resolving to the real repository.
 - **SC-003**: The CLI is invocable as `kenaz-ml`.
-- **SC-004**: The in-scope daemon surface — 242 occurrences of `sigil` not followed by `_ml`, 91 of them `sigild` — is unchanged, verified by count.
+- **SC-004**: The in-scope **ledger** surface — 163 occurrences / 39 files, 95 of them `sigild` — is unchanged, verified by count. The pattern must exclude `SIGIL_<UPPERCASE>`, or this product's own config keys are miscounted as the ledger's.
 - **SC-005**: The full suite passes with no count regression.
 - **SC-006**: The frozen binary builds and serves a real prediction.
 - **SC-007**: A pre-rename model artifact loads unchanged.
-- **SC-009**: Setting only `SIGIL_ML_MODE` still selects the mode and emits a deprecation warning; setting only `KENAZ_ML_MODE` works silently; setting both, the new name wins.
+- **SC-009**: For both families, setting only the old name (`SIGIL_ML_MODE`, `SIGIL_POSTGRES_URL`) still works and emits a deprecation warning; setting only the new name works silently; setting both, the new name wins.
 - **SC-008**: No occurrence of `sigil_ml` or `kameas-ml` remains outside historical records and frozen git-object aliases.
 
 ## Assumptions
 
 - Feast's shipped `registry.db` and the pickled `.joblib` artifacts were probed and do not embed the module path, so neither needs regenerating. This is re-verified during implementation rather than trusted.
-- The daemon references (242 in-scope, measured in WP01 rev 2) are the integration surface and are correct as they stand.
+- The ledger references (163 in-scope, measured in WP01 rev 3) are the integration surface and are correct as they stand.
 - Prior missions' `kitty-specs/` entries are historical records; leaving them naming `sigil_ml` is correct, since that is what was true when they were written.
 
 ## Out of Scope
