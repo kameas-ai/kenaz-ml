@@ -42,7 +42,7 @@ Each WP owns its own test module, so file ownership is disjoint throughout.
 | T021 | Manifest written on every local training run | WP05 | | [D] |
 | T022 | No-base default-state verification | WP06 | [D] |
 | T023 | No-egress verification | WP06 | [D] |
-| T024 | End-to-end provenance verification | WP06 | |
+| T024 | End-to-end provenance verification | WP06 | | [D] |
 
 ---
 
@@ -170,7 +170,7 @@ Each WP owns its own test module, so file ownership is disjoint throughout.
 
 - [x] T022 No-base default-state verification (WP06)
 - [x] T023 No-egress verification (WP06)
-- [ ] T024 End-to-end provenance verification (WP06)
+- [x] T024 End-to-end provenance verification (WP06)
 
 **Risks**: T022 covers the state every install is actually in today, since no base models exist yet — it is the most important test in the mission and the easiest to treat as an afterthought. T023 must be structural (no socket opened) rather than asserting that a known upload function went uncalled.
 
