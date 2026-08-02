@@ -4,8 +4,8 @@ All modules (poller, routes, trainer, scheduler) depend on this protocol
 instead of importing sqlite3 or psycopg2 directly.
 
 Implementations:
-    SqliteStore  (local mode)  — src/sigil_ml/store_sqlite.py
-    PostgresStore (cloud mode) — src/sigil_ml/store_postgres.py
+    SqliteStore  (local mode)  — src/sigil_ml/datastore/sqlite.py
+    PostgresStore (cloud mode) — src/sigil_ml/datastore/postgres.py
 """
 
 from __future__ import annotations

@@ -42,7 +42,7 @@ The split is enforced by optional dependencies: a `cloud` extra carrying `psycop
 
 ## 2. Data layer
 
-Unchanged from today. All access goes through the `DataStore` protocol (`src/sigil_ml/store.py`), implemented by `SqliteStore` and `PostgresStore`. Table ownership per `CLAUDE.md`: Python reads `events`, `tasks`, `patterns`, `suggestions`; Python writes `ml_predictions`, `ml_events`, `ml_signals`; Python owns `ml_cursor`.
+Unchanged from today. All access goes through the `DataStore` protocol (`src/sigil_ml/datastore/protocol.py`, imported as `sigil_ml.datastore`), implemented by `SqliteStore` (`datastore/sqlite.py`) and `PostgresStore` (`datastore/postgres.py`). Table ownership per `CLAUDE.md`: Python reads `events`, `tasks`, `patterns`, `suggestions`; Python writes `ml_predictions`, `ml_events`, `ml_signals`; Python owns `ml_cursor`.
 
 **One addition, cloud only:** an `ml_features` table, Python-owned, holding materialized feature rows for historical training.
 
@@ -221,11 +221,13 @@ Today a fresh install with fewer than ten completed tasks trains on synthetic da
 
 ### 5.1 What exists
 
-- `LocalModelStore` (`model_store.py:37`) — `{models_dir}/{name}.joblib`. **No versioning**; `save()` overwrites in place.
-- `S3ModelStore` (`model_store.py:87`) — versioned keys `{tenant}/models/{name}/{version}/model.joblib` plus a `latest` pointer. **No `list_versions`, no `set_latest`** — `save()` only advances, so there is no rollback.
-- `FilesystemModelLoader` (`loader.py:40`) — resolves tenant-specific, then shared fallback.
-- `last_modified()` (`model_store.py:72`) — file mtime, used by `/introspect` as an explicitly acknowledged proxy for "last trained" because no metadata exists.
-- `ModelCache` (`cache.py`) — in-memory TTL/LRU of loaded model objects.
+Everything below lives in `src/sigil_ml/modelstore/` and is imported from the package (`from sigil_ml.modelstore import ...`), not from its submodules.
+
+- `LocalModelStore` (`modelstore/stores.py`) — `{models_dir}/{name}.joblib`. **No versioning**; `save()` overwrites in place.
+- `S3ModelStore` (`modelstore/stores.py`) — versioned keys `{tenant}/models/{name}/{version}/model.joblib` plus a `latest` pointer. **No `list_versions`, no `set_latest`** — `save()` only advances, so there is no rollback.
+- `FilesystemModelLoader` (`modelstore/loader.py`) — resolves tenant-specific, then shared fallback.
+- `last_modified()` (`modelstore/stores.py`) — file mtime, used by `/introspect` as an explicitly acknowledged proxy for "last trained" because no metadata exists.
+- `ModelCache` (`modelstore/cache.py`) — in-memory TTL/LRU of loaded model objects.
 
 `ModelStore` remains a bytes-in/bytes-out protocol. The registry is a thin layer above it; existing call sites are undisturbed.
 

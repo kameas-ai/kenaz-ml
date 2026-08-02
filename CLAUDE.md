@@ -45,7 +45,18 @@ Architecture beyond this file — feature layer, model lifecycle, registry, base
 2. Model names in `ml_predictions.model` must exactly match Go's queries: `"stuck"`, `"suggest"`, `"duration"`, `"quality"`, `"profile"`
 3. The HTTP endpoints on `:7774` must remain functional — `sigilctl` uses them
 4. Local runtime dependencies are `scikit-learn`, `numpy`, `fastapi`, `uvicorn`, `joblib`, **and `feast`** — nothing else without an explicit, recorded decision
-5. **Never import `sqlite3` or `psycopg2` directly.** All data access goes through the `DataStore` protocol in `src/sigil_ml/store.py`, so both deployments stay behaviourally identical
+5. **Never import `sqlite3` or `psycopg2` directly.** All data access goes through the `DataStore` protocol in `sigil_ml.datastore` (`src/sigil_ml/datastore/`), so both deployments stay behaviourally identical
+
+### Storage packages — data vs. model artifacts
+
+Two unrelated things used to share the word "store". They are now separate packages, and the split is the rule for where new code goes:
+
+| Concern | Package | Import from |
+|---|---|---|
+| Observed data — `events`, `tasks`, the cursor | `src/sigil_ml/datastore/` (`protocol.py`, `sqlite.py`, `postgres.py`) | `from sigil_ml.datastore import DataStore, create_store` |
+| Model artifacts — `.joblib` bytes, loading, serving cache | `src/sigil_ml/modelstore/` (`stores.py`, `loader.py`, `cache.py`) | `from sigil_ml.modelstore import ModelStore, LocalModelStore, S3ModelStore, CachedModelStore, model_store_factory, ModelLoader, FilesystemModelLoader, ModelCache, create_model_cache` |
+
+**Import from the package, not the submodule.** The submodule split inside each package is an implementation detail; the package `__all__` is the supported surface. Anything concerning a model artifact — the registry, base-model refresh, retention — belongs in `sigil_ml.modelstore`, not next to the data layer. Note the model-store factory is `model_store_factory`, not `create_model_store`.
 
 ### The dependency ceiling, and the one exception
 
