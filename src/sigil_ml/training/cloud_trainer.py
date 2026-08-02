@@ -30,6 +30,7 @@ import io
 import logging
 import random
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -77,6 +78,50 @@ RETRIEVED_MODELS: dict[str, OfflineFeatureView] = {
     "stuck": OFFLINE_FEATURE_VIEWS["stuck_features"],
     "duration": OFFLINE_FEATURE_VIEWS["duration_features"],
 }
+
+
+def _vector_names(model_name: str, feature_names: Sequence[str]) -> tuple[str, ...]:
+    """Return the ordered names a replayed vector is indexed by (FR-007).
+
+    The registered feature service's ordered contract when it agrees with the
+    module's own ``FEATURE_NAMES``, and ``FEATURE_NAMES`` otherwise. Establishing
+    that they agree is what makes the strict lookup at the construction sites
+    safe: every name indexed there is a name this extractor emits.
+
+    Falling back rather than refusing is the right call here specifically
+    because vector *construction* is unaffected either way -- both lists name the
+    same features when nothing is wrong, and when something is wrong the
+    extractor's own list is the one its output actually satisfies. What the
+    fallback loses is the ability to stamp the run with a contract version, and
+    the cloud path records its feature set through
+    :class:`FeatureSetRecord`/``ml_events`` rather than through a manifest, so
+    the disagreement is reported there rather than silently absorbed.
+
+    **No retained set and no manifest are written from the cloud path** (T020,
+    C-003): retention is a local-personalization concept and the artifacts do
+    not live on a filesystem this process owns.
+    """
+    from sigil_ml.modelstore.registry import local_feature_contract
+
+    try:
+        contract = local_feature_contract(model_name)
+    except Exception:
+        logger.warning("cloud training: cannot read the feature contract for %r", model_name, exc_info=True)
+        return tuple(feature_names)
+
+    if contract is None:
+        return tuple(feature_names)
+
+    if tuple(contract.names) != tuple(feature_names):
+        logger.error(
+            "cloud training: the %r feature service declares %s but this build extracts %s",
+            model_name,
+            list(contract.names),
+            list(feature_names),
+        )
+        return tuple(feature_names)
+
+    return tuple(contract.names)
 
 
 @dataclass(frozen=True)
@@ -354,6 +399,11 @@ class CloudTrainer:
         if self.feature_store is not None:
             retrieved = self._retrieve_offline_features(tasks, tenant_id)
 
+        # Resolved once per run, not once per task: the contract cannot change
+        # mid-run, and this is the validation the strict lookups below rely on.
+        stuck_names = _vector_names("stuck", STUCK_FEATURES)
+        duration_names = _vector_names("duration", DURATION_FEATURES)
+
         # --- Stuck predictor ---
         try:
             X_stuck_list: list[list[float]] = []
@@ -374,7 +424,13 @@ class CloudTrainer:
                         continue
                     events = task_events.get(task["id"], [])
                     feats = extract_stuck_features_from_data(task, events, as_of_ms=as_of)
-                    x = [feats.get(f, 0.0) for f in STUCK_FEATURES]
+                    # Strict lookup (FR-007), safe only because
+                    # _vector_names() validated `stuck_names` against this
+                    # extractor's own feature list before the loop. A KeyError
+                    # here means that validation was skipped, which is a defect
+                    # to fix -- not a data condition to hide behind a defaulted
+                    # zero indistinguishable from a real one.
+                    x = [feats[f] for f in stuck_names]
                     X_stuck_list.append(x)
                     # Heuristic label: stuck if high test failures AND long time in phase
                     stuck = feats["test_failure_count"] > 3 and feats["time_in_phase_sec"] > 600
@@ -428,7 +484,9 @@ class CloudTrainer:
                         continue
                     events = task_events.get(task["id"], [])
                     feats = extract_duration_features_from_data(task, events, as_of_ms=as_of)
-                    x = [feats.get(f, 0.0) for f in DURATION_FEATURES]
+                    # Strict lookup (FR-007) -- see the note in the stuck branch
+                    # above. Validation ran first; a KeyError is a defect.
+                    x = [feats[f] for f in duration_names]
                     X_dur_list.append(x)
                     # Duration label: (completed_at - started_at) in minutes, min 1.0
                     started = task.get("started_at", 0)
