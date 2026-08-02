@@ -1,10 +1,13 @@
 {
+  "change_mode": "bulk_edit",
   "created_at": "2026-08-02T13:29:33.148959+00:00",
-  "friendly_name": "kenaz ml rebrand",
+  "friendly_name": "kenaz-ml Rebrand",
   "mission_id": "01KZ1AMQAM1F5H9HETBPFVCTQ9",
   "mission_number": null,
   "mission_slug": "kenaz-ml-rebrand-01KZ1AMQ",
   "mission_type": "software-dev",
   "slug": "kenaz-ml-rebrand-01KZ1AMQ",
-  "target_branch": "main"
+  "source_description": "Name the product consistently as kenaz-ml: package sigil_ml -> kenaz_ml, distribution and CLI kameas-ml -> kenaz-ml, plus URLs, log prefixes and docs. 1738 occurrences across 165 files. The Sigil daemon this integrates with (sigild, ~/.local/share/sigild/, SIGILD_PLUGIN_URL) is a separate product and its 138 references are untouchable. Behaviour-preserving.",
+  "target_branch": "main",
+  "vcs": "git"
 }
