@@ -56,11 +56,11 @@ import joblib
 import numpy as np
 import pytest
 
-from sigil_ml import config
-from sigil_ml.models.duration import FEATURE_NAMES as DURATION_FEATURES
-from sigil_ml.models.stuck import FEATURE_NAMES as STUCK_FEATURES
-from sigil_ml.modelstore import FilesystemModelLoader, LocalModelStore
-from sigil_ml.modelstore.registry import (
+from kenaz_ml import config
+from kenaz_ml.models.duration import FEATURE_NAMES as DURATION_FEATURES
+from kenaz_ml.models.stuck import FEATURE_NAMES as STUCK_FEATURES
+from kenaz_ml.modelstore import FilesystemModelLoader, LocalModelStore
+from kenaz_ml.modelstore.registry import (
     Manifest,
     Provenance,
     Runtime,
@@ -71,8 +71,8 @@ from sigil_ml.modelstore.registry import (
     running_sklearn_version,
     write_manifest,
 )
-from sigil_ml.training import trainer as trainer_mod
-from sigil_ml.training.trainer import Trainer
+from kenaz_ml.training import trainer as trainer_mod
+from kenaz_ml.training.trainer import Trainer
 
 HOUR_MS = 3_600_000
 BASE_MS = 1_760_000_000_000
@@ -612,8 +612,8 @@ class TestLoaderRefusalsLookLikeAbsence:
         def explode(_name: str) -> Any:
             raise RuntimeError("the feature registry is a version-coupled protobuf")
 
-        monkeypatch.setattr("sigil_ml.modelstore.registry.manifest.local_feature_contract", explode)
-        monkeypatch.setattr("sigil_ml.modelstore.registry.local_feature_contract", explode)
+        monkeypatch.setattr("kenaz_ml.modelstore.registry.manifest.local_feature_contract", explode)
+        monkeypatch.setattr("kenaz_ml.modelstore.registry.local_feature_contract", explode)
 
         assert FilesystemModelLoader(base_dir=slots["local"]).load(TENANT, "stuck") is None
 
@@ -623,7 +623,7 @@ class TestLoaderRefusalsLookLikeAbsence:
         """Fail closed: an install that cannot say what the contract is stamps nothing."""
         _write_pre_registry(slots["local"], "stuck")
         monkeypatch.setattr(
-            "sigil_ml.modelstore.registry.local_feature_contract",
+            "kenaz_ml.modelstore.registry.local_feature_contract",
             lambda _name: (_ for _ in ()).throw(RuntimeError("no")),
         )
 
@@ -735,7 +735,7 @@ class TestStrictVectorConstruction:
             "extract_stuck_features",
             lambda *a, **k: {name: float(i) for i, name in enumerate(STUCK_FEATURES)},
         )
-        monkeypatch.setattr("sigil_ml.models.stuck.StuckPredictor.train", lambda self, X, y: captured.append(X))
+        monkeypatch.setattr("kenaz_ml.models.stuck.StuckPredictor.train", lambda self, X, y: captured.append(X))
 
         Trainer(_training_store())._train_stuck()
 
@@ -746,7 +746,7 @@ class TestStrictVectorConstruction:
         self, slots: dict[str, Path], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Nothing is loaded on cold start, so there is nothing to validate against."""
-        monkeypatch.setattr("sigil_ml.modelstore.registry.local_feature_contract", lambda _name: None)
+        monkeypatch.setattr("kenaz_ml.modelstore.registry.local_feature_contract", lambda _name: None)
 
         samples = Trainer(FakeStore([], {}))._train_stuck()
 
@@ -828,7 +828,7 @@ class TestRetention:
         def explode(self: Any, X: Any, y: Any) -> None:
             raise RuntimeError("fit failed")
 
-        monkeypatch.setattr("sigil_ml.models.stuck.StuckPredictor.train", explode)
+        monkeypatch.setattr("kenaz_ml.models.stuck.StuckPredictor.train", explode)
 
         with pytest.raises(RuntimeError):
             Trainer(_training_store(n=14))._train_stuck()
@@ -857,7 +857,7 @@ class TestRetention:
         def explode(*args: Any, **kwargs: Any) -> None:
             raise OSError("disk full")
 
-        monkeypatch.setattr("sigil_ml.modelstore.registry.append_examples", explode)
+        monkeypatch.setattr("kenaz_ml.modelstore.registry.append_examples", explode)
 
         assert Trainer(_training_store(n=14))._train_stuck() == 14
 
@@ -992,7 +992,7 @@ class TestLocalTrainingWritesAManifest:
         def explode(self: Any, X: Any, y: Any) -> None:
             raise RuntimeError("fit failed")
 
-        monkeypatch.setattr("sigil_ml.models.stuck.StuckPredictor.train", explode)
+        monkeypatch.setattr("kenaz_ml.models.stuck.StuckPredictor.train", explode)
 
         with pytest.raises(RuntimeError):
             Trainer(_training_store(n=14))._train_stuck()
@@ -1015,7 +1015,7 @@ class TestLocalTrainingWritesAManifest:
         def explode(self: Any, X: Any, y: Any) -> None:
             raise RuntimeError("fit failed")
 
-        monkeypatch.setattr("sigil_ml.models.stuck.StuckPredictor.train", explode)
+        monkeypatch.setattr("kenaz_ml.models.stuck.StuckPredictor.train", explode)
         with pytest.raises(RuntimeError):
             trainer._train_stuck()
 
@@ -1032,7 +1032,7 @@ class TestLocalTrainingWritesAManifest:
         the next load — so writing nothing, and letting the loader migrate the
         artifact into a manifest that is true, is the safe direction.
         """
-        monkeypatch.setattr("sigil_ml.modelstore.registry.local_feature_contract", lambda _name: None)
+        monkeypatch.setattr("kenaz_ml.modelstore.registry.local_feature_contract", lambda _name: None)
 
         assert Trainer(_training_store(n=14))._train_stuck() == 14
 
@@ -1043,7 +1043,7 @@ class TestLocalTrainingWritesAManifest:
     ) -> None:
         """The two halves meet: what training declined to stamp, loading reconstructs."""
         with monkeypatch.context() as broken:
-            broken.setattr("sigil_ml.modelstore.registry.local_feature_contract", lambda _name: None)
+            broken.setattr("kenaz_ml.modelstore.registry.local_feature_contract", lambda _name: None)
             Trainer(_training_store(n=14))._train_stuck()
 
         served = FilesystemModelLoader(base_dir=slots["local"]).load(TENANT, "stuck")
@@ -1123,7 +1123,7 @@ class TestArtifactDirectoryResolution:
         assert trainer_mod._artifact_dir(store) == slots["local"] / "elsewhere"
 
     def test_a_cache_in_front_of_a_local_store_writes_through_to_it(self, slots: dict[str, Path]) -> None:
-        from sigil_ml.modelstore import CachedModelStore
+        from kenaz_ml.modelstore import CachedModelStore
 
         store = CachedModelStore(LocalModelStore(base_dir=slots["local"]))
 

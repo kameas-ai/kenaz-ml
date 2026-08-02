@@ -95,13 +95,13 @@ import pytest
 from fastapi.testclient import TestClient
 from sklearn.ensemble import GradientBoostingClassifier
 
-from sigil_ml import config
-from sigil_ml.models.duration import DurationEstimator
-from sigil_ml.models.quality import QualityEstimator
-from sigil_ml.models.stuck import FEATURE_NAMES as STUCK_FEATURE_NAMES
-from sigil_ml.models.stuck import StuckPredictor
-from sigil_ml.modelstore import FilesystemModelLoader, LocalModelStore
-from sigil_ml.modelstore.registry import (
+from kenaz_ml import config
+from kenaz_ml.models.duration import DurationEstimator
+from kenaz_ml.models.quality import QualityEstimator
+from kenaz_ml.models.stuck import FEATURE_NAMES as STUCK_FEATURE_NAMES
+from kenaz_ml.models.stuck import StuckPredictor
+from kenaz_ml.modelstore import FilesystemModelLoader, LocalModelStore
+from kenaz_ml.modelstore.registry import (
     ACTION_ADOPT_BASE,
     ACTION_NONE,
     ACTION_REBUILD,
@@ -132,7 +132,7 @@ from sigil_ml.modelstore.registry import (
     summarize_retained,
     write_manifest,
 )
-from sigil_ml.training.trainer import Trainer
+from kenaz_ml.training.trainer import Trainer
 
 # The egress guard is *imported*, not copied. It is the same hook the
 # feature-store mission proved catches raw `_socket` construction; reproducing it
@@ -372,8 +372,8 @@ def slots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
     "empty local slot" assertions describe a directory this fixture created.
     """
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-    monkeypatch.delenv("SIGIL_MODE", raising=False)
-    monkeypatch.delenv("SIGIL_ML_MODE", raising=False)
+    monkeypatch.delenv("KENAZ_MODE", raising=False)
+    monkeypatch.delenv("KENAZ_ML_MODE", raising=False)
     base = tmp_path / "base_models"
     monkeypatch.setattr(config, "base_models_dir", lambda: base)
     local = config.models_dir()
@@ -747,7 +747,7 @@ class TestNoBaseDefaultStateIsUnchanged:
         monkeypatch.setattr(sys, "frozen", True, raising=False)
         monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "bundle"), raising=False)
         frozen = config.base_models_dir()
-        assert frozen == tmp_path / "bundle" / "sigil_ml" / config.BASE_MODELS_DIRNAME
+        assert frozen == tmp_path / "bundle" / "kenaz_ml" / config.BASE_MODELS_DIRNAME
         assert not frozen.exists()
         assert not (tmp_path / "bundle").exists()
 
@@ -816,7 +816,7 @@ class TestNoBaseDefaultStateIsUnchanged:
     @pytest.mark.parametrize("label", [call[0] for call in ENDPOINT_CALLS])
     def test_prediction_endpoints_return_what_they_returned_before(self, slots: dict[str, Path], label: str) -> None:
         """Driven over HTTP through the real app, in the default no-base state."""
-        from sigil_ml.app import create_app
+        from kenaz_ml.app import create_app
 
         _, method, path, body = next(call for call in ENDPOINT_CALLS if call[0] == label)
         with TestClient(create_app()) as client:
@@ -835,7 +835,7 @@ class TestNoBaseDefaultStateIsUnchanged:
         permanent, unactionable line in front of every user, and would train
         them to ignore the level a genuinely broken release needs.
         """
-        with caplog.at_level(logging.DEBUG, logger="sigil_ml"):
+        with caplog.at_level(logging.DEBUG, logger="kenaz_ml"):
             for name in ROSTER:
                 resolve_model(name, local_dir=slots["local"], base_dir=slots["base"])
             FilesystemModelLoader(base_dir=slots["local"]).load(TENANT, MODEL)
@@ -924,7 +924,7 @@ class TestTheGuardIsNotVacuous:
         """
         import socket
 
-        from sigil_ml.modelstore.registry import retained as retained_mod
+        from kenaz_ml.modelstore.registry import retained as retained_mod
 
         def leaking_now_ms() -> int:
             socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -958,7 +958,7 @@ class TestTheGuardIsNotVacuous:
         """
         import socket
 
-        from sigil_ml.modelstore.registry import retained as retained_mod
+        from kenaz_ml.modelstore.registry import retained as retained_mod
 
         real_now_ms = retained_mod._now_ms
 
@@ -1090,14 +1090,14 @@ class TestNoEgress:
         having it pass every behavioural test because no test happened to reach
         the new branch.
 
-        Deliberately scoped to the registry package plus `sigil_ml.config`,
+        Deliberately scoped to the registry package plus `kenaz_ml.config`,
         which is all of it that runs on the retention path. The wider tree —
         Feast, and `modelstore.stores`, whose `S3ModelStore` imports `boto3`
         inside its constructor for the *cloud* deployment — is covered by
         :meth:`test_the_full_local_flow_opens_no_socket` instead, which asserts
         the stronger thing: that none of it opens a socket when actually run.
         """
-        from sigil_ml.modelstore import registry
+        from kenaz_ml.modelstore import registry
 
         forbidden = {
             "_socket",
@@ -1120,7 +1120,7 @@ class TestNoEgress:
             "xmlrpc",
         }
         modules = [f"{registry.__name__}.{sub}" for sub in ("manifest", "slots", "retained", "refresh")]
-        modules += [registry.__name__, "sigil_ml.config"]
+        modules += [registry.__name__, "kenaz_ml.config"]
         offences: list[str] = []
         inspected = 0
 
@@ -1147,9 +1147,19 @@ class TestNoEgress:
 class TestNoConfigurationEnablesTransmission:
     """C-003: no configuration of the *local* deployment can transmit retained data."""
 
-    #: Every environment variable `sigil_ml.config` reads. Extracted from the
+    #: Every environment variable `kenaz_ml.config` reads. Extracted from the
     #: source rather than listed by hand, so a new one cannot be added without
     #: appearing here.
+    #:
+    #: Two call shapes count, because FR-014 introduced a second one. Most reads
+    #: now go through `config.env("KENAZ_X")`, the deprecation shim that falls
+    #: back to the pre-rebrand `SIGIL_X`; a few variables this product does not
+    #: own (`SIGILD_PLUGIN_URL`, `XDG_DATA_HOME`) are still read directly via
+    #: `os.environ.get`. Both are collected, or the shim would have quietly
+    #: emptied this guard's view of the configuration surface.
+    #:
+    #: The shim's own `os.environ.get(name)` reads inside `env()` are invisible
+    #: here by construction: their argument is a variable, not a constant.
     @staticmethod
     def _config_env_vars() -> list[str]:
         tree = ast.parse(Path(config.__file__).read_text(encoding="utf-8"))
@@ -1158,6 +1168,10 @@ class TestNoConfigurationEnablesTransmission:
             if not isinstance(node, ast.Call):
                 continue
             func = node.func
+            if isinstance(func, ast.Name) and func.id == "env":
+                if node.args and isinstance(node.args[0], ast.Constant):
+                    names.add(str(node.args[0].value))
+                continue
             if isinstance(func, ast.Attribute) and func.attr in {"get", "environ"}:
                 owner = func.value
                 is_environ = (isinstance(owner, ast.Attribute) and owner.attr == "environ") or (
@@ -1167,18 +1181,25 @@ class TestNoConfigurationEnablesTransmission:
                     names.add(str(node.args[0].value))
         return sorted(names)
 
+    def test_the_extractor_sees_both_call_shapes(self) -> None:
+        """Guard the guard: if `env()` reads stopped being collected, the set
+        above would shrink silently and every knob would look reviewed."""
+        found = set(self._config_env_vars())
+        assert "KENAZ_POSTGRES_URL" in found, "reads via the FR-014 shim must be collected"
+        assert "SIGILD_PLUGIN_URL" in found, "direct os.environ.get reads must still be collected"
+
     def test_the_environment_surface_is_the_one_we_think_it_is(self) -> None:
         """A new configuration knob must be considered, not silently inherited."""
         assert set(self._config_env_vars()) == {
             "AWS_REGION",
             "SIGILD_PLUGIN_URL",
-            "SIGIL_MODEL_CACHE_TTL",
-            "SIGIL_MODE",
-            "SIGIL_ML_MODE",
-            "SIGIL_POSTGRES_URL",
-            "SIGIL_S3_BUCKET",
-            "SIGIL_S3_ENDPOINT_URL",
-            "SIGIL_TENANT",
+            "KENAZ_MODEL_CACHE_TTL",
+            "KENAZ_MODE",
+            "KENAZ_ML_MODE",
+            "KENAZ_POSTGRES_URL",
+            "KENAZ_S3_BUCKET",
+            "KENAZ_S3_ENDPOINT_URL",
+            "KENAZ_TENANT",
             "XDG_DATA_HOME",
         }
 
@@ -1187,11 +1208,11 @@ class TestNoConfigurationEnablesTransmission:
         [
             "AWS_REGION",
             "SIGILD_PLUGIN_URL",
-            "SIGIL_MODEL_CACHE_TTL",
-            "SIGIL_POSTGRES_URL",
-            "SIGIL_S3_BUCKET",
-            "SIGIL_S3_ENDPOINT_URL",
-            "SIGIL_TENANT",
+            "KENAZ_MODEL_CACHE_TTL",
+            "KENAZ_POSTGRES_URL",
+            "KENAZ_S3_BUCKET",
+            "KENAZ_S3_ENDPOINT_URL",
+            "KENAZ_TENANT",
         ],
     )
     def test_no_setting_redirects_retained_data_off_the_filesystem(
@@ -1199,7 +1220,7 @@ class TestNoConfigurationEnablesTransmission:
     ) -> None:
         """Point each knob at a remote host; retention must stay on this disk.
 
-        `SIGIL_MODE` and `SIGIL_ML_MODE` are excluded deliberately: they select
+        `KENAZ_MODE` and `KENAZ_ML_MODE` are excluded deliberately: they select
         the *deployment*, and the cloud deployment is the documented, gated
         exception. Every other knob is one the open-source local install can
         carry, and none of them may move a byte of retained data.
@@ -1229,7 +1250,7 @@ class TestNoConfigurationEnablesTransmission:
         """
         import inspect
 
-        from sigil_ml.modelstore.registry import retained as retained_mod
+        from kenaz_ml.modelstore.registry import retained as retained_mod
 
         forbidden = {"url", "host", "endpoint", "bucket", "uri", "remote", "upload", "sink"}
         for name, function in inspect.getmembers(retained_mod, inspect.isfunction):

@@ -1,4 +1,4 @@
-# Implementation Plan: kameas-ml Cloud Enhancements
+# Implementation Plan: kenaz-ml Cloud Enhancements
 
 **Date**: 2026-03-29
 **Specs**: `kitty-specs/001` through `kitty-specs/004`
@@ -6,14 +6,14 @@
 
 ## Summary
 
-This plan covers the four features needed to run kameas-ml in the cloud as a stateless prediction API and batch training pipeline, while preserving the existing local-first experience unchanged.
+This plan covers the four features needed to run kenaz-ml in the cloud as a stateless prediction API and batch training pipeline, while preserving the existing local-first experience unchanged.
 
 The features, in dependency order:
 
 1. **002 - Storage Abstraction**: DataStore protocol decoupling all data access from SQLite
 2. **003 - Model Storage Abstraction**: ModelStore protocol decoupling model weight persistence from the filesystem
 3. **001 - Cloud Serving Mode**: `--mode cloud` flag for stateless K8s serving
-4. **004 - Cloud Training Pipeline**: `kameas-ml train --mode cloud` for K8s CronJob execution
+4. **004 - Cloud Training Pipeline**: `kenaz-ml train --mode cloud` for K8s CronJob execution
 
 Features 002 and 003 are foundational abstractions with no cloud dependencies. They can be built and tested entirely in local mode. Features 001 and 004 build on top, adding cloud-specific wiring.
 
@@ -31,7 +31,7 @@ Features 002 and 003 are foundational abstractions with no cloud dependencies. T
 
 ### AD-1: Optional dependency extras
 
-Cloud dependencies are installed via `pip install kameas-ml[cloud]`. The base install remains lightweight.
+Cloud dependencies are installed via `pip install kenaz-ml[cloud]`. The base install remains lightweight.
 
 ```toml
 [project.optional-dependencies]
@@ -42,7 +42,7 @@ dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.4", "pyre-check>=0.9.18"]
 Import guards at module level:
 
 ```python
-# src/sigil_ml/storage/postgres.py
+# src/kenaz_ml/storage/postgres.py
 try:
     import psycopg2
 except ImportError:
@@ -51,16 +51,16 @@ except ImportError:
 class PostgresStore:
     def __init__(self, dsn: str):
         if psycopg2 is None:
-            raise ImportError("psycopg2-binary is required for cloud mode: pip install kameas-ml[cloud]")
+            raise ImportError("psycopg2-binary is required for cloud mode: pip install kenaz-ml[cloud]")
         ...
 ```
 
 ### AD-2: DataStore protocol location and shape
 
-The protocol lives at `src/sigil_ml/storage/protocol.py`. It defines the minimal interface that the poller, routes, trainer, and scheduler currently use against SQLite.
+The protocol lives at `src/kenaz_ml/storage/protocol.py`. It defines the minimal interface that the poller, routes, trainer, and scheduler currently use against SQLite.
 
 ```python
-# src/sigil_ml/storage/protocol.py
+# src/kenaz_ml/storage/protocol.py
 from typing import Protocol, runtime_checkable
 
 @runtime_checkable
@@ -155,7 +155,7 @@ def _connect(self):
 ### AD-4: ModelStore protocol shape
 
 ```python
-# src/sigil_ml/storage/model_store.py
+# src/kenaz_ml/storage/model_store.py
 from typing import Protocol, runtime_checkable
 
 @runtime_checkable
@@ -177,13 +177,13 @@ Cloud config uses environment variables. Local mode uses existing TOML/path-base
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `SIGIL_ML_MODE` | `local` or `cloud` | `local` |
+| `KENAZ_ML_MODE` | `local` or `cloud` | `local` |
 | `DATABASE_URL` | Postgres DSN for cloud mode | None |
-| `SIGIL_MODEL_BUCKET` | S3 bucket for model weights | None |
-| `SIGIL_MODEL_REGION` | AWS region for S3 | `us-east-1` |
-| `SIGIL_MODEL_ENDPOINT` | S3-compatible endpoint (MinIO) | None |
-| `SIGIL_TENANT_HEADER` | Request header name for tenant ID | `X-Sigil-Tenant-Id` |
-| `SIGIL_MODEL_CACHE_TTL` | Model cache TTL in seconds | `300` |
+| `KENAZ_MODEL_BUCKET` | S3 bucket for model weights | None |
+| `KENAZ_MODEL_REGION` | AWS region for S3 | `us-east-1` |
+| `KENAZ_MODEL_ENDPOINT` | S3-compatible endpoint (MinIO) | None |
+| `KENAZ_TENANT_HEADER` | Request header name for tenant ID | `X-Sigil-Tenant-Id` |
+| `KENAZ_MODEL_CACHE_TTL` | Model cache TTL in seconds | `300` |
 
 ### AD-6: No ORM, raw SQL only
 
@@ -222,7 +222,7 @@ def create_app(mode: str = "local") -> FastAPI:
 ### New Source Files
 
 ```
-src/sigil_ml/
+src/kenaz_ml/
   storage/
     __init__.py              # Exports DataStore, ModelStore, factory functions
     protocol.py              # DataStore protocol definition
@@ -274,9 +274,9 @@ Each feature spec already exists. This plan is the cross-feature implementation 
 
 #### Step 1.1: Define DataStore protocol and create SqliteStore
 
-Create `src/sigil_ml/storage/protocol.py` with the DataStore protocol (see AD-2 above).
+Create `src/kenaz_ml/storage/protocol.py` with the DataStore protocol (see AD-2 above).
 
-Create `src/sigil_ml/storage/sqlite_store.py` by extracting all SQLite operations currently spread across:
+Create `src/kenaz_ml/storage/sqlite_store.py` by extracting all SQLite operations currently spread across:
 - `poller.py`: `_connect()`, `_poll_once()` (cursor read/write, event queries, prediction inserts, ml_event inserts, task queries)
 - `routes.py`: `/status` endpoint (cursor query, prediction query)
 - `features.py`: `_query_task()`, `_query_events_for_task()` (task/event reads)
@@ -357,7 +357,7 @@ Refactor `TrainingScheduler.__init__` to accept a DataStore. Replace `_count_com
 
 #### Step 1.4: Create PostgresStore
 
-Create `src/sigil_ml/storage/postgres_store.py` implementing DataStore.
+Create `src/kenaz_ml/storage/postgres_store.py` implementing DataStore.
 
 Key differences from SqliteStore:
 - Uses `psycopg2.connect(dsn)` instead of `sqlite3.connect(path)`
@@ -399,9 +399,9 @@ def create_app(mode: str = "local") -> FastAPI:
 
 #### Step 2.1: Define ModelStore protocol and create LocalModelStore
 
-Create `src/sigil_ml/storage/model_store.py` with the ModelStore protocol (see AD-4 above).
+Create `src/kenaz_ml/storage/model_store.py` with the ModelStore protocol (see AD-4 above).
 
-Create `src/sigil_ml/storage/local_model_store.py`:
+Create `src/kenaz_ml/storage/local_model_store.py`:
 
 ```python
 class LocalModelStore:
@@ -454,7 +454,7 @@ The `model_store` parameter defaults to `None` for backward compatibility during
 
 #### Step 2.3: Create S3ModelStore
 
-Create `src/sigil_ml/storage/s3_model_store.py`:
+Create `src/kenaz_ml/storage/s3_model_store.py`:
 
 ```python
 class S3ModelStore:
@@ -468,7 +468,7 @@ class S3ModelStore:
         endpoint_url: str | None = None,
     ):
         if boto3 is None:
-            raise ImportError("boto3 required for cloud mode: pip install kameas-ml[cloud]")
+            raise ImportError("boto3 required for cloud mode: pip install kenaz-ml[cloud]")
         self._bucket = bucket
         self._prefix = prefix
         kwargs = {"region_name": region}
@@ -491,7 +491,7 @@ class S3ModelStore:
 
 #### Step 2.4: Create ModelCache
 
-Create `src/sigil_ml/storage/model_cache.py`:
+Create `src/kenaz_ml/storage/model_cache.py`:
 
 ```python
 class ModelCache:
@@ -547,24 +547,24 @@ class AppState:
 
 ### Phase 3: Cloud Serving Mode (Feature 001)
 
-**Goal**: Add `--mode cloud` to `kameas-ml serve` for stateless K8s deployment.
+**Goal**: Add `--mode cloud` to `kenaz-ml serve` for stateless K8s deployment.
 
 This phase is mostly wiring -- Phases 1 and 2 did the hard refactoring.
 
 #### Step 3.1: Add --mode flag to CLI
 
-Update `src/sigil_ml/cli.py`:
+Update `src/kenaz_ml/cli.py`:
 
 ```python
 serve_parser.add_argument("--mode", choices=["local", "cloud"], default="local")
 ```
 
 Pass the mode to `create_app()`. For cloud mode, construct the app differently:
-- Set `SIGIL_ML_MODE` environment variable or pass through
-- uvicorn runs `sigil_ml.app:app` -- need a way to pass mode
+- Set `KENAZ_ML_MODE` environment variable or pass through
+- uvicorn runs `kenaz_ml.app:app` -- need a way to pass mode
 
 Two approaches:
-1. Environment variable: `SIGIL_ML_MODE=cloud` is read by the module-level `app = create_app()`.
+1. Environment variable: `KENAZ_ML_MODE=cloud` is read by the module-level `app = create_app()`.
 2. Factory pattern: Use uvicorn's `factory=True` option.
 
 Go with approach 1 (environment variable) because it's simpler and works with the existing module-level `app` instance pattern:
@@ -572,11 +572,11 @@ Go with approach 1 (environment variable) because it's simpler and works with th
 ```python
 # cli.py
 if args.command == "serve":
-    os.environ["SIGIL_ML_MODE"] = args.mode
+    os.environ["KENAZ_ML_MODE"] = args.mode
     uvicorn.run(...)
 
 # app.py
-app = create_app(mode=os.environ.get("SIGIL_ML_MODE", "local"))
+app = create_app(mode=os.environ.get("KENAZ_ML_MODE", "local"))
 ```
 
 #### Step 3.2: Mode-aware create_app()
@@ -585,7 +585,7 @@ The full mode-aware app factory:
 
 ```python
 def create_app(mode: str = "local") -> FastAPI:
-    application = FastAPI(title="kameas-ml", version="0.1.0")
+    application = FastAPI(title="kenaz-ml", version="0.1.0")
     state = AppState()
     state.mode = mode
 
@@ -595,12 +595,12 @@ def create_app(mode: str = "local") -> FastAPI:
         state.store = PostgresStore(dsn=dsn) if dsn else None
 
         # Model store: S3 with caching
-        bucket = os.environ.get("SIGIL_MODEL_BUCKET")
+        bucket = os.environ.get("KENAZ_MODEL_BUCKET")
         if not bucket:
-            raise RuntimeError("SIGIL_MODEL_BUCKET required in cloud mode")
-        region = os.environ.get("SIGIL_MODEL_REGION", "us-east-1")
-        endpoint = os.environ.get("SIGIL_MODEL_ENDPOINT")
-        ttl = int(os.environ.get("SIGIL_MODEL_CACHE_TTL", "300"))
+            raise RuntimeError("KENAZ_MODEL_BUCKET required in cloud mode")
+        region = os.environ.get("KENAZ_MODEL_REGION", "us-east-1")
+        endpoint = os.environ.get("KENAZ_MODEL_ENDPOINT")
+        ttl = int(os.environ.get("KENAZ_MODEL_CACHE_TTL", "300"))
         s3_store = S3ModelStore(bucket=bucket, region=region, endpoint_url=endpoint)
         state.model_store = ModelCache(s3_store, ttl_sec=ttl)
 
@@ -628,14 +628,14 @@ def create_app(mode: str = "local") -> FastAPI:
         else:
             # Cloud mode: no poller, no scheduler
             # Models loaded on-demand per tenant
-            logger.info("kameas-ml: cloud mode, no poller, models loaded per-tenant")
+            logger.info("kenaz-ml: cloud mode, no poller, models loaded per-tenant")
 
     ...
 ```
 
 #### Step 3.3: Tenant middleware
 
-Create `src/sigil_ml/middleware/tenant.py`:
+Create `src/kenaz_ml/middleware/tenant.py`:
 
 ```python
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -643,7 +643,7 @@ from starlette.requests import Request
 
 class TenantMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        header = os.environ.get("SIGIL_TENANT_HEADER", "X-Sigil-Tenant-Id")
+        header = os.environ.get("KENAZ_TENANT_HEADER", "X-Sigil-Tenant-Id")
         tenant_id = request.headers.get(header)
         request.state.tenant_id = tenant_id
         request.state.tenant_tier = request.headers.get("X-Sigil-Tenant-Tier", "pro")
@@ -721,11 +721,11 @@ async def health():
 
 ### Phase 4: Cloud Training Pipeline (Feature 004)
 
-**Goal**: Add `kameas-ml train --mode cloud` for K8s CronJob batch training.
+**Goal**: Add `kenaz-ml train --mode cloud` for K8s CronJob batch training.
 
 #### Step 4.1: Add cloud training CLI commands
 
-Update `src/sigil_ml/cli.py`:
+Update `src/kenaz_ml/cli.py`:
 
 ```python
 train_parser.add_argument("--mode", choices=["local", "cloud"], default="local")
@@ -882,7 +882,7 @@ Phases 3 and 4 require both 1 and 2 to be complete.
 
 ### Risk 2: Postgres query compatibility
 
-**Mitigation**: SQLite and Postgres have slightly different SQL dialects. The queries in kameas-ml are simple (SELECT, INSERT, basic WHERE). The main risk is parameter syntax (`?` vs `%s`). Both store implementations use their native parameter syntax -- the protocol hides this.
+**Mitigation**: SQLite and Postgres have slightly different SQL dialects. The queries in kenaz-ml are simple (SELECT, INSERT, basic WHERE). The main risk is parameter syntax (`?` vs `%s`). Both store implementations use their native parameter syntax -- the protocol hides this.
 
 ### Risk 3: Cloud mode cold start latency
 
@@ -914,9 +914,9 @@ Marked with `@pytest.mark.integration` or specific markers like `@pytest.mark.po
 
 ### Manual Verification
 
-- Start `kameas-ml serve` (no flags) -- verify identical behavior to current
-- Start `kameas-ml serve --mode cloud` with env vars -- verify stateless serving
-- Run `kameas-ml train --mode cloud --tenant test` -- verify training output
+- Start `kenaz-ml serve` (no flags) -- verify identical behavior to current
+- Start `kenaz-ml serve --mode cloud` with env vars -- verify stateless serving
+- Run `kenaz-ml train --mode cloud --tenant test` -- verify training output
 
 ## Open Items Resolved
 
@@ -925,7 +925,7 @@ Marked with `@pytest.mark.integration` or specific markers like `@pytest.mark.po
 | Postgres driver | `psycopg2-binary` as optional dep in `[cloud]` extra |
 | Connection pooling | Simple connection factory initially, no pool |
 | ORM | No. Raw SQL only. Go owns DDL. |
-| Protocol location | `src/sigil_ml/storage/protocol.py` |
+| Protocol location | `src/kenaz_ml/storage/protocol.py` |
 | Cloud config | Environment variables. Keep TOML for local mode. |
 | Multi-tenant isolation | Per-tenant Postgres schema via `SET search_path` |
 | Model cache scope | Per-tenant ModelCache instances, keyed by tenant ID |

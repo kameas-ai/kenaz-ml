@@ -12,15 +12,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from sigil_ml.features import extract_action_token, infer_tool
-from sigil_ml.signals.engine import (
+from kenaz_ml.features import extract_action_token, infer_tool
+from kenaz_ml.signals.engine import (
     SIGNAL_TOTAL_MAX,
     SignalEngine,
 )
-from sigil_ml.signals.file_recommender import FileRecommender
-from sigil_ml.signals.next_action import NextActionPredictor
-from sigil_ml.signals.pattern_detector import PatternDetector
-from sigil_ml.signals.profile import BehaviorProfile, RollingStat
+from kenaz_ml.signals.file_recommender import FileRecommender
+from kenaz_ml.signals.next_action import NextActionPredictor
+from kenaz_ml.signals.pattern_detector import PatternDetector
+from kenaz_ml.signals.profile import BehaviorProfile, RollingStat
 
 # ---------------------------------------------------------------------------
 # RollingStat

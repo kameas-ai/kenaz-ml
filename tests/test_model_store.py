@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from sigil_ml.modelstore import CachedModelStore, LocalModelStore
+from kenaz_ml.modelstore import CachedModelStore, LocalModelStore
 
 # ---------------------------------------------------------------------------
 # LocalModelStore round-trip

@@ -19,16 +19,16 @@ from unittest import mock
 
 import pytest
 
-from sigil_ml.datastore.sqlite import SqliteStore
-from sigil_ml.features import (
+from kenaz_ml.datastore.sqlite import SqliteStore
+from kenaz_ml.features import (
     extract_duration_features,
     extract_duration_features_from_data,
     extract_features_from_buffer,
     extract_stuck_features,
     extract_stuck_features_from_data,
 )
-from sigil_ml.models import duration as duration_model
-from sigil_ml.models import stuck as stuck_model
+from kenaz_ml.models import duration as duration_model
+from kenaz_ml.models import stuck as stuck_model
 
 
 @pytest.fixture
@@ -212,19 +212,19 @@ class TestDurationFeatures:
 
 @contextlib.contextmanager
 def frozen_clock(epoch_ms: int):
-    """Pin wall clock as observed by sigil_ml.features.
+    """Pin wall clock as observed by kenaz_ml.features.
 
-    `features.py` does `import time`, so `sigil_ml.features.time` is the time
+    `features.py` does `import time`, so `kenaz_ml.features.time` is the time
     module itself; patching its `time` attribute is what the extractors see
     when they resolve `as_of_ms=None`.
     """
-    with mock.patch("sigil_ml.features.time.time", return_value=epoch_ms / 1000.0):
+    with mock.patch("kenaz_ml.features.time.time", return_value=epoch_ms / 1000.0):
         yield
 
 
 @contextlib.contextmanager
 def frozen_local_hour(hour: int):
-    """Pin the local hour as observed by sigil_ml.features.
+    """Pin the local hour as observed by kenaz_ml.features.
 
     `time.localtime()` is implemented in C and does not route through the
     Python-level `time.time`, so `frozen_clock` cannot reach it. The empty
@@ -237,7 +237,7 @@ def frozen_local_hour(hour: int):
         base = real_localtime(secs) if secs is not None else real_localtime()
         return time.struct_time((*base[:3], hour, *base[4:]))
 
-    with mock.patch("sigil_ml.features.time.localtime", side_effect=fake_localtime):
+    with mock.patch("kenaz_ml.features.time.localtime", side_effect=fake_localtime):
         yield
 
 

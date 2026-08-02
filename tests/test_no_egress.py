@@ -50,10 +50,10 @@ from feast import FeatureStore, FileSource, PushSource
 from feast.data_source import PushMode
 from sklearn.ensemble import GradientBoostingClassifier
 
-from sigil_ml.feature_store import config as fsc
-from sigil_ml.feature_store.definitions import stuck_feature_view, task
-from sigil_ml.models.stuck import FEATURE_NAMES, StuckPredictor
-from sigil_ml.modelstore import LocalModelStore
+from kenaz_ml.feature_store import config as fsc
+from kenaz_ml.feature_store.definitions import stuck_feature_view, task
+from kenaz_ml.models.stuck import FEATURE_NAMES, StuckPredictor
+from kenaz_ml.modelstore import LocalModelStore
 
 # ---------------------------------------------------------------------------
 # The guard
@@ -269,7 +269,7 @@ def local_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, P
     a feature operation write into what ships as the signed application
     directory and the test would stop noticing.
     """
-    monkeypatch.delenv("SIGIL_MODE", raising=False)
+    monkeypatch.delenv("KENAZ_MODE", raising=False)
     bundle = tmp_path / "bundle"
     user_data = tmp_path / "data"
     bundle.mkdir()
@@ -385,18 +385,18 @@ class TestCloudConfigUnreachable:
         assert recorder.opened(fsc.CLOUD_CONFIG_FILENAME) == []
 
     def test_cloud_config_path_is_refused_in_local_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SIGIL_MODE", "local")
+        monkeypatch.setenv("KENAZ_MODE", "local")
         with pytest.raises(fsc.CloudConfigUnreachableError):
             fsc.cloud_config_path()
 
     def test_cloud_config_path_is_refused_when_mode_is_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("SIGIL_MODE", raising=False)
+        monkeypatch.delenv("KENAZ_MODE", raising=False)
         with pytest.raises(fsc.CloudConfigUnreachableError):
             fsc.cloud_config_path()
 
     def test_loading_the_cloud_config_is_refused_in_local_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SIGIL_MODE", "local")
-        monkeypatch.setenv("SIGIL_POSTGRES_URL", "postgresql://u:p@db.example.com:5432/sigil")
+        monkeypatch.setenv("KENAZ_MODE", "local")
+        monkeypatch.setenv("KENAZ_POSTGRES_URL", "postgresql://u:p@db.example.com:5432/sigil")
         with pytest.raises(fsc.CloudConfigUnreachableError):
             fsc.load_cloud_repo_config()
 
@@ -428,14 +428,14 @@ class TestCloudConfigUnreachable:
             assert "cloud" not in symbol.lower(), f"the local loader references {symbol!r}"
 
     def test_unknown_mode_fails_loudly_with_no_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SIGIL_MODE", "remote")
+        monkeypatch.setenv("KENAZ_MODE", "remote")
         with pytest.raises((ValueError, fsc.UnknownOperatingModeError)) as excinfo:
             fsc.load_repo_config()
         assert "remote" in str(excinfo.value)
 
     def test_unknown_mode_is_refused_even_if_the_mode_switch_loosens(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The dispatch carries its own backstop rather than trusting its caller."""
-        monkeypatch.setattr(fsc.sigil_config, "operating_mode", lambda: "hybrid")
+        monkeypatch.setattr(fsc.kenaz_config, "operating_mode", lambda: "hybrid")
         with pytest.raises(fsc.UnknownOperatingModeError):
             fsc.load_repo_config()
 
@@ -535,7 +535,7 @@ class TestLocalConfigShape:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """FR-013: no feature operation writes into the application directory."""
-        monkeypatch.delenv("SIGIL_MODE", raising=False)
+        monkeypatch.delenv("KENAZ_MODE", raising=False)
         absent_bundle = tmp_path / "absent-bundle"
         fsc.load_local_repo_config(bundle=absent_bundle, user_data=tmp_path / "data")
         assert not absent_bundle.exists()
@@ -556,8 +556,8 @@ class TestPathResolution:
 
     def test_frozen_bundle_resolves_under_meipass(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
-        assert fsc.bundle_dir() == tmp_path / "sigil_ml" / "feature_store"
-        assert fsc.registry_path() == tmp_path / "sigil_ml" / "feature_store" / "registry.db"
+        assert fsc.bundle_dir() == tmp_path / "kenaz_ml" / "feature_store"
+        assert fsc.registry_path() == tmp_path / "kenaz_ml" / "feature_store" / "registry.db"
 
     def test_online_store_follows_the_shared_database(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The online store sits beside data.db so the two cannot drift apart."""
@@ -604,10 +604,10 @@ class TestCloudConfigShape:
             assert "&" not in body and "*" not in body, f"{name} configuration uses YAML anchors"
 
     def test_connection_settings_come_from_the_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SIGIL_POSTGRES_URL", "postgresql://sigil:s%40cret@db.internal:6543/sigil_features")
+        monkeypatch.setenv("KENAZ_POSTGRES_URL", "postgresql://sigil:s%40cret@db.internal:6543/kenaz_features")
         settings = fsc._postgres_connection()
         assert settings == {
-            "database": "sigil_features",
+            "database": "kenaz_features",
             "host": "db.internal",
             "port": 6543,
             "user": "sigil",
@@ -615,11 +615,11 @@ class TestCloudConfigShape:
         }
 
     def test_a_missing_postgres_url_fails_loudly(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("SIGIL_POSTGRES_URL", raising=False)
-        with pytest.raises(RuntimeError, match="SIGIL_POSTGRES_URL"):
+        monkeypatch.delenv("KENAZ_POSTGRES_URL", raising=False)
+        with pytest.raises(RuntimeError, match="KENAZ_POSTGRES_URL"):
             fsc._postgres_connection()
 
     def test_local_overrides_are_refused_in_cloud_mode(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        monkeypatch.setenv("SIGIL_MODE", "cloud")
+        monkeypatch.setenv("KENAZ_MODE", "cloud")
         with pytest.raises(fsc.UnknownOperatingModeError):
             fsc.load_repo_config(bundle=tmp_path)

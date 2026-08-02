@@ -23,7 +23,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from sigil_ml.training.models import (
+from kenaz_ml.training.models import (
     STATUS_FAILED,
     STATUS_SKIPPED,
     STATUS_SKIPPED_LOCKED,
@@ -400,7 +400,7 @@ class TestCloudTrainerPerTenant:
         config: CloudTrainingConfig | None = None,
         lock: Any | None = None,
     ):
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         tenant_tasks = {"t1": tasks or []}
         data_store = MockDataStore(
@@ -501,7 +501,7 @@ class TestCloudTrainerPerTenant:
 
     def test_error_returns_failed_run(self) -> None:
         """Errors during training return a failed TrainingRun."""
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         # DataStore that raises on get_completed_tasks_for_tenant
         data_store = MockDataStore()
@@ -532,7 +532,7 @@ class TestCloudTrainerPerTenant:
 
 class TestBatchTraining:
     def test_batch_multiple_tenants(self) -> None:
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         tasks_t1 = _make_tasks(15, "t1")
         tasks_t2 = _make_tasks(15, "t2")
@@ -553,7 +553,7 @@ class TestBatchTraining:
         assert batch.failed == 0
 
     def test_batch_zero_tenants(self) -> None:
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         data_store = MockDataStore(tenants=[])
         model_store = MockModelStore()
@@ -567,7 +567,7 @@ class TestBatchTraining:
 
     def test_batch_fault_isolation(self) -> None:
         """One tenant's failure doesn't prevent others from training."""
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         tasks_t2 = _make_tasks(15, "t2")
         events_t2 = {t["id"]: _make_events(t["id"]) for t in tasks_t2}
@@ -602,7 +602,7 @@ class TestBatchTraining:
 
     def test_batch_all_skipped(self) -> None:
         """All tenants skipped (recently trained) returns clean batch."""
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         now_ms = int(time.time() * 1000)
         recent = now_ms - 600_000  # 10 minutes ago
@@ -624,21 +624,21 @@ class TestBatchTraining:
 
 class TestTenantDiscovery:
     def test_discover_eligible(self) -> None:
-        from sigil_ml.training.tenant_discovery import discover_eligible_tenants
+        from kenaz_ml.training.tenant_discovery import discover_eligible_tenants
 
         ds = MockDataStore(tenants=["a", "b", "c"])
         result = discover_eligible_tenants(ds)
         assert result == ["a", "b", "c"]
 
     def test_discover_empty(self) -> None:
-        from sigil_ml.training.tenant_discovery import discover_eligible_tenants
+        from kenaz_ml.training.tenant_discovery import discover_eligible_tenants
 
         ds = MockDataStore(tenants=[])
         result = discover_eligible_tenants(ds)
         assert result == []
 
     def test_discover_opted_in(self) -> None:
-        from sigil_ml.training.tenant_discovery import discover_opted_in_tenants
+        from kenaz_ml.training.tenant_discovery import discover_opted_in_tenants
 
         ds = MockDataStore(opted_in_tenants=["a", "c"])
         result = discover_opted_in_tenants(ds)
@@ -652,7 +652,7 @@ class TestTenantDiscovery:
 
 class TestTrainingLock:
     def test_lock_protocol(self) -> None:
-        from sigil_ml.training.locking import TrainingLock
+        from kenaz_ml.training.locking import TrainingLock
 
         lock = MockTrainingLock()
         assert isinstance(lock, TrainingLock)
@@ -669,7 +669,7 @@ class TestTrainingLock:
 
     def test_trainer_with_lock_skips_locked(self) -> None:
         """train_tenant returns skipped_locked when lock is held."""
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         lock = MockTrainingLock(locked_tenants={"t1"})
         data_store = MockDataStore(
@@ -683,7 +683,7 @@ class TestTrainingLock:
 
     def test_trainer_without_lock_works(self) -> None:
         """training_lock=None means no locking overhead."""
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         data_store = MockDataStore(
             tenants=["t1"],
@@ -696,7 +696,7 @@ class TestTrainingLock:
 
     def test_lock_released_on_failure(self) -> None:
         """Lock is released even if training fails."""
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         lock = MockTrainingLock()
         data_store = MockDataStore()
@@ -710,7 +710,7 @@ class TestTrainingLock:
 
     def test_lock_checked_before_interval(self) -> None:
         """Lock check happens before interval check (cheapest first)."""
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         lock = MockTrainingLock(locked_tenants={"t1"})
         now_ms = int(time.time() * 1000)
@@ -728,7 +728,7 @@ class TestTrainingLock:
 
 class TestDataStoreTrainingLock:
     def test_acquire_delegates_to_data_store(self) -> None:
-        from sigil_ml.training.locking import DataStoreTrainingLock
+        from kenaz_ml.training.locking import DataStoreTrainingLock
 
         ds = MagicMock()
         ds.acquire_training_lock = MagicMock(return_value=True)
@@ -738,7 +738,7 @@ class TestDataStoreTrainingLock:
         ds.acquire_training_lock.assert_called_once()
 
     def test_release_delegates_to_data_store(self) -> None:
-        from sigil_ml.training.locking import DataStoreTrainingLock
+        from kenaz_ml.training.locking import DataStoreTrainingLock
 
         ds = MagicMock()
         ds.release_training_lock = MagicMock()
@@ -748,7 +748,7 @@ class TestDataStoreTrainingLock:
 
     def test_acquire_graceful_no_method(self) -> None:
         """If DataStore doesn't have lock methods, treat as acquired."""
-        from sigil_ml.training.locking import DataStoreTrainingLock
+        from kenaz_ml.training.locking import DataStoreTrainingLock
 
         ds = MockDataStore()  # doesn't have acquire_training_lock
         # Remove the method if it exists
@@ -760,7 +760,7 @@ class TestDataStoreTrainingLock:
 
     def test_release_graceful_no_method(self) -> None:
         """If DataStore doesn't have release method, no-op."""
-        from sigil_ml.training.locking import DataStoreTrainingLock
+        from kenaz_ml.training.locking import DataStoreTrainingLock
 
         ds = MockDataStore()
         if hasattr(ds, "release_training_lock"):
@@ -777,7 +777,7 @@ class TestDataStoreTrainingLock:
 
 class TestAggregateTraining:
     def test_aggregate_pools_opted_in_data(self) -> None:
-        from sigil_ml.training.cloud_trainer import AGGREGATE_TENANT_ID, CloudTrainer
+        from kenaz_ml.training.cloud_trainer import AGGREGATE_TENANT_ID, CloudTrainer
 
         tasks_t1 = _make_tasks(15, "t1")
         tasks_t2 = _make_tasks(15, "t2")
@@ -800,7 +800,7 @@ class TestAggregateTraining:
         assert "duration" in run.models_trained
 
     def test_aggregate_zero_tenants(self) -> None:
-        from sigil_ml.training.cloud_trainer import AGGREGATE_TENANT_ID, CloudTrainer
+        from kenaz_ml.training.cloud_trainer import AGGREGATE_TENANT_ID, CloudTrainer
 
         data_store = MockDataStore(opted_in_tenants=[])
         model_store = MockModelStore()
@@ -813,7 +813,7 @@ class TestAggregateTraining:
 
     def test_aggregate_low_tenant_warning(self) -> None:
         """Fewer than aggregate_min_tenants warns but proceeds."""
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         tasks = _make_tasks(15, "t1")
         events = {t["id"]: _make_events(t["id"]) for t in tasks}
@@ -833,7 +833,7 @@ class TestAggregateTraining:
         assert "recommended minimum" in run.error
 
     def test_aggregate_enough_tenants_no_warning(self) -> None:
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         all_tasks = {}
         all_events = {}
@@ -859,7 +859,7 @@ class TestAggregateTraining:
 
     def test_aggregate_sampling_caps(self) -> None:
         """Per-tenant sampling cap limits contribution."""
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         # t1 has 50 tasks, t2 has 5. Cap at 10.
         tasks_t1 = _make_tasks(50, "t1")
@@ -883,7 +883,7 @@ class TestAggregateTraining:
         assert run.sample_count == 15
 
     def test_aggregate_model_saved_to_aggregate_prefix(self) -> None:
-        from sigil_ml.training.cloud_trainer import AGGREGATE_TENANT_ID, CloudTrainer
+        from kenaz_ml.training.cloud_trainer import AGGREGATE_TENANT_ID, CloudTrainer
 
         tasks = _make_tasks(15, "t1")
         events = {t["id"]: _make_events(t["id"]) for t in tasks}
@@ -912,7 +912,7 @@ class TestAggregateTraining:
 class TestObservability:
     def test_audit_event_on_success(self) -> None:
         """Successful training records an audit event."""
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         tasks = _make_tasks(15, "t1")
         events = {t["id"]: _make_events(t["id"]) for t in tasks}
@@ -932,7 +932,7 @@ class TestObservability:
 
     def test_audit_event_on_failure(self) -> None:
         """Failed training records an audit event."""
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         data_store = MockDataStore()
         data_store.get_completed_tasks_for_tenant = MagicMock(side_effect=ValueError("fail"))
@@ -944,7 +944,7 @@ class TestObservability:
 
     def test_audit_event_on_skip(self) -> None:
         """Skipped training records an audit event."""
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         now_ms = int(time.time() * 1000)
         data_store = MockDataStore(
@@ -960,7 +960,7 @@ class TestObservability:
 
     def test_batch_audit_event(self) -> None:
         """Batch training records a batch-level audit event."""
-        from sigil_ml.training.cloud_trainer import CloudTrainer
+        from kenaz_ml.training.cloud_trainer import CloudTrainer
 
         data_store = MockDataStore(tenants=["t1"])
         data_store._tasks["t1"] = _make_tasks(5, "t1")
@@ -1011,7 +1011,7 @@ class TestObservability:
 
 class TestCloudFeatureExtraction:
     def test_stuck_features_from_data(self) -> None:
-        from sigil_ml.features import extract_stuck_features_from_data
+        from kenaz_ml.features import extract_stuck_features_from_data
 
         now_ms = int(time.time() * 1000)
         task = {
@@ -1032,7 +1032,7 @@ class TestCloudFeatureExtraction:
         assert 0 <= feats["file_switch_rate"] <= 1.0
 
     def test_stuck_features_empty_events(self) -> None:
-        from sigil_ml.features import extract_stuck_features_from_data
+        from kenaz_ml.features import extract_stuck_features_from_data
 
         now_ms = int(time.time() * 1000)
         task = {
@@ -1045,13 +1045,13 @@ class TestCloudFeatureExtraction:
         assert feats["edit_velocity"] == 0.0
 
     def test_stuck_features_no_started_at(self) -> None:
-        from sigil_ml.features import extract_stuck_features_from_data
+        from kenaz_ml.features import extract_stuck_features_from_data
 
         feats = extract_stuck_features_from_data({}, [])
         assert feats["session_length_sec"] >= 1.0  # min 1.0
 
     def test_duration_features_from_data(self) -> None:
-        from sigil_ml.features import extract_duration_features_from_data
+        from kenaz_ml.features import extract_duration_features_from_data
 
         now_ms = int(time.time() * 1000)
         task = {
@@ -1070,7 +1070,7 @@ class TestCloudFeatureExtraction:
         assert feats["branch_name_length"] == len("feature/add-widget")
 
     def test_duration_features_missing_files(self) -> None:
-        from sigil_ml.features import extract_duration_features_from_data
+        from kenaz_ml.features import extract_duration_features_from_data
 
         feats = extract_duration_features_from_data({}, [])
         assert feats["file_count"] == 0.0
@@ -1088,7 +1088,7 @@ class TestCLICloudFlags:
         import subprocess
 
         result = subprocess.run(
-            [sys.executable, "-m", "sigil_ml.cli", "train", "--mode", "cloud"],
+            [sys.executable, "-m", "kenaz_ml.cli", "train", "--mode", "cloud"],
             capture_output=True,
             text=True,
         )
@@ -1103,7 +1103,7 @@ class TestCLICloudFlags:
             [
                 sys.executable,
                 "-m",
-                "sigil_ml.cli",
+                "kenaz_ml.cli",
                 "train",
                 "--mode",
                 "cloud",
@@ -1118,7 +1118,7 @@ class TestCLICloudFlags:
         assert "mutually exclusive" in result.stderr
 
     def test_cloud_mode_missing_env_vars(self) -> None:
-        """Missing SIGIL_POSTGRES_URL errors."""
+        """Missing KENAZ_POSTGRES_URL errors."""
         import subprocess
 
         env = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "")}
@@ -1126,7 +1126,7 @@ class TestCLICloudFlags:
             [
                 sys.executable,
                 "-m",
-                "sigil_ml.cli",
+                "kenaz_ml.cli",
                 "train",
                 "--mode",
                 "cloud",
@@ -1138,14 +1138,14 @@ class TestCLICloudFlags:
             env=env,
         )
         assert result.returncode != 0
-        assert "SIGIL_POSTGRES_URL" in result.stderr
+        assert "KENAZ_POSTGRES_URL" in result.stderr
 
     def test_local_mode_default(self) -> None:
         """train --help shows --mode flag."""
         import subprocess
 
         result = subprocess.run(
-            [sys.executable, "-m", "sigil_ml.cli", "train", "--help"],
+            [sys.executable, "-m", "kenaz_ml.cli", "train", "--help"],
             capture_output=True,
             text=True,
         )

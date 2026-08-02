@@ -1,9 +1,9 @@
 """Characterization tests for FilesystemModelLoader (FR-009).
 
-Written against the pre-move import path (`sigil_ml.loader`) so that they are
+Written against the pre-move import path (`kenaz_ml.loader`) so that they are
 demonstrably independent of the storage-layer reorganization: the assertions
 below describe behaviour that must survive the move to
-`sigil_ml.modelstore.loader` byte for byte.
+`kenaz_ml.modelstore.loader` byte for byte.
 
 Every test writes its artifacts under ``tmp_path``. The real
 ``~/.local/share/sigild/`` tree is never read or written -- the one test that
@@ -60,7 +60,7 @@ Toolchain: Python 3.12.13, joblib 1.5.3, numpy 2.5.1, scikit-learn 1.9.0.
 * ``tests/test_model_cache.py`` + ``tests/test_model_loader.py`` add
   **56 tests** (31 cache, 25 loader), so the post-move expectation is
   **542 passed, 1 failed, 9 skipped**.
-* ``python -X importtime -c "import sigil_ml.app"`` cumulative total,
+* ``python -X importtime -c "import kenaz_ml.app"`` cumulative total,
   mean of 5 runs: **1,774,269 us** (min 1,762,105, max 1,782,823).
   NFR-003's 10% budget therefore caps the post-move figure at
   **1,951,696 us**.
@@ -78,7 +78,7 @@ purpose: ``scikit-learn`` is specified as ``>=1.4`` (unpinned), so freezing an
 estimator pickle would turn this into a scikit-learn version test instead of a
 module-move test. That loses nothing here -- ``grep`` over every
 ``joblib.dump`` call site in ``src/`` confirms that no shipped artifact
-pickles a ``sigil_ml`` class (they are bare estimators, or dicts of estimators
+pickles a ``kenaz_ml`` class (they are bare estimators, or dicts of estimators
 and numpy arrays), so no artifact carries a module path that this move could
 invalidate.
 """
@@ -93,7 +93,7 @@ import joblib
 import numpy as np
 import pytest
 
-from sigil_ml.modelstore import FilesystemModelLoader, ModelLoader
+from kenaz_ml.modelstore import FilesystemModelLoader, ModelLoader
 
 # A genuine joblib artifact serialized by the pre-move tree. Do not regenerate:
 # its value is that it predates the move (FR-007).
@@ -340,7 +340,7 @@ class TestDefaultBaseDir:
     """base_dir=None defers to config.models_dir() -- lazily, at construction."""
 
     def test_default_base_dir_comes_from_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from sigil_ml import config
+        from kenaz_ml import config
 
         monkeypatch.setattr(config, "models_dir", lambda: tmp_path)
         _write_artifact(tmp_path / "tenant-a" / "stuck.joblib", {"origin": "from-config"})

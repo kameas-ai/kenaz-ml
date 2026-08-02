@@ -1,0 +1,51 @@
+# Feast configuration for the local, open-source deployment.
+#
+# This file is the entire configuration surface of the local install, and it
+# names no remote registry, no remote online store and no remote provider
+# (FR-005). Feast is a client-server-capable system whose default configuration
+# vocabulary includes remote registries and remote stores, so that absence is
+# enforced rather than assumed (C-001, FR-004):
+#
+#   * `kenaz_ml.feature_store.config` lints this file every time it builds a
+#     local store, and refuses to build one from any text matching a
+#     network-shaped pattern -- so the guarantee holds at runtime, not only
+#     under test; and
+#   * `tests/test_no_egress.py` runs the full local flow with socket creation
+#     blocked at the interpreter level and asserts nothing was ever opened.
+#
+# The lint is a case-insensitive *substring* scan over every byte of this file,
+# comments included. Prose here has to avoid those substrings too, which is
+# deliberate: a value parked in a comment is one keystroke away from being live,
+# and a reviewer skims comments.
+#
+# The two `${...}` markers are filled in by config.py, which is the only thing
+# permitted to write into these values. Both are directory names, never
+# addresses, and each substituted value is re-checked before use.
+#
+#   ${BUNDLE_DIR}     read-only, inside the installed package or frozen bundle.
+#                     The registry ships pre-applied (D-001) so that no feature
+#                     operation ever writes into the application directory
+#                     (FR-013).
+#   ${USER_DATA_DIR}  writable, the sigild user data directory that already
+#                     holds data.db.
+#
+# These two roots are deliberately not collapsed into one: the first must stay
+# read-only for notarization to mean anything, the second must stay writable for
+# the online store to accept a push.
+#
+# No offline_store is declared. Local training reads the shared database
+# directly (D-002), so an offline store here would be dead configuration whose
+# only future is to acquire a remote value in someone's later edit.
+
+project: kenaz_ml
+provider: local
+
+registry:
+  registry_type: file
+  path: ${BUNDLE_DIR}/registry.db
+
+online_store:
+  type: sqlite
+  path: ${USER_DATA_DIR}/feast_online.db
+
+entity_key_serialization_version: 3

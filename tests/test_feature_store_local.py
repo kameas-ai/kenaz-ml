@@ -28,22 +28,22 @@ from typing import Any
 import pytest
 from feast import FeatureStore
 
-from sigil_ml.config import ServingMode
-from sigil_ml.feature_store import config as fsc
-from sigil_ml.feature_store import resolve
-from sigil_ml.feature_store.definitions import (
+from kenaz_ml.config import ServingMode
+from kenaz_ml.feature_store import config as fsc
+from kenaz_ml.feature_store import resolve
+from kenaz_ml.feature_store.definitions import (
     REGISTERED_FEATURE_NAMES,
     duration_features,
     stuck_features,
     task,
 )
-from sigil_ml.features import (
+from kenaz_ml.features import (
     extract_duration_features,
     extract_features_from_buffer,
     extract_stuck_features,
 )
 
-RESOLVE_LOGGER = "sigil_ml.feature_store.resolve"
+RESOLVE_LOGGER = "kenaz_ml.feature_store.resolve"
 
 #: The value seeded into the online store. Nothing the extractors can compute
 #: from the fixtures below comes anywhere near it, so its appearance in a
@@ -153,14 +153,14 @@ def freeze_clock() -> bool:
 
 @pytest.fixture(autouse=True)
 def _frozen_clock(freeze_clock: bool, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Freeze the extractors' notion of now. Only ``sigil_ml.features`` is patched.
+    """Freeze the extractors' notion of now. Only ``kenaz_ml.features`` is patched.
 
     The resolver's own ``time.time`` is left alone, so the timestamp stamped on
     a pushed row is still the real one.
     """
     if not freeze_clock:
         return
-    import sigil_ml.features as features_module
+    import kenaz_ml.features as features_module
 
     monkeypatch.setattr(features_module, "time", FrozenClock(time))
 
@@ -179,7 +179,7 @@ def _clean_resolver() -> Any:
 @pytest.fixture
 def local_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
     """A read-only-in-spirit bundle directory and a writable data directory."""
-    monkeypatch.delenv("SIGIL_MODE", raising=False)
+    monkeypatch.delenv("KENAZ_MODE", raising=False)
     bundle = tmp_path / "bundle"
     user_data = tmp_path / "data"
     bundle.mkdir()
@@ -191,7 +191,7 @@ def local_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, P
 def online_store(local_dirs: tuple[Path, Path]) -> FeatureStore:
     """An applied local registry with an empty SQLite online store attached.
 
-    Applied through :func:`sigil_ml.feature_store.resolve.local_feature_views`,
+    Applied through :func:`kenaz_ml.feature_store.resolve.local_feature_views`,
     the same binding the build-time apply uses, so the registry these tests push
     into is the registry the local deployment ships.
     """
@@ -256,7 +256,7 @@ class StaticQuality:
 
 def _poller(data_store: FakeDataStore) -> tuple[Any, RecordingModel, RecordingModel]:
     """Build an ``EventPoller`` whose stuck and duration models record their input."""
-    from sigil_ml.poller import EventPoller
+    from kenaz_ml.poller import EventPoller
 
     stuck = RecordingModel({"probability": 0.6, "confidence": "moderate"})
     duration = RecordingModel({"estimated_minutes": 42.0, "confidence_interval": [30.0, 60.0]})
@@ -277,8 +277,8 @@ def _routes_state(data_store: FakeDataStore) -> tuple[Any, RecordingModel, Recor
     """Build an ``AppState`` wired into a real FastAPI app with the real routes."""
     from fastapi import FastAPI
 
-    from sigil_ml.app import AppState
-    from sigil_ml.routes import register_routes
+    from kenaz_ml.app import AppState
+    from kenaz_ml.routes import register_routes
 
     state = AppState(mode=ServingMode.LOCAL)
     state.store = data_store  # type: ignore[assignment]
@@ -480,7 +480,7 @@ class TestNoStoreReadOnTheActivePath:
         """FR-017: a read never degrades to a sentinel a caller could feed a model.
 
         The opposite of the push path, on purpose — see
-        :func:`sigil_ml.feature_store.resolve.read_online_features`.
+        :func:`kenaz_ml.feature_store.resolve.read_online_features`.
         """
 
         def unavailable() -> Any:

@@ -30,9 +30,9 @@ from pathlib import Path
 import joblib
 import pytest
 
-from sigil_ml.models.duration import FEATURE_NAMES as DURATION_FEATURE_NAMES
-from sigil_ml.models.stuck import FEATURE_NAMES as STUCK_FEATURE_NAMES
-from sigil_ml.modelstore.registry import (
+from kenaz_ml.models.duration import FEATURE_NAMES as DURATION_FEATURE_NAMES
+from kenaz_ml.models.stuck import FEATURE_NAMES as STUCK_FEATURE_NAMES
+from kenaz_ml.modelstore.registry import (
     CHECK_CONTRACT,
     CHECK_INTEGRITY,
     CHECK_MANIFEST,
@@ -59,7 +59,7 @@ from sigil_ml.modelstore.registry import (
     verify_artifact_file,
     write_manifest,
 )
-from sigil_ml.modelstore.registry import manifest as manifest_module
+from kenaz_ml.modelstore.registry import manifest as manifest_module
 
 # ---------------------------------------------------------------------------
 # Fixtures and helpers
@@ -284,7 +284,7 @@ class TestManifestTolerance:
         module_level = [
             line
             for line in tree.splitlines()
-            if (line.startswith("import ") or line.startswith("from ")) and "sigil_ml" not in line
+            if (line.startswith("import ") or line.startswith("from ")) and "kenaz_ml" not in line
         ]
         assert module_level == [
             "from __future__ import annotations",
@@ -448,8 +448,8 @@ class TestContractSourcedFromFeast:
         assert contract.names == tuple(DURATION_FEATURE_NAMES)
 
     def test_service_version_is_the_feast_content_hash(self) -> None:
-        from sigil_ml.feature_store import definitions
-        from sigil_ml.feature_store.materialize import feature_service_version
+        from kenaz_ml.feature_store import definitions
+        from kenaz_ml.feature_store.materialize import feature_service_version
 
         contract = local_feature_contract("stuck")
         assert contract.service_version == feature_service_version(definitions.FEATURE_SERVICES["stuck"])

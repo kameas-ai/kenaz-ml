@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from sigil_ml.training.synthetic import generate_duration_data, generate_stuck_data
+from kenaz_ml.training.synthetic import generate_duration_data, generate_stuck_data
 
 
 @pytest.fixture(autouse=True)
@@ -14,7 +14,7 @@ def _isolate_models(tmp_path, monkeypatch):
 
 class TestStuckPredictor:
     def test_untrained_returns_default(self) -> None:
-        from sigil_ml.models.stuck import StuckPredictor
+        from kenaz_ml.models.stuck import StuckPredictor
 
         model = StuckPredictor()
         result = model.predict(
@@ -31,7 +31,7 @@ class TestStuckPredictor:
         assert result["confidence"] == "weak"
 
     def test_train_and_predict(self) -> None:
-        from sigil_ml.models.stuck import StuckPredictor
+        from kenaz_ml.models.stuck import StuckPredictor
 
         X, y = generate_stuck_data(200)
         model = StuckPredictor()
@@ -64,7 +64,7 @@ class TestStuckPredictor:
         assert result_ok["probability"] < 0.5
 
     def test_confidence_levels(self) -> None:
-        from sigil_ml.models.stuck import StuckPredictor
+        from kenaz_ml.models.stuck import StuckPredictor
 
         X, y = generate_stuck_data(200)
         model = StuckPredictor()
@@ -86,7 +86,7 @@ class TestStuckPredictor:
         assert len(set(results)) >= 2
 
     def test_weights_persist(self) -> None:
-        from sigil_ml.models.stuck import StuckPredictor
+        from kenaz_ml.models.stuck import StuckPredictor
 
         X, y = generate_stuck_data(100)
 
@@ -112,7 +112,7 @@ class TestStuckPredictor:
 
 class TestActivityClassifier:
     def test_file_event_classifies_as_editing(self) -> None:
-        from sigil_ml.models.activity import ActivityClassifier
+        from kenaz_ml.models.activity import ActivityClassifier
 
         clf = ActivityClassifier()
         result = clf.classify({"kind": "file", "payload": {"path": "/src/main.py", "action": "write"}})
@@ -121,70 +121,70 @@ class TestActivityClassifier:
         assert result["confidence"] > 0
 
     def test_terminal_test_command_classifies_as_verifying(self) -> None:
-        from sigil_ml.models.activity import ActivityClassifier
+        from kenaz_ml.models.activity import ActivityClassifier
 
         clf = ActivityClassifier()
         result = clf.classify({"kind": "terminal", "payload": {"cmd": "pytest tests/ -v"}})
         assert result["category"] == "verifying"
 
     def test_terminal_build_command_classifies_as_verifying(self) -> None:
-        from sigil_ml.models.activity import ActivityClassifier
+        from kenaz_ml.models.activity import ActivityClassifier
 
         clf = ActivityClassifier()
         result = clf.classify({"kind": "terminal", "payload": {"cmd": "go test ./..."}})
         assert result["category"] == "verifying"
 
     def test_terminal_commit_classifies_as_integrating(self) -> None:
-        from sigil_ml.models.activity import ActivityClassifier
+        from kenaz_ml.models.activity import ActivityClassifier
 
         clf = ActivityClassifier()
         result = clf.classify({"kind": "terminal", "payload": {"cmd": "git commit -m 'fix'"}})
         assert result["category"] == "integrating"
 
     def test_git_event_classifies_as_integrating(self) -> None:
-        from sigil_ml.models.activity import ActivityClassifier
+        from kenaz_ml.models.activity import ActivityClassifier
 
         clf = ActivityClassifier()
         result = clf.classify({"kind": "git", "payload": {"branch": "main"}})
         assert result["category"] == "integrating"
 
     def test_ai_event_classifies_as_researching(self) -> None:
-        from sigil_ml.models.activity import ActivityClassifier
+        from kenaz_ml.models.activity import ActivityClassifier
 
         clf = ActivityClassifier()
         result = clf.classify({"kind": "ai", "payload": {}})
         assert result["category"] == "researching"
 
     def test_hyprland_event_classifies_as_navigating(self) -> None:
-        from sigil_ml.models.activity import ActivityClassifier
+        from kenaz_ml.models.activity import ActivityClassifier
 
         clf = ActivityClassifier()
         result = clf.classify({"kind": "hyprland", "payload": {"window_class": "firefox"}})
         assert result["category"] == "navigating"
 
     def test_process_event_classifies_as_navigating(self) -> None:
-        from sigil_ml.models.activity import ActivityClassifier
+        from kenaz_ml.models.activity import ActivityClassifier
 
         clf = ActivityClassifier()
         result = clf.classify({"kind": "process", "payload": {"exe": "nvim"}})
         assert result["category"] == "navigating"
 
     def test_unknown_event_classifies_as_idle(self) -> None:
-        from sigil_ml.models.activity import ActivityClassifier
+        from kenaz_ml.models.activity import ActivityClassifier
 
         clf = ActivityClassifier()
         result = clf.classify({"kind": "unknown"})
         assert result["category"] == "idle"
 
     def test_plugin_source_classifies_as_communicating(self) -> None:
-        from sigil_ml.models.activity import ActivityClassifier
+        from kenaz_ml.models.activity import ActivityClassifier
 
         clf = ActivityClassifier()
         result = clf.classify({"kind": "plugin", "source": "github", "payload": {}})
         assert result["category"] == "communicating"
 
     def test_classify_batch(self) -> None:
-        from sigil_ml.models.activity import ActivityClassifier
+        from kenaz_ml.models.activity import ActivityClassifier
 
         clf = ActivityClassifier()
         events = [
@@ -199,14 +199,14 @@ class TestActivityClassifier:
         assert results[2]["category"] == "integrating"
 
     def test_untrained_is_trained_false(self) -> None:
-        from sigil_ml.models.activity import ActivityClassifier
+        from kenaz_ml.models.activity import ActivityClassifier
 
         clf = ActivityClassifier()
         assert clf.is_trained is False
 
     def test_train_and_classify_ml(self) -> None:
-        from sigil_ml.features import extract_activity_features
-        from sigil_ml.models.activity import CATEGORIES_FULL, ActivityClassifier
+        from kenaz_ml.features import extract_activity_features
+        from kenaz_ml.models.activity import CATEGORIES_FULL, ActivityClassifier
 
         clf = ActivityClassifier()
 
@@ -230,7 +230,7 @@ class TestActivityClassifier:
         assert result["category"] in CATEGORIES_FULL
 
     def test_weights_persist(self) -> None:
-        from sigil_ml.models.activity import CATEGORIES_FULL, ActivityClassifier
+        from kenaz_ml.models.activity import CATEGORIES_FULL, ActivityClassifier
 
         rng = np.random.RandomState(42)
         X = rng.rand(100, 6)
@@ -249,7 +249,7 @@ class TestWorkflowStatePredictor:
         return [{"kind": "file", "_category": cat, "ts": ts_start + i * 1000} for i, cat in enumerate(categories)]
 
     def test_rules_deep_work(self) -> None:
-        from sigil_ml.models.workflow import WorkflowStatePredictor
+        from kenaz_ml.models.workflow import WorkflowStatePredictor
 
         model = WorkflowStatePredictor()
         # 90% editing, 10% verifying — high focus, low navigating.
@@ -259,7 +259,7 @@ class TestWorkflowStatePredictor:
         assert result["method"] == "rules"
 
     def test_rules_blocked(self) -> None:
-        from sigil_ml.models.workflow import WorkflowStatePredictor
+        from kenaz_ml.models.workflow import WorkflowStatePredictor
 
         model = WorkflowStatePredictor()
         events = self._make_events(["verifying"] * 6 + ["editing"] * 4)
@@ -267,7 +267,7 @@ class TestWorkflowStatePredictor:
         assert result["dominant_state"] == "blocked"
 
     def test_rules_exploring(self) -> None:
-        from sigil_ml.models.workflow import WorkflowStatePredictor
+        from kenaz_ml.models.workflow import WorkflowStatePredictor
 
         model = WorkflowStatePredictor()
         events = self._make_events(["navigating"] * 5 + ["researching"] * 4 + ["editing"])
@@ -275,7 +275,7 @@ class TestWorkflowStatePredictor:
         assert result["dominant_state"] == "exploring"
 
     def test_rules_default_shallow_work(self) -> None:
-        from sigil_ml.models.workflow import WorkflowStatePredictor
+        from kenaz_ml.models.workflow import WorkflowStatePredictor
 
         model = WorkflowStatePredictor()
         # Mixed activity without any strong signal — should default to shallow_work.
@@ -284,7 +284,7 @@ class TestWorkflowStatePredictor:
         assert result["dominant_state"] == "shallow_work"
 
     def test_flow_state_sums_to_one(self) -> None:
-        from sigil_ml.models.workflow import WorkflowStatePredictor
+        from kenaz_ml.models.workflow import WorkflowStatePredictor
 
         model = WorkflowStatePredictor()
         events = self._make_events(["editing"] * 5 + ["verifying"] * 5)
@@ -293,7 +293,7 @@ class TestWorkflowStatePredictor:
         assert abs(total - 1.0) < 0.01
 
     def test_momentum_positive_when_accelerating(self) -> None:
-        from sigil_ml.models.workflow import WorkflowStatePredictor
+        from kenaz_ml.models.workflow import WorkflowStatePredictor
 
         model = WorkflowStatePredictor()
         # Even split — momentum should be near 0 for equal halves.
@@ -302,7 +302,7 @@ class TestWorkflowStatePredictor:
         assert -0.5 <= result["momentum"] <= 0.5
 
     def test_focus_score_high_for_concentrated(self) -> None:
-        from sigil_ml.models.workflow import WorkflowStatePredictor
+        from kenaz_ml.models.workflow import WorkflowStatePredictor
 
         model = WorkflowStatePredictor()
         events = self._make_events(["editing"] * 10)
@@ -310,7 +310,7 @@ class TestWorkflowStatePredictor:
         assert result["focus_score"] == 1.0
 
     def test_focus_score_lower_for_scattered(self) -> None:
-        from sigil_ml.models.workflow import WorkflowStatePredictor
+        from kenaz_ml.models.workflow import WorkflowStatePredictor
 
         model = WorkflowStatePredictor()
         events = self._make_events(["editing", "verifying", "navigating", "researching"] * 3)
@@ -318,7 +318,7 @@ class TestWorkflowStatePredictor:
         assert result["focus_score"] < 0.5
 
     def test_output_shape(self) -> None:
-        from sigil_ml.models.workflow import FLOW_STATES, WorkflowStatePredictor
+        from kenaz_ml.models.workflow import FLOW_STATES, WorkflowStatePredictor
 
         model = WorkflowStatePredictor()
         events = self._make_events(["editing"] * 5)
@@ -336,13 +336,13 @@ class TestWorkflowStatePredictor:
         assert "confidence" in result
 
     def test_untrained_is_trained_false(self) -> None:
-        from sigil_ml.models.workflow import WorkflowStatePredictor
+        from kenaz_ml.models.workflow import WorkflowStatePredictor
 
         model = WorkflowStatePredictor()
         assert model.is_trained is False
 
     def test_empty_events(self) -> None:
-        from sigil_ml.models.workflow import WorkflowStatePredictor
+        from kenaz_ml.models.workflow import WorkflowStatePredictor
 
         model = WorkflowStatePredictor()
         result = model.predict([], {"session_elapsed_min": 0, "test_failures": 0})
@@ -350,8 +350,8 @@ class TestWorkflowStatePredictor:
         assert result["focus_score"] == 1.0
 
     def test_weights_persist(self) -> None:
-        from sigil_ml.features import extract_workflow_features
-        from sigil_ml.models.workflow import FLOW_STATES, WorkflowStatePredictor
+        from kenaz_ml.features import extract_workflow_features
+        from kenaz_ml.models.workflow import FLOW_STATES, WorkflowStatePredictor
 
         rng = np.random.RandomState(42)
         events = [{"_category": rng.choice(["editing", "verifying"]), "ts": 1000 + i * 1000} for i in range(50)]
@@ -372,7 +372,7 @@ class TestWorkflowStatePredictor:
 
 class TestDurationEstimator:
     def test_untrained_returns_default(self) -> None:
-        from sigil_ml.models.duration import DurationEstimator
+        from kenaz_ml.models.duration import DurationEstimator
 
         model = DurationEstimator()
         result = model.predict(
@@ -387,7 +387,7 @@ class TestDurationEstimator:
         assert len(result["confidence_interval"]) == 2
 
     def test_train_and_predict(self) -> None:
-        from sigil_ml.models.duration import DurationEstimator
+        from kenaz_ml.models.duration import DurationEstimator
 
         X, y = generate_duration_data(200)
         model = DurationEstimator()
@@ -415,7 +415,7 @@ class TestDurationEstimator:
         assert result_big["estimated_minutes"] > result_small["estimated_minutes"]
 
     def test_confidence_interval(self) -> None:
-        from sigil_ml.models.duration import DurationEstimator
+        from kenaz_ml.models.duration import DurationEstimator
 
         X, y = generate_duration_data(200)
         model = DurationEstimator()
@@ -434,7 +434,7 @@ class TestDurationEstimator:
         assert low >= 0
 
     def test_weights_persist(self) -> None:
-        from sigil_ml.models.duration import DurationEstimator
+        from kenaz_ml.models.duration import DurationEstimator
 
         X, y = generate_duration_data(100)
 

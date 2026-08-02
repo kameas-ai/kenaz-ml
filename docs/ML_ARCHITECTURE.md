@@ -1,10 +1,10 @@
-# kameas-ml Platform Architecture
+# kenaz-ml Platform Architecture
 
 **Status:** Draft · **Date:** 2026-07-30 · **Scope:** feature layer, model lifecycle, registry, training, local/cloud deployment split
 
 ## Overview
 
-`kameas-ml` ships in two deployments from one codebase:
+`kenaz-ml` ships in two deployments from one codebase:
 
 - **Local** — bundled with the open-source `sigil` product. A frozen, notarized binary on a developer laptop, reading SQLite. No data leaves the machine, ever.
 - **Cloud** — an enterprise product. A container in our ecosystem, reading Postgres, serving many tenants.
@@ -33,7 +33,7 @@ The models themselves cross that boundary: we build **base models** centrally, s
 | Model registry | Sidecar JSON manifests (stdlib) | MLflow (Postgres backend + S3 artifacts) |
 | Feature tooling | Python extractors only | Python extractors + Feast (offline half) |
 | Training | Local extension of shipped base models | Per-tenant and pooled training |
-| Extra deps | none | `kameas-ml[cloud]` |
+| Extra deps | none | `kenaz-ml[cloud]` |
 | Privacy posture | No egress | Contractual, tenant-isolated |
 
 The split is enforced by optional dependencies: a `cloud` extra carrying `psycopg2-binary`, `boto3`, and `feast[postgres]`. **Feast itself is now an unconditional local dependency** (`feast==0.65.0`) — see the superseding note in §3.5. MLflow remains cloud-only and must not enter the local import path.
@@ -42,7 +42,7 @@ The split is enforced by optional dependencies: a `cloud` extra carrying `psycop
 
 ## 2. Data layer
 
-Unchanged from today. All access goes through the `DataStore` protocol (`src/sigil_ml/datastore/protocol.py`, imported as `sigil_ml.datastore`), implemented by `SqliteStore` (`datastore/sqlite.py`) and `PostgresStore` (`datastore/postgres.py`). Table ownership per `CLAUDE.md`: Python reads `events`, `tasks`, `patterns`, `suggestions`; Python writes `ml_predictions`, `ml_events`, `ml_signals`; Python owns `ml_cursor`.
+Unchanged from today. All access goes through the `DataStore` protocol (`src/kenaz_ml/datastore/protocol.py`, imported as `kenaz_ml.datastore`), implemented by `SqliteStore` (`datastore/sqlite.py`) and `PostgresStore` (`datastore/postgres.py`). Table ownership per `CLAUDE.md`: Python reads `events`, `tasks`, `patterns`, `suggestions`; Python writes `ml_predictions`, `ml_events`, `ml_signals`; Python owns `ml_cursor`.
 
 **One addition, cloud only:** an `ml_features` table, Python-owned, holding materialized feature rows for historical training.
 
@@ -69,7 +69,7 @@ Local does not get this table. Local training reads events directly and computes
 
 ### 3.1 Computation authority
 
-`src/sigil_ml/features.py` is the single authority for feature computation, in both deployments and for base-model training. Nothing else computes features.
+`src/kenaz_ml/features.py` is the single authority for feature computation, in both deployments and for base-model training. Nothing else computes features.
 
 Today the module has two parallel families — `extract_stuck_features(store, task_id)` and `extract_stuck_features_from_data(task, events)` — with a docstring promising they produce identical output. That promise is enforced only by hand, and it is the exact skew a feature store is meant to prevent.
 
@@ -160,7 +160,7 @@ Rationale:
 
 - **Not local.** `feast[sqlite]` pulls pandas, pyarrow, protobuf, and grpcio. In a notarized `onedir` bundle every native library must be signed and stapled, for a feature set a single-user daemon does not use. This is what stalled the `feat/feast-feature-store` branch in April (§10).
 - **Offline half, not online half.** Serving predicts on an active task from live events. An online store returns the last *materialized* value; for a "is this developer stuck right now" model, that staleness is a downgrade, not an optimization. The value is in point-in-time-correct historical retrieval, not in key-value serving.
-- **Feast orchestrates; it does not compute.** Feature values are produced by `sigil_ml.features` (§3.1) and written to `ml_features` with correct `event_timestamp`s. Feast registers a `PostgreSQLSource` over that table and provides as-of joins, `FeatureService` versioning per model, and lineage. Computation stays in one place, so both deployments remain bit-identical.
+- **Feast orchestrates; it does not compute.** Feature values are produced by `kenaz_ml.features` (§3.1) and written to `ml_features` with correct `event_timestamp`s. Feast registers a `PostgreSQLSource` over that table and provides as-of joins, `FeatureService` versioning per model, and lineage. Computation stays in one place, so both deployments remain bit-identical.
 
 Point-in-time correctness comes from *storing values with their event time*, not from Feast computing them — which is why §3.2 and the `ml_features` schema matter more than the tool choice, and why the cloud pipeline works with or without Feast.
 
@@ -221,7 +221,7 @@ Today a fresh install with fewer than ten completed tasks trains on synthetic da
 
 ### 5.1 What exists
 
-Everything below lives in `src/sigil_ml/modelstore/` and is imported from the package (`from sigil_ml.modelstore import ...`), not from its submodules.
+Everything below lives in `src/kenaz_ml/modelstore/` and is imported from the package (`from kenaz_ml.modelstore import ...`), not from its submodules.
 
 - `LocalModelStore` (`modelstore/stores.py`) — `{models_dir}/{name}.joblib`. **No versioning**; `save()` overwrites in place.
 - `S3ModelStore` (`modelstore/stores.py`) — versioned keys `{tenant}/models/{name}/{version}/model.joblib` plus a `latest` pointer. **No `list_versions`, no `set_latest`** — `save()` only advances, so there is no rollback.
@@ -309,7 +309,7 @@ The manifest schema is the entire contract between the two halves. Design it onc
 
 - **No local egress.** Local training and inference transmit nothing. This is a product guarantee, not a default.
 - **Pickle deserialization.** `joblib.load` on a shipped artifact is arbitrary code execution. Verify `artifact_sha256` against the manifest **before** loading; sign base artifacts in the release pipeline. This is cheap once manifests exist and is consistent with the security-first posture in `CLAUDE.md`.
-- **sklearn pickle portability.** Base models are pickles that installs then `warm_start`. The frozen binary pins sklearn, so that path is controlled; a `pip install kameas-ml` user resolves whatever satisfies the version range, and sklearn pickles are not guaranteed portable across versions. Record `sklearn_version` in the manifest, check at load, and pin sklearn tightly for distributions that consume base models.
+- **sklearn pickle portability.** Base models are pickles that installs then `warm_start`. The frozen binary pins sklearn, so that path is controlled; a `pip install kenaz-ml` user resolves whatever satisfies the version range, and sklearn pickles are not guaranteed portable across versions. Record `sklearn_version` in the manifest, check at load, and pin sklearn tightly for distributions that consume base models.
 - **Tenant isolation (cloud).** Per-tenant key prefixes and per-tenant model resolution already exist; pooled training is restricted to explicitly opted-in tenants.
 
 ---
@@ -343,7 +343,7 @@ Items 1–2 are worth doing regardless of whether the rest of this document is a
 
 ## 10. Rejected alternatives
 
-**Feast in the local runtime.** Attempted on `feat/feast-feature-store` (four commits, tip 2026-04-10, never merged). The branch registered `PushSource` + `FeatureView` against a SQLite online store, with computation left in `sigil_ml.features`. Its own docstring records the mismatch: placeholder `FileSource` entries pointing at non-existent parquet paths, "because sigil-ml never runs offline batch materialization." With only the push path wired, Feast reduced to a TTL'd key-value cache in front of functions that already existed. The final commit demoted Feast from a required dependency to an extra, and the branch stopped. **Superseded by §3.5** — the offline half in cloud is the half with value.
+**Feast in the local runtime.** Attempted on `feat/feast-feature-store` (four commits, tip 2026-04-10, never merged). The branch registered `PushSource` + `FeatureView` against a SQLite online store, with computation left in `kenaz_ml.features`. Its own docstring records the mismatch: placeholder `FileSource` entries pointing at non-existent parquet paths, "because sigil-ml never runs offline batch materialization." With only the push path wired, Feast reduced to a TTL'd key-value cache in front of functions that already existed. The final commit demoted Feast from a required dependency to an extra, and the branch stopped. **Superseded by §3.5** — the offline half in cloud is the half with value.
 
 **Feast with no online store, resolving from posted JSON.** Achievable via `OnDemandFeatureView` over a `RequestSource`, and closer to the right shape than the branch. Rejected because the dependency cost is unchanged (importing Feast pulls the full tree regardless of storage config), the registry remains mandatory, and `RequestSource` schemas are flat typed columns while our inputs are variable-length event sequences — the event list would pass as an opaque JSON string, so Feast's typing would validate nothing. Net: Feast with both of its hard features disabled, at full cost, wrapping extractors that already have exactly this signature.
 

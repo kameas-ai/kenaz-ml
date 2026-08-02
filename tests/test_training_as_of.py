@@ -18,13 +18,13 @@ import time
 import numpy as np
 import pytest
 
-from sigil_ml import features as features_mod
-from sigil_ml.models.duration import FEATURE_NAMES as DURATION_FEATURES
-from sigil_ml.models.duration import DurationEstimator
-from sigil_ml.models.stuck import FEATURE_NAMES as STUCK_FEATURES
-from sigil_ml.models.stuck import StuckPredictor
-from sigil_ml.training.cloud_trainer import CloudTrainer
-from sigil_ml.training.trainer import Trainer, _reference_time_for
+from kenaz_ml import features as features_mod
+from kenaz_ml.models.duration import FEATURE_NAMES as DURATION_FEATURES
+from kenaz_ml.models.duration import DurationEstimator
+from kenaz_ml.models.stuck import FEATURE_NAMES as STUCK_FEATURES
+from kenaz_ml.models.stuck import StuckPredictor
+from kenaz_ml.training.cloud_trainer import CloudTrainer
+from kenaz_ml.training.trainer import Trainer, _reference_time_for
 
 # --- Fixture timeline -------------------------------------------------------
 
@@ -335,7 +335,7 @@ class TestLocalStuckTraining:
         tasks, events = _build_fixtures()
         trainer = Trainer(FakeStore(tasks, events))
 
-        with caplog.at_level("INFO", logger="sigil_ml.training.trainer"):
+        with caplog.at_level("INFO", logger="kenaz_ml.training.trainer"):
             trainer._train_stuck()
 
         matches = [r for r in caplog.records if "no resolvable reference time" in r.getMessage()]
@@ -348,7 +348,7 @@ class TestLocalStuckTraining:
         tasks = tasks[:9] + [dict(t, id=f"dead-{i}", completed_at=0, last_active=0) for i, t in enumerate(tasks[:2])]
         trainer = Trainer(FakeStore(tasks, events))
 
-        with caplog.at_level("INFO", logger="sigil_ml.training.trainer"):
+        with caplog.at_level("INFO", logger="kenaz_ml.training.trainer"):
             samples = trainer._train_stuck()
 
         assert samples == 500  # synthetic
@@ -416,7 +416,7 @@ class TestLocalDurationTraining:
         tasks, events = _build_fixtures()
         trainer = Trainer(FakeStore(tasks, events))
 
-        with caplog.at_level("INFO", logger="sigil_ml.training.trainer"):
+        with caplog.at_level("INFO", logger="kenaz_ml.training.trainer"):
             trainer._train_duration()
 
         matches = [r for r in caplog.records if "duration training: skipped" in r.getMessage()]
@@ -496,7 +496,7 @@ class TestCloudTraining:
     def test_skips_logged_once_per_model(self, stuck_capture, duration_capture, caplog) -> None:
         tasks, events = _build_fixtures()
 
-        with caplog.at_level("INFO", logger="sigil_ml.training.cloud_trainer"):
+        with caplog.at_level("INFO", logger="kenaz_ml.training.cloud_trainer"):
             self._run(tasks, events)
 
         messages = [r.getMessage() for r in caplog.records]
@@ -506,7 +506,7 @@ class TestCloudTraining:
 
     def test_resolver_is_shared_not_duplicated(self) -> None:
         """FR-008 depends on the cloud path applying the *same* rule."""
-        from sigil_ml.training import cloud_trainer as cloud_mod
-        from sigil_ml.training import trainer as local_mod
+        from kenaz_ml.training import cloud_trainer as cloud_mod
+        from kenaz_ml.training import trainer as local_mod
 
         assert cloud_mod._reference_time_for is local_mod._reference_time_for

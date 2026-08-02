@@ -3,13 +3,13 @@
 What is genuinely exercised here, and what is not
 ------------------------------------------------
 Everything about the **write** side is real: real tasks, real extractors from
-``sigil_ml.features``, the real reference-time resolver, the real row objects
+``kenaz_ml.features``, the real reference-time resolver, the real row objects
 that get persisted.
 
 The **join** side is real too, but not over PostgreSQL. No PostgreSQL server is
 available in this environment (only libpq's client tools), so these tests run
 Feast's actual ``get_historical_features`` against its Dask offline store, over
-parquet written by :func:`~sigil_ml.feature_store.materialize.rows_to_source_frame`
+parquet written by :func:`~kenaz_ml.feature_store.materialize.rows_to_source_frame`
 -- the same projection the production SQL performs, sharing its column list. The
 feature views, the TTLs, the feature services, the entity frame and the as-of
 join are the production objects and the production code path; only the physical
@@ -19,7 +19,7 @@ What that leaves unexercised is exactly one thing: that PostgreSQL executes
 ``feature_view_source_query`` as written. That is asserted structurally below
 (table, predicate, timestamp field, projected columns) and covered end-to-end by
 ``test_live_postgres_point_in_time``, which runs the identical scenario through
-``PostgreSQLSource`` when ``SIGIL_ML_TEST_POSTGRES_URL`` is set and skips
+``PostgreSQLSource`` when ``KENAZ_ML_TEST_POSTGRES_URL`` is set and skips
 otherwise. It is skipped here.
 
 None of these tests mock retrieval. A mocked as-of join would assert nothing
@@ -37,8 +37,8 @@ from typing import Any
 
 import pytest
 
-from sigil_ml.feature_store import definitions, materialize
-from sigil_ml.feature_store.materialize import (
+from kenaz_ml.feature_store import definitions, materialize
+from kenaz_ml.feature_store.materialize import (
     DURATION_OFFLINE_VIEW,
     ML_FEATURES_DDL,
     ML_FEATURES_INSERT,
@@ -59,16 +59,16 @@ from sigil_ml.feature_store.materialize import (
     rows_to_source_frame,
     source_query_columns,
 )
-from sigil_ml.features import (
+from kenaz_ml.features import (
     extract_duration_features_from_data,
     extract_stuck_features_from_data,
 )
-from sigil_ml.models.duration import FEATURE_NAMES as DURATION_FEATURE_NAMES
-from sigil_ml.models.stuck import FEATURE_NAMES as STUCK_FEATURE_NAMES
-from sigil_ml.training import cloud_trainer as cloud_trainer_module
-from sigil_ml.training.cloud_trainer import CloudTrainer
-from sigil_ml.training.models import CloudTrainingConfig
-from sigil_ml.training.trainer import _reference_time_for
+from kenaz_ml.models.duration import FEATURE_NAMES as DURATION_FEATURE_NAMES
+from kenaz_ml.models.stuck import FEATURE_NAMES as STUCK_FEATURE_NAMES
+from kenaz_ml.training import cloud_trainer as cloud_trainer_module
+from kenaz_ml.training.cloud_trainer import CloudTrainer
+from kenaz_ml.training.models import CloudTrainingConfig
+from kenaz_ml.training.trainer import _reference_time_for
 
 pd = pytest.importorskip("pandas")
 
@@ -232,7 +232,7 @@ def build_offline_feature_store(tmp_path: Path, rows: list[OfflineFeatureRow]) -
         frame.to_parquet(data / f"{view.name}.parquet", index=False)
 
     config = RepoConfig(
-        project="sigil_ml",
+        project="kenaz_ml",
         provider="local",
         repo_path=str(repo),
         registry={"registry_type": "file", "path": str(repo / "registry.db")},
@@ -441,7 +441,7 @@ def test_unresolvable_tasks_are_skipped_and_counted_once(caplog):
         task.pop("completed_at", None)
         task.pop("last_active", None)
 
-    with caplog.at_level(logging.INFO, logger="sigil_ml.feature_store.materialize"):
+    with caplog.at_level(logging.INFO, logger="kenaz_ml.feature_store.materialize"):
         result = build_offline_rows([resolvable, *unresolvable], lambda _: [], now_ms=FROZEN_NOW_MS)
 
     assert result.skipped == 3
@@ -630,7 +630,7 @@ def test_shipped_definitions_stay_deployment_neutral():
 def test_materialize_holds_no_connection_details():
     """Connection config is reused from feature_store.config, never duplicated."""
     code = _executable_source(materialize)
-    for smell in ("SIGIL_POSTGRES_URL", "environ", "getenv", "5432", "password", "psycopg"):
+    for smell in ("KENAZ_POSTGRES_URL", "environ", "getenv", "5432", "password", "psycopg"):
         assert smell not in code
     # The connection is injected; this module never opens one of its own.
     assert "connect (" not in code
@@ -886,8 +886,8 @@ def test_retrieval_and_replay_produce_identical_training_sets(tmp_path, monkeypa
 
         return train
 
-    from sigil_ml.models.duration import DurationEstimator
-    from sigil_ml.models.stuck import StuckPredictor
+    from kenaz_ml.models.duration import DurationEstimator
+    from kenaz_ml.models.stuck import StuckPredictor
 
     data_store, tasks, events = _training_fixture()
     feature_store = _materialized_store(tmp_path, tasks, events)
@@ -1018,7 +1018,7 @@ def test_entity_frame_skips_unresolvable_tasks_and_logs_once(caplog):
         task.pop("last_active", None)
 
     trainer = CloudTrainer(data_store=data_store, model_store=FakeModelStore(), feature_store=object())
-    with caplog.at_level(logging.INFO, logger="sigil_ml.training.cloud_trainer"):
+    with caplog.at_level(logging.INFO, logger="kenaz_ml.training.cloud_trainer"):
         frame = trainer._build_entity_frame(tasks, "acme")
 
     assert len(frame) == 2
@@ -1101,10 +1101,10 @@ def test_materialization_result_defaults():
 # The same scenario over a real PostgreSQL, when one is available
 # ===========================================================================
 
-_LIVE_PG = os.environ.get("SIGIL_ML_TEST_POSTGRES_URL")
+_LIVE_PG = os.environ.get("KENAZ_ML_TEST_POSTGRES_URL")
 
 
-@pytest.mark.skipif(not _LIVE_PG, reason="SIGIL_ML_TEST_POSTGRES_URL is not set")
+@pytest.mark.skipif(not _LIVE_PG, reason="KENAZ_ML_TEST_POSTGRES_URL is not set")
 def test_live_postgres_point_in_time(tmp_path):
     """The leakage scenario through PostgreSQLSource against a live server.
 
@@ -1116,7 +1116,7 @@ def test_live_postgres_point_in_time(tmp_path):
     from feast import FeatureStore
     from feast.repo_config import RepoConfig
 
-    from sigil_ml.feature_store.config import _postgres_connection
+    from kenaz_ml.feature_store.config import _postgres_connection
 
     connection = psycopg2.connect(_LIVE_PG)
     sink = materialize.PostgresOfflineSink(connection)
@@ -1133,7 +1133,7 @@ def test_live_postgres_point_in_time(tmp_path):
     repo.mkdir(parents=True, exist_ok=True)
     store = FeatureStore(
         config=RepoConfig(
-            project="sigil_ml",
+            project="kenaz_ml",
             provider="local",
             repo_path=str(repo),
             registry={"registry_type": "file", "path": str(repo / "registry.db")},

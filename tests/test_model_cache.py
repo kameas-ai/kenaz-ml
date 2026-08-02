@@ -1,14 +1,14 @@
 """Characterization tests for ModelCache (FR-008).
 
-Written against the pre-move import path (`sigil_ml.cache`) so that they are
+Written against the pre-move import path (`kenaz_ml.cache`) so that they are
 demonstrably independent of the storage-layer reorganization: the assertions
 below describe behaviour that must survive the move to
-`sigil_ml.modelstore.cache` byte for byte.
+`kenaz_ml.modelstore.cache` byte for byte.
 
 Time is controlled by patching ``time.monotonic`` on the stdlib ``time``
 module rather than sleeping. ``cache.py`` does ``import time`` and calls
 ``time.monotonic()`` at call time, so attribute patching on the shared module
-object is sufficient -- and, unlike ``mock.patch("sigil_ml.cache.time...")``,
+object is sufficient -- and, unlike ``mock.patch("kenaz_ml.cache.time...")``,
 it carries no module path that the move would invalidate.
 
 Mutation testing (T006)
@@ -44,8 +44,8 @@ import time
 
 import pytest
 
-from sigil_ml.modelstore import ModelCache, create_model_cache
-from sigil_ml.modelstore.cache import DEFAULT_MAX_SIZE, DEFAULT_TTL_SECONDS
+from kenaz_ml.modelstore import ModelCache, create_model_cache
+from kenaz_ml.modelstore.cache import DEFAULT_MAX_SIZE, DEFAULT_TTL_SECONDS
 
 
 class _Clock:

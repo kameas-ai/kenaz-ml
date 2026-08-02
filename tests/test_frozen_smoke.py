@@ -1,4 +1,4 @@
-"""Freeze smoke test for the frozen `kameas-ml` binary (FR-3, ADR-ml-packaging).
+"""Freeze smoke test for the frozen `kenaz-ml` binary (FR-3, ADR-ml-packaging).
 
 This guards the known scikit-learn / numpy / uvicorn hidden-import breakage
 that PyInstaller one-file builds are prone to: a binary can `serve` and answer
@@ -25,7 +25,7 @@ build is not evidence:
 * :func:`test_frozen_cold_start_within_budget` — NFR-003, measured on the real
   binary, because ``import feast`` pulls pyarrow and pandas.
 
-The tests are SKIPPED unless ``KAMEAS_ML_FROZEN_BIN`` points at a built
+The tests are SKIPPED unless ``KENAZ_ML_FROZEN_BIN`` points at a built
 artifact, so the normal `pytest tests/` run on a dev machine (no frozen binary)
 stays green. They are the integration contract between the freeze recipe (part
 A) and kenaz's supervised-production path (part B): B's production wiring is
@@ -34,8 +34,8 @@ only considered correct once this passes against the baked binary.
 Run them explicitly after a freeze build:
 
     pip install -e ".[freeze]"
-    pyinstaller freeze/kameas-ml.spec --noconfirm
-    KAMEAS_ML_FROZEN_BIN=$PWD/dist/kameas-ml/kameas-ml pytest tests/test_frozen_smoke.py -v
+    pyinstaller freeze/kenaz-ml.spec --noconfirm
+    KENAZ_ML_FROZEN_BIN=$PWD/dist/kenaz-ml/kenaz-ml pytest tests/test_frozen_smoke.py -v
 """
 
 from __future__ import annotations
@@ -53,26 +53,26 @@ from urllib.request import Request, urlopen
 
 import pytest
 
-FROZEN_BIN = os.environ.get("KAMEAS_ML_FROZEN_BIN")
+FROZEN_BIN = os.environ.get("KENAZ_ML_FROZEN_BIN")
 
 pytestmark = pytest.mark.skipif(
     not FROZEN_BIN,
-    reason="KAMEAS_ML_FROZEN_BIN not set; build the frozen binary first "
-    "(pyinstaller freeze/kameas-ml.spec) and point the env var at "
-    "dist/kameas-ml/kameas-ml (onedir layout)",
+    reason="KENAZ_ML_FROZEN_BIN not set; build the frozen binary first "
+    "(pyinstaller freeze/kenaz-ml.spec) and point the env var at "
+    "dist/kenaz-ml/kenaz-ml (onedir layout)",
 )
 
 #: NFR-003 — process start-to-serving budget for a background daemon.
 COLD_START_BUDGET_SECONDS = 10.0
 
 #: Where the feature-store assets must sit inside the onedir bundle. This
-#: mirrors ``sigil_ml.feature_store.config.bundle_dir()``, which resolves to
-#: ``<sys._MEIPASS>/sigil_ml/feature_store`` when frozen; for a onedir build
+#: mirrors ``kenaz_ml.feature_store.config.bundle_dir()``, which resolves to
+#: ``<sys._MEIPASS>/kenaz_ml/feature_store`` when frozen; for a onedir build
 #: ``sys._MEIPASS`` is the ``_internal`` directory beside the executable. The
 #: constant is repeated rather than imported so the test fails loudly if the
 #: packaged layout and the resolver ever diverge — importing the resolver would
 #: make the two agree by construction and assert nothing.
-BUNDLE_FEATURE_STORE_RELPATH = ("_internal", "sigil_ml", "feature_store")
+BUNDLE_FEATURE_STORE_RELPATH = ("_internal", "kenaz_ml", "feature_store")
 
 
 def _free_port() -> int:
@@ -237,7 +237,7 @@ def _set_tree_writable(root: Path, writable: bool) -> bool:
 
 def _assert_unwritable(root: Path) -> None:
     """Fail unless a write into ``root`` actually raises."""
-    probe = root / ".kameas-ml-writability-probe"
+    probe = root / ".kenaz-ml-writability-probe"
     try:
         probe.touch()
     except OSError:
@@ -300,7 +300,7 @@ def test_frozen_bundle_ships_feature_store_assets() -> None:
     store_dir = _bundled_feature_store_dir()
     assert store_dir.is_dir(), (
         f"no feature-store directory at {store_dir}. The PyInstaller spec must collect the "
-        "assets to the path sigil_ml.feature_store.config.bundle_dir() resolves to when frozen."
+        "assets to the path kenaz_ml.feature_store.config.bundle_dir() resolves to when frozen."
     )
 
     registry = store_dir / "registry.db"

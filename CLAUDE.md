@@ -1,8 +1,8 @@
-# CLAUDE.md — kameas-ml
+# CLAUDE.md — kenaz-ml
 
-## What kameas-ml Is
+## What kenaz-ml Is
 
-`kameas-ml` is the ML sidecar for [`sigil`](https://github.com/wambozi/sigil) — a background daemon that observes developer workflow signals and surfaces productivity suggestions.
+`kenaz-ml` is the ML sidecar for [`sigil`](https://github.com/wambozi/sigil) — a background daemon that observes developer workflow signals and surfaces productivity suggestions.
 
 It ships in **two deployments from one codebase**:
 
@@ -13,7 +13,7 @@ It ships in **two deployments from one codebase**:
 | `DataStore` impl | `SqliteStore` | `PostgresStore` |
 | Tenancy | Single user | Multi-tenant |
 | Model artifacts | Filesystem | S3 / MinIO |
-| Extra deps | none | `kameas-ml[cloud]` |
+| Extra deps | none | `kenaz-ml[cloud]` |
 
 Mode is selected by `config.operating_mode()`.
 
@@ -23,7 +23,7 @@ Architecture beyond this file — feature layer, model lifecycle, registry, base
 
 ## The Shared Database
 
-`sigild` and `kameas-ml` communicate **exclusively through SQLite** at `~/.local/share/sigild/data.db` in WAL mode.
+`sigild` and `kenaz-ml` communicate **exclusively through SQLite** at `~/.local/share/sigild/data.db` in WAL mode.
 
 ### Table Ownership
 
@@ -45,7 +45,7 @@ Architecture beyond this file — feature layer, model lifecycle, registry, base
 2. Model names in `ml_predictions.model` must exactly match Go's queries: `"stuck"`, `"suggest"`, `"duration"`, `"quality"`, `"profile"`
 3. The HTTP endpoints on `:7774` must remain functional — `sigilctl` uses them
 4. Local runtime dependencies are `scikit-learn`, `numpy`, `fastapi`, `uvicorn`, `joblib`, **and `feast`** — nothing else without an explicit, recorded decision
-5. **Never import `sqlite3` or `psycopg2` directly.** All data access goes through the `DataStore` protocol in `sigil_ml.datastore` (`src/sigil_ml/datastore/`), so both deployments stay behaviourally identical
+5. **Never import `sqlite3` or `psycopg2` directly.** All data access goes through the `DataStore` protocol in `kenaz_ml.datastore` (`src/kenaz_ml/datastore/`), so both deployments stay behaviourally identical
 
 ### Storage packages — data vs. model artifacts
 
@@ -53,10 +53,10 @@ Two unrelated things used to share the word "store". They are now separate packa
 
 | Concern | Package | Import from |
 |---|---|---|
-| Observed data — `events`, `tasks`, the cursor | `src/sigil_ml/datastore/` (`protocol.py`, `sqlite.py`, `postgres.py`) | `from sigil_ml.datastore import DataStore, create_store` |
-| Model artifacts — `.joblib` bytes, loading, serving cache | `src/sigil_ml/modelstore/` (`stores.py`, `loader.py`, `cache.py`) | `from sigil_ml.modelstore import ModelStore, LocalModelStore, S3ModelStore, CachedModelStore, model_store_factory, ModelLoader, FilesystemModelLoader, ModelCache, create_model_cache` |
+| Observed data — `events`, `tasks`, the cursor | `src/kenaz_ml/datastore/` (`protocol.py`, `sqlite.py`, `postgres.py`) | `from kenaz_ml.datastore import DataStore, create_store` |
+| Model artifacts — `.joblib` bytes, loading, serving cache | `src/kenaz_ml/modelstore/` (`stores.py`, `loader.py`, `cache.py`) | `from kenaz_ml.modelstore import ModelStore, LocalModelStore, S3ModelStore, CachedModelStore, model_store_factory, ModelLoader, FilesystemModelLoader, ModelCache, create_model_cache` |
 
-**Import from the package, not the submodule.** The submodule split inside each package is an implementation detail; the package `__all__` is the supported surface. Anything concerning a model artifact — the registry, base-model refresh, retention — belongs in `sigil_ml.modelstore`, not next to the data layer. Note the model-store factory is `model_store_factory`, not `create_model_store`.
+**Import from the package, not the submodule.** The submodule split inside each package is an implementation detail; the package `__all__` is the supported surface. Anything concerning a model artifact — the registry, base-model refresh, retention — belongs in `kenaz_ml.modelstore`, not next to the data layer. Note the model-store factory is `model_store_factory`, not `create_model_store`.
 
 ### The dependency ceiling, and the one exception
 
@@ -68,7 +68,7 @@ Note what this does *not* license: the exception covers Feast's tree only. Addin
 
 ## Feature Extraction
 
-`src/sigil_ml/features.py` is the **single authority** for feature computation, shared by both deployments and by base-model training.
+`src/kenaz_ml/features.py` is the **single authority** for feature computation, shared by both deployments and by base-model training.
 
 - The `*_from_data(task, events, *, as_of_ms=None)` functions are the definition. The store-backed `extract_*(store, task_id, ...)` variants fetch rows and delegate — they must contain no feature arithmetic.
 - **`as_of_ms` is the reference time the vector describes.** `None` means current wall clock, which is correct only when the subject is an *active* task (serving). Any path replaying history must pass the example's own reference time.
@@ -91,7 +91,7 @@ Verify against live data before treating any event-kind branch as exercised.
 ```bash
 pip install -e ".[dev]"          # local development
 pip install -e ".[dev,cloud]"    # includes psycopg2, boto3 — needed for cloud-path tests
-kameas-ml serve                  # start server with poller
+kenaz-ml serve                   # start server with poller
 pytest tests/                    # run tests
 ```
 

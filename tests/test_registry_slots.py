@@ -28,8 +28,8 @@ from pathlib import Path
 import joblib
 import pytest
 
-from sigil_ml import config
-from sigil_ml.modelstore.registry import (
+from kenaz_ml import config
+from kenaz_ml.modelstore.registry import (
     CHECK_CONTRACT,
     CHECK_INTEGRITY,
     CHECK_MANIFEST,
@@ -43,8 +43,8 @@ from sigil_ml.modelstore.registry import (
     running_sklearn_version,
     write_manifest,
 )
-from sigil_ml.modelstore.registry import slots as slots_module
-from sigil_ml.modelstore.registry.slots import (
+from kenaz_ml.modelstore.registry import slots as slots_module
+from kenaz_ml.modelstore.registry.slots import (
     CHECK_SLOT,
     REASON_ARTIFACT_NOT_FOUND,
     REASON_SLOT_EMPTY,
@@ -60,7 +60,7 @@ from sigil_ml.modelstore.registry.slots import (
     slot_is_empty,
 )
 
-SLOTS_LOGGER = "sigil_ml.modelstore.registry.slots"
+SLOTS_LOGGER = "kenaz_ml.modelstore.registry.slots"
 
 #: The full roster the service serves. Only ``stuck`` and ``duration`` have a
 #: registered Feast feature service; the rest are deliberately included so the
@@ -270,7 +270,7 @@ class TestNoBaseModelsDefaultState:
         answers 0.5/weak, and that is what the service returns today for every
         install with no model on disk.
         """
-        from sigil_ml.models.stuck import StuckPredictor
+        from kenaz_ml.models.stuck import StuckPredictor
 
         class _EmptyStore:
             def load(self, name: str) -> bytes | None:
@@ -672,7 +672,7 @@ class TestBaseModelsDir:
         resolved = config.base_models_dir()
 
         assert resolved == Path(config.__file__).resolve().parent / config.BASE_MODELS_DIRNAME
-        assert resolved.parent.name == "sigil_ml"
+        assert resolved.parent.name == "kenaz_ml"
         assert resolved.name == "ml-base"
 
     def test_frozen_bundle_resolves_under_meipass(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -684,7 +684,7 @@ class TestBaseModelsDir:
         monkeypatch.setattr(sys, "frozen", True, raising=False)
         monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
 
-        assert config.base_models_dir() == tmp_path / "sigil_ml" / "ml-base"
+        assert config.base_models_dir() == tmp_path / "kenaz_ml" / "ml-base"
 
     def test_frozen_layout_matches_the_feature_store_precedent(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -692,10 +692,10 @@ class TestBaseModelsDir:
         """One convention for bundled package data, not two.
 
         ``feature_store.config.bundle_dir()`` already resolves
-        ``<_MEIPASS>/sigil_ml/feature_store``; the base slot must be its sibling,
+        ``<_MEIPASS>/kenaz_ml/feature_store``; the base slot must be its sibling,
         because the PyInstaller collection rules place both the same way.
         """
-        from sigil_ml.feature_store import config as fs_config
+        from kenaz_ml.feature_store import config as fs_config
 
         monkeypatch.setattr(sys, "frozen", True, raising=False)
         monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
@@ -707,9 +707,9 @@ class TestBaseModelsDir:
     ) -> None:
         monkeypatch.setattr(sys, "frozen", True, raising=False)
         monkeypatch.delattr(sys, "_MEIPASS", raising=False)
-        monkeypatch.setattr(sys, "executable", str(tmp_path / "kameas-ml"))
+        monkeypatch.setattr(sys, "executable", str(tmp_path / "kenaz-ml"))
 
-        assert config.base_models_dir() == tmp_path / "sigil_ml" / "ml-base"
+        assert config.base_models_dir() == tmp_path / "kenaz_ml" / "ml-base"
 
     def test_it_does_not_create_the_directory(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """The prohibition that matters: mkdir inside a signed bundle fails.

@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from sigil_ml.models.fleet_focus import FleetFocusModel
-from sigil_ml.models.fleet_meeting import FleetMeetingModel
-from sigil_ml.models.fleet_onboarding import FleetOnboardingModel
-from sigil_ml.modelstore import LocalModelStore
+from kenaz_ml.models.fleet_focus import FleetFocusModel
+from kenaz_ml.models.fleet_meeting import FleetMeetingModel
+from kenaz_ml.models.fleet_onboarding import FleetOnboardingModel
+from kenaz_ml.modelstore import LocalModelStore
 
 
 @pytest.fixture

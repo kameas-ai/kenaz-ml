@@ -98,7 +98,7 @@ jobs:
 
       - name: Smoke test — server + API endpoints
         run: |
-          kameas-ml serve --port 7799 &
+          kenaz-ml serve --port 7799 &
           SERVER_PID=$!
 
           # Wait for the server to answer rather than guessing how long it takes.
@@ -111,13 +111,13 @@ jobs:
           for _ in $(seq 1 60); do
             if curl -sf -o /dev/null http://127.0.0.1:7799/health; then ready=1; break; fi
             if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-              echo "::error::kameas-ml serve exited before answering /health"
+              echo "::error::kenaz-ml serve exited before answering /health"
               exit 1
             fi
             sleep 1
           done
           if [ -z "$ready" ]; then
-            echo "::error::kameas-ml serve did not answer /health within 60s"
+            echo "::error::kenaz-ml serve did not answer /health within 60s"
             kill "$SERVER_PID" 2>/dev/null || true
             exit 1
           fi
@@ -153,11 +153,11 @@ jobs:
 
       - name: Smoke test — CLI train (no-op without DB)
         run: |
-          kameas-ml train 2>&1 || true
+          kenaz-ml train 2>&1 || true
 
       - name: Smoke test — CLI health-check (server not running)
         run: |
-          kameas-ml health-check 2>&1 && exit 1 || echo "Expected failure — server not running"
+          kenaz-ml health-check 2>&1 && exit 1 || echo "Expected failure — server not running"
 
   openapi:
     name: OpenAPI Spec
@@ -197,7 +197,7 @@ jobs:
 
       - name: Verify server starts from installed wheel
         run: |
-          kameas-ml serve --port 7798 &
+          kenaz-ml serve --port 7798 &
           SERVER_PID=$!
 
           # Same bounded wait as the `test` job — this is the step that has been
@@ -208,13 +208,13 @@ jobs:
           for _ in $(seq 1 60); do
             if curl -sf -o /dev/null http://127.0.0.1:7798/health; then ready=1; break; fi
             if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-              echo "::error::kameas-ml serve (from wheel) exited before answering /health"
+              echo "::error::kenaz-ml serve (from wheel) exited before answering /health"
               exit 1
             fi
             sleep 1
           done
           if [ -z "$ready" ]; then
-            echo "::error::kameas-ml serve (from wheel) did not answer /health within 60s"
+            echo "::error::kenaz-ml serve (from wheel) did not answer /health within 60s"
             kill "$SERVER_PID" 2>/dev/null || true
             exit 1
           fi
@@ -258,7 +258,7 @@ jobs:
         run: pip install -e ".[dev,freeze]"
 
       - name: Build frozen bundle
-        # `make freeze` runs `pyinstaller freeze/kameas-ml.spec`, which applies
+        # `make freeze` runs `pyinstaller freeze/kenaz-ml.spec`, which applies
         # the Feast registry at build time and fails the build if the apply
         # fails (D-001 / T019). A bundle without a registry would start fine and
         # fail at the first feature call on a user's machine, so this must never
@@ -273,8 +273,8 @@ jobs:
           #
           #   git archive ef67e05 | tar -x -C /tmp/baseline
           #   cd /tmp/baseline && pip install -e ".[freeze]" \
-          #     && pyinstaller freeze/kameas-ml.spec --noconfirm --clean
-          #   du -sm dist/kameas-ml
+          #     && pyinstaller freeze/kenaz-ml.spec --noconfirm --clean
+          #   du -sm dist/kenaz-ml
           #
           # 126 MB / 210 native libraries. Update this only alongside a recorded
           # re-measurement; silently raising it to make a red build green is
@@ -283,8 +283,8 @@ jobs:
           # NFR-001: no more than 350 MB over the pre-migration set.
           GROWTH_CEILING_MB: '350'
         run: |
-          BUNDLE_MB=$(du -sm dist/kameas-ml | cut -f1)
-          LIBS=$(find dist/kameas-ml \( -name '*.so' -o -name '*.dylib' \) | wc -l | tr -d ' ')
+          BUNDLE_MB=$(du -sm dist/kenaz-ml | cut -f1)
+          LIBS=$(find dist/kenaz-ml \( -name '*.so' -o -name '*.dylib' \) | wc -l | tr -d ' ')
           DELTA_MB=$((BUNDLE_MB - BASELINE_BUNDLE_MB))
           HEADROOM_MB=$((GROWTH_CEILING_MB - DELTA_MB))
 
@@ -317,14 +317,14 @@ jobs:
         #     that the online store landed in the user data directory (FR-013)
         #   * cold start against NFR-003's 10 s budget, on the real binary
         run: |
-          KAMEAS_ML_FROZEN_BIN="$PWD/dist/kameas-ml/kameas-ml" \
+          KENAZ_ML_FROZEN_BIN="$PWD/dist/kenaz-ml/kenaz-ml" \
             pytest tests/test_frozen_smoke.py -v -s
 
       - name: Upload frozen bundle
         uses: actions/upload-artifact@v4
         with:
-          name: kameas-ml-macos-arm64
-          path: dist/kameas-ml
+          name: kenaz-ml-macos-arm64
+          path: dist/kenaz-ml
           retention-days: 7
 
   # ==========================================================================
@@ -357,14 +357,14 @@ jobs:
       - name: Download frozen bundle
         uses: actions/download-artifact@v4
         with:
-          name: kameas-ml-macos-arm64
-          path: dist/kameas-ml
+          name: kenaz-ml-macos-arm64
+          path: dist/kenaz-ml
 
       - name: Restore executable bits
         # actions/upload-artifact does not preserve the executable bit.
         run: |
-          chmod +x dist/kameas-ml/kameas-ml
-          find dist/kameas-ml -name '*.dylib' -o -name '*.so' | xargs -I{} chmod +x {}
+          chmod +x dist/kenaz-ml/kenaz-ml
+          find dist/kenaz-ml -name '*.dylib' -o -name '*.so' | xargs -I{} chmod +x {}
 
       - name: Check for signing credentials
         id: creds
@@ -427,10 +427,10 @@ jobs:
           # Inside-out: every nested Mach-O first, the launcher last. Signing the
           # launcher before its dylibs invalidates the outer signature the moment
           # an inner one is written (ADR-nested-binary-signing).
-          find dist/kameas-ml -type f \( -name '*.dylib' -o -name '*.so' \) -print0 \
+          find dist/kenaz-ml -type f \( -name '*.dylib' -o -name '*.so' \) -print0 \
             | xargs -0 -n 25 codesign --force --timestamp --options runtime --sign "$IDENTITY"
-          codesign --force --timestamp --options runtime --sign "$IDENTITY" dist/kameas-ml/kameas-ml
-          echo "signed $(find dist/kameas-ml \( -name '*.so' -o -name '*.dylib' \) | wc -l | tr -d ' ') nested Mach-O files plus the launcher"
+          codesign --force --timestamp --options runtime --sign "$IDENTITY" dist/kenaz-ml/kenaz-ml
+          echo "signed $(find dist/kenaz-ml \( -name '*.so' -o -name '*.dylib' \) | wc -l | tr -d ' ') nested Mach-O files plus the launcher"
 
       - name: Verify every nested signature before notarizing
         if: steps.creds.outputs.configured == 'true'
@@ -445,8 +445,8 @@ jobs:
               echo "::error::unsigned or invalid signature: $macho"
               failed=1
             fi
-          done < <(find dist/kameas-ml -type f \( -name '*.dylib' -o -name '*.so' \))
-          codesign --verify --deep --strict --verbose=2 dist/kameas-ml/kameas-ml
+          done < <(find dist/kenaz-ml -type f \( -name '*.dylib' -o -name '*.so' \))
+          codesign --verify --deep --strict --verbose=2 dist/kenaz-ml/kenaz-ml
           [ "$failed" -eq 0 ]
 
       - name: Notarize and staple
@@ -461,15 +461,15 @@ jobs:
           echo "$AC_API_PRIVATE_KEY" > "/tmp/ac/AuthKey_${AC_API_KEY_ID}.p8"
 
           # A .dmg, because a ticket has to be stapled to a container.
-          hdiutil create -volname kameas-ml -srcfolder dist/kameas-ml \
-            -ov -format UDZO /tmp/kameas-ml.dmg
+          hdiutil create -volname kenaz-ml -srcfolder dist/kenaz-ml \
+            -ov -format UDZO /tmp/kenaz-ml.dmg
 
-          xcrun notarytool submit /tmp/kameas-ml.dmg \
+          xcrun notarytool submit /tmp/kenaz-ml.dmg \
             --key "/tmp/ac/AuthKey_${AC_API_KEY_ID}.p8" \
             --key-id "$AC_API_KEY_ID" \
             --issuer "$AC_API_ISSUER_ID" \
             --wait --timeout 45m
-          xcrun stapler staple /tmp/kameas-ml.dmg
+          xcrun stapler staple /tmp/kenaz-ml.dmg
           rm -rf /tmp/ac
 
       - name: Verify notarization (FR-012, NFR-005)
@@ -481,9 +481,9 @@ jobs:
           # outer signature, `stapler validate` proves the ticket is attached
           # (so a machine offline at first launch still passes), and `spctl`
           # is the assessment Gatekeeper itself performs.
-          codesign --verify --deep --strict --verbose=2 dist/kameas-ml/kameas-ml
-          xcrun stapler validate /tmp/kameas-ml.dmg
-          spctl --assess --type open --context context:primary-signature -vv /tmp/kameas-ml.dmg
+          codesign --verify --deep --strict --verbose=2 dist/kenaz-ml/kenaz-ml
+          xcrun stapler validate /tmp/kenaz-ml.dmg
+          spctl --assess --type open --context context:primary-signature -vv /tmp/kenaz-ml.dmg
           echo "### Notarization gate: PASSED" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify the notarized artifact serves a real feature call
@@ -496,8 +496,8 @@ jobs:
         run: |
           set -euo pipefail
           pip install -e ".[dev]"
-          MOUNT=$(hdiutil attach /tmp/kameas-ml.dmg -nobrowse -readonly | tail -1 | awk '{print $NF}')
-          KAMEAS_ML_FROZEN_BIN="$MOUNT/kameas-ml" pytest tests/test_frozen_smoke.py -v -s \
+          MOUNT=$(hdiutil attach /tmp/kenaz-ml.dmg -nobrowse -readonly | tail -1 | awk '{print $NF}')
+          KENAZ_ML_FROZEN_BIN="$MOUNT/kenaz-ml" pytest tests/test_frozen_smoke.py -v -s \
             -k "feature_store or registry_records" || {
               hdiutil detach "$MOUNT" || true
               exit 1
@@ -508,6 +508,6 @@ jobs:
         if: steps.creds.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: kameas-ml-macos-arm64-notarized
-          path: /tmp/kameas-ml.dmg
+          name: kenaz-ml-macos-arm64-notarized
+          path: /tmp/kenaz-ml.dmg
           retention-days: 14

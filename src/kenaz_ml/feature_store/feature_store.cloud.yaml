@@ -1,0 +1,39 @@
+# Feast configuration for the cloud, enterprise deployment.
+#
+# PostgreSQL on both halves of the store and a SQL registry (FR-006, C-007).
+#
+# This file declares *shapes only*. Every connection detail -- host, port,
+# database, user, password -- is injected at load time by
+# `kenaz_ml.feature_store.config.load_cloud_repo_config`, which reads
+# `config.postgres_url()` exactly as `PostgresStore` already does. Nothing
+# resembling a credential is committed here, so this file is safe to read in a
+# pull request and there is no secret to rotate out of git history.
+#
+# This file has no include, anchor or reference shared with
+# feature_store.local.yaml. The two are parsed by separate functions that never
+# call each other, and `cloud_config_path()` raises before it even computes this
+# path when the process is in local mode -- so in an open-source install this
+# file is never opened, not opened-and-ignored (FR-004).
+#
+# Unlike the local file, this one is intentionally network-shaped. That is the
+# whole reason the local loader refuses any configuration text matching a
+# network-shaped pattern: if a future edit ever routes the local path here, the
+# lint fails loudly instead of quietly dialling out.
+
+project: kenaz_ml
+provider: local
+
+# `path` (the SQLAlchemy URL) is injected from the environment at load time.
+registry:
+  registry_type: sql
+
+# Point-in-time correct training retrieval (FR-007, FR-008) against the
+# `ml_features` table.
+offline_store:
+  type: postgres
+
+# Online serving for the multi-tenant deployment.
+online_store:
+  type: postgres
+
+entity_key_serialization_version: 3

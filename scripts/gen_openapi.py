@@ -13,8 +13,8 @@ import sys
 from pathlib import Path
 
 # Import the app to get the auto-generated schema.
-from sigil_ml.app import create_app
-from sigil_ml.config import ServingMode
+from kenaz_ml.app import create_app
+from kenaz_ml.config import ServingMode
 
 ROOT = Path(__file__).resolve().parent.parent
 SPEC_PATH = ROOT / "docs" / "openapi.json"

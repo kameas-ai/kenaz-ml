@@ -40,9 +40,9 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from sigil_ml import features
-from sigil_ml.datastore.sqlite import SqliteStore
-from sigil_ml.features import (
+from kenaz_ml import features
+from kenaz_ml.datastore.sqlite import SqliteStore
+from kenaz_ml.features import (
     extract_activity_features,
     extract_duration_features,
     extract_duration_features_from_data,
@@ -63,7 +63,7 @@ NOW_SEC = NOW_MS / 1000.0
 
 
 class _FrozenTime:
-    """Stand-in for the ``time`` module as seen from ``sigil_ml.features``.
+    """Stand-in for the ``time`` module as seen from ``kenaz_ml.features``.
 
     ``features`` does ``import time`` and calls ``time.time()`` /
     ``time.localtime()``. Swapping the module attribute is narrower than
@@ -85,7 +85,7 @@ class _FrozenTime:
 
 @contextmanager
 def frozen_clock(now_ms: int = NOW_MS) -> Iterator[None]:
-    """Pin the wall clock that ``sigil_ml.features`` reads."""
+    """Pin the wall clock that ``kenaz_ml.features`` reads."""
     previous = features.time
     features.time = _FrozenTime(now_ms)  # type: ignore[assignment]
     try:
@@ -271,7 +271,7 @@ BASELINE_BUFFER_EMPTY: dict[str, float] = {
 
 
 def _write_fixture_db(db_path: Path) -> None:
-    """Create the Go-owned tables kameas-ml reads and load TASK_A / EVENTS_A."""
+    """Create the Go-owned tables kenaz-ml reads and load TASK_A / EVENTS_A."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     conn.executescript("""
@@ -455,7 +455,7 @@ def serving_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
     _write_fixture_db(tmp_path / "sigild" / "data.db")
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
 
-    from sigil_ml.app import create_app
+    from kenaz_ml.app import create_app
 
     with TestClient(create_app()) as client:
         yield client
@@ -473,7 +473,7 @@ class TestPredictionRoutesEndToEnd:
         input; capturing the argument is what proves the extractor ran and
         produced unchanged values.
         """
-        from sigil_ml.models.stuck import StuckPredictor
+        from kenaz_ml.models.stuck import StuckPredictor
 
         captured: list[dict[str, float]] = []
         original_predict = StuckPredictor.predict
@@ -506,7 +506,7 @@ class TestPredictionRoutesEndToEnd:
     def test_duration_route_extracts_baseline_features(
         self, serving_client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from sigil_ml.models.duration import DurationEstimator
+        from kenaz_ml.models.duration import DurationEstimator
 
         captured: list[dict[str, float]] = []
         original_predict = DurationEstimator.predict
@@ -548,7 +548,7 @@ class TestPredictionRoutesEndToEnd:
 
     def test_prediction_request_models_expose_no_reference_time(self) -> None:
         """The request bodies `sigilctl` sends are exactly what they were."""
-        from sigil_ml.routes import DurationRequest, DurationResponse, StuckRequest, StuckResponse
+        from kenaz_ml.routes import DurationRequest, DurationResponse, StuckRequest, StuckResponse
 
         assert set(StuckRequest.model_fields) == {"task_id", "features"}
         assert set(StuckResponse.model_fields) == {"probability", "confidence"}

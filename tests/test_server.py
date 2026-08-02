@@ -17,7 +17,7 @@ def client():
     Uses raise_server_exceptions=False to avoid leaking startup errors.
     The TestClient context manager triggers startup/shutdown events.
     """
-    from sigil_ml.app import create_app
+    from kenaz_ml.app import create_app
 
     application = create_app()
     with TestClient(application) as c:
@@ -87,13 +87,13 @@ class TestSuggestEndpoint:
         assert "method" in data
         assert "confidence" in data
         # Flow state should have all 5 states.
-        from sigil_ml.models.workflow import FLOW_STATES
+        from kenaz_ml.models.workflow import FLOW_STATES
 
         for state in FLOW_STATES:
             assert state in data["flow_state"]
 
     def test_predict_with_classified_events(self, client: TestClient) -> None:
-        from sigil_ml.models.workflow import FLOW_STATES
+        from kenaz_ml.models.workflow import FLOW_STATES
 
         events = [
             {"kind": "file", "_category": "editing", "ts": 1000},
@@ -154,11 +154,11 @@ class TestIntrospectEndpoint:
         resp = client.get("/introspect")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["service"] == "kameas-ml"
+        assert data["service"] == "kenaz-ml"
         assert data["mode"] == "local"
         assert data["uptime_sec"] >= 0
 
-        from sigil_ml import __version__
+        from kenaz_ml import __version__
 
         assert data["version"] == __version__
 
@@ -206,7 +206,7 @@ class TestIntrospectEndpoint:
         import numpy as np
         from sklearn.ensemble import GradientBoostingClassifier
 
-        from sigil_ml.modelstore import LocalModelStore
+        from kenaz_ml.modelstore import LocalModelStore
 
         clf = GradientBoostingClassifier(n_estimators=2)
         clf.fit(np.zeros((4, 6)), [0, 1, 0, 1])

@@ -1,5 +1,5 @@
 {
-  "source_directories": [{"root": "src", "subdirectory": "sigil_ml"}],
+  "source_directories": [{"root": "src", "subdirectory": "kenaz_ml"}],
   "site_package_search_strategy": "pep561",
   "strict": false,
   "taint_models_path": [".pyre/taint_models"],

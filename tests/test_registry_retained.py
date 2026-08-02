@@ -17,9 +17,9 @@ from pathlib import Path
 
 import pytest
 
-from sigil_ml.modelstore.registry import FeatureContract
-from sigil_ml.modelstore.registry import retained as retained_module
-from sigil_ml.modelstore.registry.retained import (
+from kenaz_ml.modelstore.registry import FeatureContract
+from kenaz_ml.modelstore.registry import retained as retained_module
+from kenaz_ml.modelstore.registry.retained import (
     DEFAULT_MAX_BYTES,
     INITIAL_GENERATION,
     RECORD_EXAMPLE,
@@ -193,7 +193,7 @@ class TestWriterFormat:
             "dataclasses",
             "pathlib",
             "typing",
-            "sigil_ml",
+            "kenaz_ml",
         }, imported
 
 
@@ -705,7 +705,7 @@ class TestDirectoryResolution:
     def test_prefers_config_retained_data_dir_when_present(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from sigil_ml import config
+        from kenaz_ml import config
 
         target = tmp_path / "configured"
         monkeypatch.setattr(config, "retained_data_dir", lambda: target, raising=False)
@@ -714,7 +714,7 @@ class TestDirectoryResolution:
         assert target.is_dir()
 
     def test_falls_back_to_models_dir_retained(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from sigil_ml import config
+        from kenaz_ml import config
 
         monkeypatch.delattr(config, "retained_data_dir", raising=False)
         monkeypatch.setattr(config, "models_dir", lambda: tmp_path)

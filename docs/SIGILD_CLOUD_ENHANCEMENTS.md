@@ -1,12 +1,12 @@
 # Sigild Cloud Enhancements
 
-These 4 features belong in the [`sigil`](https://github.com/wambozi/sigil) Go repository. They are the sigild-side counterparts to the kameas-ml cloud features and are required for a complete Sigil Cloud deployment.
+These 4 features belong in the [`sigil`](https://github.com/wambozi/sigil) Go repository. They are the sigild-side counterparts to the kenaz-ml cloud features and are required for a complete Sigil Cloud deployment.
 
 ## 1. LLM Proxy Service
 
 **What**: A cloud-hosted service that proxies LLM inference requests from Go daemons on developer laptops to cloud LLM providers (OpenAI, Anthropic).
 
-**Why**: This is the fastest path to revenue. Pro-tier users get dramatically better suggestions (GPT-4o / Claude vs local Qwen 1.5B) with zero changes to kameas-ml. The Go daemon's `inference.Engine` already supports cloud backends — this feature wraps them in a managed service with auth and billing.
+**Why**: This is the fastest path to revenue. Pro-tier users get dramatically better suggestions (GPT-4o / Claude vs local Qwen 1.5B) with zero changes to kenaz-ml. The Go daemon's `inference.Engine` already supports cloud backends — this feature wraps them in a managed service with auth and billing.
 
 **Scope**:
 - API gateway with authentication (API key / JWT)
@@ -14,7 +14,7 @@ These 4 features belong in the [`sigil`](https://github.com/wambozi/sigil) Go re
 - Request metering for billing
 - Rate limiting per tenant
 - Provider failover (OpenAI → Anthropic or vice versa)
-- No kameas-ml involvement — purely the Go daemon ↔ LLM provider path
+- No kenaz-ml involvement — purely the Go daemon ↔ LLM provider path
 
 **Existing Go code to build on**:
 - `internal/inference/cloud.go` — already supports OpenAI and Anthropic APIs
@@ -69,7 +69,7 @@ poll_interval_sec = 5
 - Authentication via API key in request header
 - Tenant identification and tier validation (must be Pro with cloud ML opt-in, or Team)
 - Writes to per-tenant schema in Postgres
-- Schema mirrors SQLite table structure for maximum compatibility with kameas-ml
+- Schema mirrors SQLite table structure for maximum compatibility with kenaz-ml
 - Idempotent writes using sync cursor + event ID deduplication
 - Deployed in K8s, horizontally scalable on request rate
 
@@ -147,11 +147,11 @@ mode = "remote"
 
 Features 3 and 4 are tightly coupled and should be developed together.
 
-## Relationship to kameas-ml Features
+## Relationship to kenaz-ml Features
 
-| sigild Feature | kameas-ml Feature | Relationship |
+| sigild Feature | kenaz-ml Feature | Relationship |
 |---|---|---|
-| LLM Proxy Service | — | Independent, no kameas-ml changes |
+| LLM Proxy Service | — | Independent, no kenaz-ml changes |
 | Sync Agent | 002 Storage Abstraction | Sync agent feeds data that PostgresStore reads |
 | Cloud Ingest Service | 002 Storage Abstraction | Ingest writes to Postgres that PostgresStore reads |
-| Tier & Config System | 001 Cloud Serving Mode | Tier config determines `ml.mode` which drives kameas-ml mode |
+| Tier & Config System | 001 Cloud Serving Mode | Tier config determines `ml.mode` which drives kenaz-ml mode |

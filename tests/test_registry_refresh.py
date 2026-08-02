@@ -40,7 +40,7 @@ import numpy as np
 import pytest
 from sklearn.ensemble import GradientBoostingClassifier
 
-from sigil_ml.modelstore.registry import (
+from kenaz_ml.modelstore.registry import (
     FeatureContract,
     Manifest,
     Provenance,
@@ -50,8 +50,8 @@ from sigil_ml.modelstore.registry import (
     running_sklearn_version,
     write_manifest,
 )
-from sigil_ml.modelstore.registry import refresh as refresh_module
-from sigil_ml.modelstore.registry.refresh import (
+from kenaz_ml.modelstore.registry import refresh as refresh_module
+from kenaz_ml.modelstore.registry.refresh import (
     ACTION_ADOPT_BASE,
     ACTION_NONE,
     ACTION_REBUILD,
@@ -71,19 +71,19 @@ from sigil_ml.modelstore.registry.refresh import (
     refresh_all,
     refresh_model,
 )
-from sigil_ml.modelstore.registry.retained import (
+from kenaz_ml.modelstore.registry.retained import (
     Example,
     append_examples,
     read_retained,
 )
-from sigil_ml.modelstore.registry.slots import (
+from kenaz_ml.modelstore.registry.slots import (
     SLOT_LOCAL,
     artifact_path,
     manifest_path,
     resolve_model,
 )
 
-REFRESH_LOGGER = "sigil_ml.modelstore.registry.refresh"
+REFRESH_LOGGER = "kenaz_ml.modelstore.registry.refresh"
 
 MODEL = "stuck"
 

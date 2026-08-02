@@ -29,10 +29,10 @@ from feast import FeatureView
 from feast.infra.offline_stores.file_source import FileSource
 from feast.types import Float64, String
 
-import sigil_ml.models
-from sigil_ml.feature_store import definitions as defs
-from sigil_ml.models.duration import FEATURE_NAMES as DURATION_FEATURE_NAMES
-from sigil_ml.models.stuck import FEATURE_NAMES as STUCK_FEATURE_NAMES
+import kenaz_ml.models
+from kenaz_ml.feature_store import definitions as defs
+from kenaz_ml.models.duration import FEATURE_NAMES as DURATION_FEATURE_NAMES
+from kenaz_ml.models.stuck import FEATURE_NAMES as STUCK_FEATURE_NAMES
 
 # (feature view, the constant it must mirror, expected field count)
 VIEW_CONSTANT_PAIRS = [
@@ -190,10 +190,10 @@ class TestRegistrationCoverage:
 
     @staticmethod
     def discover_feature_name_constants() -> dict[str, list[str]]:
-        """Walk `sigil_ml.models` for modules declaring a `FEATURE_NAMES` constant."""
+        """Walk `kenaz_ml.models` for modules declaring a `FEATURE_NAMES` constant."""
         found = {}
-        for info in pkgutil.iter_modules(sigil_ml.models.__path__):
-            module = importlib.import_module(f"sigil_ml.models.{info.name}")
+        for info in pkgutil.iter_modules(kenaz_ml.models.__path__):
+            module = importlib.import_module(f"kenaz_ml.models.{info.name}")
             constant = getattr(module, "FEATURE_NAMES", None)
             if constant is not None:
                 found[info.name] = constant
@@ -204,7 +204,7 @@ class TestRegistrationCoverage:
         unregistered = sorted(set(discovered) - set(defs.REGISTERED_FEATURE_NAMES))
         assert not unregistered, (
             f"model module(s) {unregistered} declare FEATURE_NAMES but no feature view registers them. "
-            "Add a feature view in sigil_ml/feature_store/definitions.py deriving its schema from the "
+            "Add a feature view in kenaz_ml/feature_store/definitions.py deriving its schema from the "
             "constant, add a FeatureService for the model, and list it in REGISTERED_FEATURE_NAMES."
         )
 
@@ -234,7 +234,7 @@ class TestNoArithmetic:
         assert not hasattr(defs, "numpy")
 
     def test_definitions_do_not_import_the_extractors(self):
-        """Importing `sigil_ml.features` here would blur the D-002 boundary."""
+        """Importing `kenaz_ml.features` here would blur the D-002 boundary."""
         source = inspect.getsource(defs)
-        assert "from sigil_ml.features import" not in source
-        assert "import sigil_ml.features" not in source
+        assert "from kenaz_ml.features import" not in source
+        assert "import kenaz_ml.features" not in source

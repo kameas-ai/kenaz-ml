@@ -20,10 +20,10 @@ comments on faith.
 
 Both deployments are covered:
 
-* **Local** -- ``sigil_ml.feature_store.resolve``, the live-compute-then-push
+* **Local** -- ``kenaz_ml.feature_store.resolve``, the live-compute-then-push
   serving resolver WP03 routed ``poller.py`` and ``routes.py`` through. Fully
   exercised: real extractors, real resolver, real push into a recording store.
-* **Cloud** -- ``sigil_ml.feature_store.materialize`` plus
+* **Cloud** -- ``kenaz_ml.feature_store.materialize`` plus
   ``CloudTrainer._retrieve_offline_features``. Real materializer, real row
   objects, real production ``cloud_feature_views`` binding, real Feast
   ``get_historical_features`` as-of join, real retrieval verification. The one
@@ -65,9 +65,9 @@ from typing import Any
 
 import pytest
 
-from sigil_ml.feature_store import materialize
-from sigil_ml.feature_store import resolve as resolve_module
-from sigil_ml.feature_store.materialize import (
+from kenaz_ml.feature_store import materialize
+from kenaz_ml.feature_store import resolve as resolve_module
+from kenaz_ml.feature_store.materialize import (
     DURATION_OFFLINE_VIEW,
     ML_FEATURES_TABLE,
     OFFLINE_FEATURE_VIEWS,
@@ -76,10 +76,10 @@ from sigil_ml.feature_store.materialize import (
     cloud_feature_views,
     rows_to_source_frame,
 )
-from sigil_ml.models.duration import FEATURE_NAMES as DURATION_FEATURE_NAMES
-from sigil_ml.models.stuck import FEATURE_NAMES as STUCK_FEATURE_NAMES
-from sigil_ml.training.cloud_trainer import CloudTrainer
-from sigil_ml.training.models import CloudTrainingConfig
+from kenaz_ml.models.duration import FEATURE_NAMES as DURATION_FEATURE_NAMES
+from kenaz_ml.models.stuck import FEATURE_NAMES as STUCK_FEATURE_NAMES
+from kenaz_ml.training.cloud_trainer import CloudTrainer
+from kenaz_ml.training.models import CloudTrainingConfig
 
 pd = pytest.importorskip("pandas")
 
@@ -114,7 +114,7 @@ WRITE_TIME_MS = int(WRITE_TIME.timestamp() * 1000)
 class PinnedClock:
     """``time`` frozen at :data:`NOW_S`, with ``localtime`` following it.
 
-    Patched over ``sigil_ml.features.time`` -- the single authority for feature
+    Patched over ``kenaz_ml.features.time`` -- the single authority for feature
     computation -- so both deployments read the same instant. ``as_of_ms`` is
     still ``None`` on the serving path, still meaning "now"; this only fixes
     which "now" that is.
@@ -142,7 +142,7 @@ def pinned_clock_and_timezone(monkeypatch: pytest.MonkeyPatch) -> None:
     ``time.localtime(started_at)``, which is otherwise a function of whichever
     machine the suite runs on.
     """
-    import sigil_ml.features as features_module
+    import kenaz_ml.features as features_module
 
     previous_tz = os.environ.get("TZ")
     os.environ["TZ"] = PINNED_TZ
@@ -612,7 +612,7 @@ def _offline_feature_store(tmp_path: Path, rows: list[materialize.OfflineFeature
 
     store = FeatureStore(
         config=RepoConfig(
-            project="sigil_ml",
+            project="kenaz_ml",
             provider="local",
             repo_path=str(repo),
             registry={"registry_type": "file", "path": str(repo / "registry.db")},
@@ -840,7 +840,7 @@ class TestDeploymentsAgree:
         ``FeatureView.schema`` is built as ``list(set(...))`` and returns fields
         in arbitrary order, which would make this pass by luck.
         """
-        from sigil_ml.feature_store.definitions import duration_feature_view, stuck_feature_view
+        from kenaz_ml.feature_store.definitions import duration_feature_view, stuck_feature_view
 
         assert [f.name for f in stuck_feature_view().features] == PRE_MIGRATION_STUCK_KEY_ORDER
         assert [f.name for f in duration_feature_view().features] == PRE_MIGRATION_DURATION_KEY_ORDER
@@ -895,16 +895,34 @@ def test_baselines_were_recorded_from_the_pre_migration_commit(tmp_path: Path) -
     pre = importlib.util.module_from_spec(spec)
     # The historical blob does `from sigil_ml.store import DataStore` (line 13).
     # The storage-layer reorganization moved that module to
-    # `sigil_ml.datastore.protocol`, so alias it for the duration of the exec.
+    # `kenaz_ml.datastore.protocol`, so alias it for the duration of the exec.
     #
     # This is safe precisely because the SHA256 assertion above already proved
     # the blob is the real historical text: the alias only lets the recorded
     # source import, it does not change a byte of what runs. A shim module at
     # the old path would also work but is forbidden by D-004 of the
     # storage-layer-reorganization mission.
+    #
+    # ===================================================================
+    # DO NOT "FIX" THE `sigil_ml.store` KEY BELOW. IT IS NOT A LEFTOVER.
+    # ===================================================================
+    # The kenaz-ml rebrand renamed the package to `kenaz_ml` everywhere
+    # (FR-001) EXCEPT here, and this is that exception (FR-012, planning
+    # decision D-004).
+    #
+    # The sys.modules KEY must keep the OLD name because it has to match the
+    # import statement inside the FROZEN HISTORICAL SOURCE that gets exec'd
+    # below -- text written before the rename existed, whose SHA256 is asserted
+    # twenty lines up. That text can never change; renaming the key would make
+    # it stop matching and the exec would fail with ModuleNotFoundError.
+    #
+    # Only the VALUE follows the rename: it points at `kenaz_ml.datastore`,
+    # today's module. Key = history, value = current code. Likewise every
+    # `src/sigil_ml/features.py` in this file is an argument to `git show
+    # <sha>:<path>`, a path in git history, not a path on disk.
     import sys
 
-    from sigil_ml.datastore import protocol as _pre_migration_datastore
+    from kenaz_ml.datastore import protocol as _pre_migration_datastore
 
     _saved = sys.modules.get("sigil_ml.store")
     sys.modules["sigil_ml.store"] = _pre_migration_datastore

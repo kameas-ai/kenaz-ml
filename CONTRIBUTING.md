@@ -1,10 +1,10 @@
-# Contributing to kameas-ml
+# Contributing to kenaz-ml
 
-Thanks for your interest in contributing to kameas-ml.
+Thanks for your interest in contributing to kenaz-ml.
 
 ## Before You Start
 
-1. **Understand the architecture.** kameas-ml is a sidecar — it reads events
+1. **Understand the architecture.** kenaz-ml is a sidecar — it reads events
    written by [sigild](https://github.com/kameas-ai/sigil) and writes
    predictions back to the same SQLite database. It never writes to tables
    owned by the Go daemon.
@@ -19,8 +19,8 @@ Thanks for your interest in contributing to kameas-ml.
 ## Development Setup
 
 ```bash
-git clone https://github.com/kameas-ai/kameas-ml.git
-cd kameas-ml
+git clone https://github.com/kameas-ai/kenaz-ml.git
+cd kenaz-ml
 pip install -e ".[dev]"
 pytest tests/ -v          # must pass before submitting
 ```
@@ -35,13 +35,13 @@ Requires Python 3.10+. No native extensions — pure Python + scikit-learn.
 - **Type hints** on all public function signatures.
 - **Tests** for every new model, feature extractor, or endpoint. Use pytest
   fixtures with temporary SQLite databases — no sigild dependency in tests.
-- **No network calls.** kameas-ml is local-only. Feature extraction and
+- **No network calls.** kenaz-ml is local-only. Feature extraction and
   prediction must never contact external services.
 - `pytest tests/ -v` must pass. No exceptions.
 
 ## Database Contract
 
-kameas-ml communicates with sigild exclusively through SQLite. These invariants
+kenaz-ml communicates with sigild exclusively through SQLite. These invariants
 must be preserved:
 
 1. Every SQLite connection must set `PRAGMA journal_mode=WAL` and
@@ -55,7 +55,7 @@ must be preserved:
 
 ## Adding a New Model
 
-1. Create `src/sigil_ml/models/your_model.py` following the pattern in
+1. Create `src/kenaz_ml/models/your_model.py` following the pattern in
    `stuck.py` or `duration.py` — define `FEATURE_NAMES`, implement `predict()`,
    `train()`, `is_trained`, and weight persistence via `joblib`.
 2. Add a feature extractor in `features.py`.

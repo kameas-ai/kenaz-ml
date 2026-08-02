@@ -1,15 +1,15 @@
-"""Frozen-binary entrypoint for `kameas-ml`.
+"""Frozen-binary entrypoint for `kenaz-ml`.
 
 PyInstaller freezes a real script file rather than a console_scripts shim, so
 this module exists purely to invoke the unchanged CLI ``main()``. The runtime
-behaviour is identical to ``kameas-ml`` installed via pip — same subcommands
+behaviour is identical to ``kenaz-ml`` installed via pip — same subcommands
 (``serve --port``, ``train``, ``health-check``), same routes, same WAL
 contract (kenaz-ml/CLAUDE.md). See ADR-ml-packaging.md.
 
 One subcommand exists **only here**, in the frozen artifact:
 ``feature-store-selfcheck``. It is packaging verification, not product
 behaviour, which is why it lives in the freeze entrypoint rather than in
-``sigil_ml.cli`` — a pip install has no bundle to verify and no read-only
+``kenaz_ml.cli`` — a pip install has no bundle to verify and no read-only
 application directory to assert against.
 
 Why it has to exist (WP05 T020/T021, research.md D-005): Feast resolves its
@@ -30,7 +30,7 @@ import multiprocessing
 import sys
 import traceback
 
-from sigil_ml.cli import main
+from kenaz_ml.cli import main
 
 #: Argv token that selects the packaging self-check instead of the product CLI.
 SELFCHECK_COMMAND = "feature-store-selfcheck"
@@ -39,7 +39,7 @@ SELFCHECK_COMMAND = "feature-store-selfcheck"
 #: anything — the point is that the lookup *executes*, which requires the local
 #: provider, the file registry and the SQLite online store all to have survived
 #: freezing. A miss returns nulls; a missing dynamic import raises.
-_PROBE_ENTITY_ID = "kameas-ml-freeze-selfcheck"
+_PROBE_ENTITY_ID = "kenaz-ml-freeze-selfcheck"
 
 
 def _feature_store_selfcheck(argv: list[str]) -> int:
@@ -74,7 +74,7 @@ def _feature_store_selfcheck(argv: list[str]) -> int:
         ``0`` on success, ``1`` on any failure.
     """
     parser = argparse.ArgumentParser(
-        prog=f"kameas-ml {SELFCHECK_COMMAND}",
+        prog=f"kenaz-ml {SELFCHECK_COMMAND}",
         description=(
             "Verify that the bundled Feast registry and the dynamically-imported "
             "local provider and SQLite online store survived freezing."
@@ -96,7 +96,7 @@ def _feature_store_selfcheck(argv: list[str]) -> int:
         import feast
         from feast import FeatureStore
 
-        from sigil_ml.feature_store import config as fs_config
+        from kenaz_ml.feature_store import config as fs_config
 
         bundle = fs_config.bundle_dir()
         registry = fs_config.registry_path()
