@@ -115,6 +115,7 @@ Predictions, endpoints, model artifacts, and the frozen binary work exactly as b
 | FR-011 | Module references resolved by string rather than by import statement MUST be updated. | Draft |
 | FR-012 | Historical source loaded from git objects MUST continue to execute; aliases matching historical text MUST keep the old name. | Draft |
 | FR-013 | Prior missions' specification records MUST NOT be rewritten. | Draft |
+| FR-014 | This product's own `SIGIL_ML_*` environment variables MUST be renamed to `KENAZ_ML_*`, with a deprecation shim that reads the old name when the new one is unset and emits a warning naming both. The new name MUST take precedence when both are set. | Draft |
 
 ### Non-Functional Requirements
 
@@ -153,6 +154,7 @@ Predictions, endpoints, model artifacts, and the frozen binary work exactly as b
 - **SC-005**: The full suite passes with no count regression.
 - **SC-006**: The frozen binary builds and serves a real prediction.
 - **SC-007**: A pre-rename model artifact loads unchanged.
+- **SC-009**: Setting only `SIGIL_ML_MODE` still selects the mode and emits a deprecation warning; setting only `KENAZ_ML_MODE` works silently; setting both, the new name wins.
 - **SC-008**: No occurrence of `sigil_ml` or `kameas-ml` remains outside historical records and frozen git-object aliases.
 
 ## Assumptions
