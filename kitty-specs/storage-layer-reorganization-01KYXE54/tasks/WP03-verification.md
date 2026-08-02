@@ -163,3 +163,4 @@ spec-kitty agent action implement WP03 --agent <name> --mission storage-layer-re
 ## Activity Log
 
 - 2026-08-02T00:16:57Z – claude – shell_pid=30290 – Started implementation via action command
+- 2026-08-02T00:37:47Z – claude – shell_pid=30290 – T014-T017 done. Frozen binary built and served a real trained-model prediction; freeze spec unchanged. Import time +0.80% vs baseline. Map cross-check clean on all 41 imports; two map gaps recorded.
