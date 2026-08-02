@@ -302,6 +302,15 @@ status:
       or it flags the SIGIL_ML_* names the FR-014 shim legitimately needs. The map states
       -oPi; recording explicitly because this mission has been bitten by case-sensitivity
       four separate times.
+    exact_equality_outside_shim:
+      occurrences: 153
+      measurement: LEDGER_PATTERN excluding tests/test_rebrand.py, src/kenaz_ml/config.py,
+        tests/test_env_deprecation_shim.py, tests/test_registry_guarantees.py
+      holds_on: both main (163-6-4) and the rename branch (181-12-10-6)
+      why: The broad >= floor tolerates prose drift because FR-014's shim must NAME the daemon
+        to exclude it. This equality is the assertion with teeth; mutation-tested to fail
+        on a single renamed prose reference.
+      asserted_in: tests/test_rebrand.py::test_the_ledger_surface_outside_the_shim_is_exactly_unchanged
   string_resolved:
   - file: src/sigil_ml/cli.py
     line: 98
@@ -461,16 +470,23 @@ status:
     - error: rev1_confirmed_correct attested to a wp02_checklist key removed during the schema
         restructuring — an attestation to something not in the file.
     rev3_corrections_found_during_wp02:
-    - import_paths 385/68 -> 380/66
     - SIGIL_ML_SRC is a spec-file variable, not an env var
     - SIGIL_CLOUD_ARCHITECTURE is a filename, not an env var
     - 2 of 6 named env-routing modules have no SIGIL_* vars
     - 'KAMEAS_ML_FROZEN_BIN: a 4th product-owned env family, omitted entirely'
     - test_serving_regression.py:190 is an unlisted frozen-history site
-    - the ledger measurement requires -oPi; -oP gives 149/38
     - 'NOTE: the map called .pyre/taint_models/sources_sinks.pysa a high-impact rename site.
       It was pointing at callables that DO NOT EXIST and had been stale before this mission
       — see status.open_questions Q5.'
+    corrections_that_were_themselves_overstated:
+    - 'Claimed import_paths 385/68 -> 380/66. WRONG: 385/68 reproduces the map''s stated pattern
+      exactly. 380/66 only holds under the narrower `scope:` key, which omits freeze/. No
+      code consequence — all five freeze/ imports were renamed regardless.'
+    - 'Claimed the ledger measurement needed -oPi rather than -oP. WRONG: the operative line
+      (do_not_change_surface.measurement) ALREADY specified -oPi. Only a generic prose line
+      elsewhere said -oP.'
+    - Recorded because this mission's recurring failure has been asserting a number without
+      reproducing it first, and both of these repeated it while purporting to fix it.
   measurement_scope: 'All counts are IN-SCOPE: git grep -oP <pattern> -- '':!kitty-specs''
     '':!.worktrees''. kitty-specs/ is excluded because D-003/FR-013 forbid rewriting merged
     missions'' records; .worktrees/ is an untracked husk. Counting either inflates the figure
