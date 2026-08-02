@@ -23,20 +23,20 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 | T001 | Enumerate occurrences across all 8 bulk-edit categories | WP01 | [D] |
 | T002 | Confirm no moved module is string-referenced | WP01 | [D] |
 | T003 | Reconcile the map against the measured 41 imports | WP01 | [D] |
-| T004 | `ModelCache` tests — TTL expiry, LRU eviction, statistics | WP02 |
-| T005 | `FilesystemModelLoader` tests — tenant scoping, shared fallback, `None` on missing | WP02 |
-| T006 | Prove the new tests fail when the behaviour is broken | WP02 |
-| T007 | Capture a pre-move behavioural baseline | WP02 |
-| T008 | Create `datastore/` and move the three data modules | WP02 |
-| T009 | Create `modelstore/` and move the three model modules | WP02 |
-| T010 | Package `__init__.py` re-exports for both | WP02 |
-| T011 | Rewrite all import sites named in the occurrence map | WP02 |
-| T012 | Delete the old module paths — no shims | WP02 |
-| T013 | Carry the Stack B tests across to the new paths | WP02 |
-| T014 | Verify old paths are gone and the public surface resolves | WP03 |
-| T015 | Verify the frozen binary builds and serves | WP03 |
-| T016 | Verify pre-change artifacts still load; check import time | WP03 |
-| T017 | Update `CLAUDE.md` module references; cross-check the occurrence map | WP03 |
+| T004 | `ModelCache` tests — TTL expiry, LRU eviction, statistics | WP02 | [D] |
+| T005 | `FilesystemModelLoader` tests — tenant scoping, shared fallback, `None` on missing | WP02 | [D] |
+| T006 | Prove the new tests fail when the behaviour is broken | WP02 | [D] |
+| T007 | Capture a pre-move behavioural baseline | WP02 | [D] |
+| T008 | Create `datastore/` and move the three data modules | WP02 | [D] |
+| T009 | Create `modelstore/` and move the three model modules | WP02 | [D] |
+| T010 | Package `__init__.py` re-exports for both | WP02 | [D] |
+| T011 | Rewrite all import sites named in the occurrence map | WP02 | [D] |
+| T012 | Delete the old module paths — no shims | WP02 | [D] |
+| T013 | Carry the Stack B tests across to the new paths | WP02 | [D] |
+| T014 | Verify old paths are gone and the public surface resolves | WP03 | [D] |
+| T015 | Verify the frozen binary builds and serves | WP03 | [D] |
+| T016 | Verify pre-change artifacts still load; check import time | WP03 | [D] |
+| T017 | Update `CLAUDE.md` module references; cross-check the occurrence map | WP03 | [D] |
 
 ---
 
@@ -72,16 +72,16 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 
 **Included subtasks** — Part 1 (coverage) must be committed before Part 2 (the move) begins:
 
-- [ ] T004 `ModelCache` tests — TTL expiry, LRU eviction, statistics (WP02)
-- [ ] T005 `FilesystemModelLoader` tests — tenant scoping, shared fallback, `None` on missing (WP02)
-- [ ] T006 Prove the new tests fail when the behaviour is broken (WP02)
-- [ ] T007 Capture a pre-move behavioural baseline (WP02)
-- [ ] T008 Create `datastore/` and move the three data modules (WP02)
-- [ ] T009 Create `modelstore/` and move the three model modules (WP02)
-- [ ] T010 Package `__init__.py` re-exports for both (WP02)
-- [ ] T011 Rewrite all import sites named in the occurrence map (WP02)
-- [ ] T012 Delete the old module paths — no shims (WP02)
-- [ ] T013 Carry the Stack B tests across to the new paths (WP02)
+- [x] T004 `ModelCache` tests — TTL expiry, LRU eviction, statistics (WP02)
+- [x] T005 `FilesystemModelLoader` tests — tenant scoping, shared fallback, `None` on missing (WP02)
+- [x] T006 Prove the new tests fail when the behaviour is broken (WP02)
+- [x] T007 Capture a pre-move behavioural baseline (WP02)
+- [x] T008 Create `datastore/` and move the three data modules (WP02)
+- [x] T009 Create `modelstore/` and move the three model modules (WP02)
+- [x] T010 Package `__init__.py` re-exports for both (WP02)
+- [x] T011 Rewrite all import sites named in the occurrence map (WP02)
+- [x] T012 Delete the old module paths — no shims (WP02)
+- [x] T013 Carry the Stack B tests across to the new paths (WP02)
 
 **Risks**: The commit boundary between Part 1 and Part 2 is the only remaining evidence the tests were written against pre-move code — the package boundary that used to enforce it is gone. Moves must be 1:1 with no logic edits (C-001, D-002); tidying while moving is what makes a safe refactor unreviewable. No compatibility shims (D-004). The two caches must not be reconciled (C-002). If an assertion needs changing to pass, the move was not behaviour-preserving — that is a finding, not a fix.
 
@@ -100,10 +100,10 @@ The ordering survives as an **enforced commit boundary**: Part 1 (T004–T007, t
 
 **Included subtasks**:
 
-- [ ] T014 Verify old paths are gone and the public surface resolves (WP03)
-- [ ] T015 Verify the frozen binary builds and serves (WP03)
-- [ ] T016 Verify pre-change artifacts still load; check import time (WP03)
-- [ ] T017 Update `CLAUDE.md` module references; cross-check the occurrence map (WP03)
+- [x] T014 Verify old paths are gone and the public surface resolves (WP03)
+- [x] T015 Verify the frozen binary builds and serves (WP03)
+- [x] T016 Verify pre-change artifacts still load; check import time (WP03)
+- [x] T017 Update `CLAUDE.md` module references; cross-check the occurrence map (WP03)
 
 **Risks**: A clean frozen build proves little — the Feast mission found two packaging bugs that appeared only on first *use*. Exercise a real prediction in the built binary. `CLAUDE.md` names `src/sigil_ml/store.py` directly and is wrong the moment WP02 lands.
 
