@@ -27,6 +27,7 @@ subtasks:
 - T006
 - T007
 - T008
+- T008b
 - T009
 - T010
 - T011
@@ -49,6 +50,12 @@ owned_files:
 - CHANGELOG.md
 - SECURITY.md
 - CONTRIBUTING.md
+- prd.json
+- .gitignore
+- .pyre_configuration
+- .pyre/**
+- tasks/**
+- .kittify/memory/constitution.md
 tags: []
 ---
 
@@ -69,7 +76,7 @@ Rename `sigil_ml` → `kenaz_ml` and `kameas-ml` → `kenaz-ml` across every sit
 `kenaz-ml` is the ML sidecar for [`sigil`](https://github.com/wambozi/sigil), a **separate Go daemon** owning `~/.local/share/sigild/data.db`.
 
 - **RENAME**: `sigil_ml` (this package), `kameas-ml` (this distribution and CLI)
-- **NEVER**: `sigild`, `sigil` the daemon, `~/.local/share/sigild/`, `SIGILD_PLUGIN_URL`, `sigilctl`, `github.com/wambozi/sigil`, prose about "the Sigil daemon" — **138 references**
+- **NEVER**: `sigild`, `sigil` the daemon, `~/.local/share/sigild/`, `SIGILD_PLUGIN_URL`, `sigilctl`, `github.com/wambozi/sigil`, prose about "the Sigil daemon" — **524 references** (WP01-measured; the plan's 138 was an undercount)
 
 A blanket `sigil` → `kenaz` substitution would rewrite the data path. Every install would then point at a database that does not exist, **while importing perfectly** — it would look like it worked. T010 makes this an asserted invariant rather than a hope.
 
@@ -141,6 +148,24 @@ spec-kitty agent action implement WP02 --agent <name> --mission kenaz-ml-rebrand
 
 ---
 
+### T008b — The seven files WP01 found outside the original scope
+
+**Purpose**: These were not in the plan. Three are load-bearing and one fails *silently*.
+
+**Steps**:
+
+1. **`.pyre/taint_models/sources_sinks.pysa` — do this one first.** It pins taint sources by fully-qualified path: `def sigil_ml.routes.predict_stuck(req: TaintSource[UserInput])`. Pyre matches on exact module path, so a stale path means the taint model silently stops covering every `/predict` endpoint — no error, no warning, a green build, and the security analysis over user-controlled input is simply gone. Rename all such paths and confirm pyre still resolves them.
+2. `.pyre_configuration` — `{"root": "src", "subdirectory": "sigil_ml"}`. Stale means pyre type-checks nothing.
+3. `.gitignore:64` — `src/sigil_ml/feature_store/registry.db`. Stale means `registry.db` becomes tracked after the package move.
+4. `prd.json` — project name, descriptions, and `src/` paths. Live planning doc, not a merged mission record: rename.
+5. `.kittify/memory/constitution.md` — titled "kameas-ml Constitution". Live governance: rename.
+6. `tasks/prd-classify-predict-pipeline.md` — live PRD: rename `kameas-ml`.
+7. `tasks/companion-sigil-daemon-changes.md` — **mixed file.** Rename `kameas-ml`; keep every `sigil`. **Do not rename the file itself** — "sigil-daemon" in the filename is correct.
+
+**Validation**: taint model paths updated and resolving · pyre config points at `kenaz_ml` · `.gitignore` correct · the mixed file keeps its `sigil` references and its name
+
+---
+
 ### T009 — Log prefixes, docs, CI, Makefile
 
 **Steps**:
@@ -162,7 +187,7 @@ spec-kitty agent action implement WP02 --agent <name> --mission kenaz-ml-rebrand
 
 **Steps**:
 
-1. **The Sigil surface is unchanged.** After the rename, assert by count that the 138 `sigild`/Sigil-daemon references are still present. Then assert at runtime, because text can be present and still wrong:
+1. **The Sigil surface is unchanged.** After the rename, assert by count that the daemon surface is still present. **The plan's "138" was wrong** — WP01 measured **524 occurrences of `sigil` not followed by `_ml`, across 97 files, 194 of them `sigild` specifically.** Assert the real numbers from `occurrence_map.yaml`, and do not loosen the assertion to make it pass. Then assert at runtime, because text can be present and still wrong:
    ```python
    assert config.db_path() == Path.home()/".local/share/sigild/data.db"
    ```
@@ -196,9 +221,9 @@ spec-kitty agent action implement WP02 --agent <name> --mission kenaz-ml-rebrand
 
 ## Definition of Done
 
-- [ ] All seven subtasks complete
+- [ ] All eight subtasks complete
 - [ ] `import kenaz_ml` works; `import sigil_ml` raises
-- [ ] All 138 Sigil-daemon references unchanged, asserted by a committed test
+- [ ] The full 524-occurrence daemon surface unchanged, asserted by a committed test
 - [ ] `db_path()` still resolves to `~/.local/share/sigild/data.db`
 - [ ] The frozen-history alias key preserved and commented
 - [ ] `kitty-specs/` for merged missions untouched

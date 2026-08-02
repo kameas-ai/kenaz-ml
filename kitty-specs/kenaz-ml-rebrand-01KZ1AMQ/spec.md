@@ -28,7 +28,7 @@ Measured surface: **1,738 occurrences of `sigil_ml` across 165 files**, **420 of
 Confirmed 2026-08-02 with the product owner, and corroborated by two post-pivot `CHANGELOG.md` entries dated `2026-05-16` in this repo and in `kenaz-fleet`: the workbench programme pivoted to host-rendered and `kenaz-ml` moved host-side, but **the ledger kept the name `sigild`**. kenaz-ml continues to interact with it. Its name is therefore a live runtime contract, independent of how the product is branded.
 
 - **`sigil_ml`** — this package. Renames to `kenaz_ml`.
-- **`sigild`, `sigil`, `~/.local/share/sigild/`, `SIGILD_PLUGIN_URL`, "the Sigil daemon"** — the other product. **138 references. None may be renamed.** Renaming any of them would point this product at a path that does not exist and break the integration it exists to serve.
+- **`sigild`, `sigil`, `~/.local/share/sigild/`, `SIGILD_PLUGIN_URL`, "the Sigil daemon"** — the other product. **524 references across 97 files (WP01-measured; an earlier estimate of 138 undercounted). None may be renamed.** Renaming any of them would point this product at a path that does not exist and break the integration it exists to serve.
 
 The GitHub organisation `kameas-ai` also stays; only the repository name within it was wrong.
 
@@ -59,7 +59,7 @@ The daemon this product talks to keeps its name, its data path, and its configur
 
 **Why this priority**: `sigild` is a different product. Renaming `~/.local/share/sigild/` would point this service at a database that does not exist, silently breaking every install. This is the single way this mission could cause real damage.
 
-**Independent Test**: After the rename, the service reads the same database path, honours the same environment variables, and the 138 `sigild`/`sigil` daemon references are unchanged.
+**Independent Test**: After the rename, the service reads the same database path, honours the same environment variables, and all 524 `sigild`/`sigil` daemon references are unchanged.
 
 **Acceptance Scenarios**:
 
@@ -149,7 +149,7 @@ Predictions, endpoints, model artifacts, and the frozen binary work exactly as b
 - **SC-001**: `import kenaz_ml` succeeds; `import sigil_ml` raises `ModuleNotFoundError`.
 - **SC-002**: Distribution metadata reads `kenaz-ml` with URLs resolving to the real repository.
 - **SC-003**: The CLI is invocable as `kenaz-ml`.
-- **SC-004**: All 138 Sigil-daemon references are unchanged, verified by count.
+- **SC-004**: The full daemon surface — 524 occurrences of `sigil` not followed by `_ml`, 194 of them `sigild` — is unchanged, verified by count.
 - **SC-005**: The full suite passes with no count regression.
 - **SC-006**: The frozen binary builds and serves a real prediction.
 - **SC-007**: A pre-rename model artifact loads unchanged.
@@ -158,7 +158,7 @@ Predictions, endpoints, model artifacts, and the frozen binary work exactly as b
 ## Assumptions
 
 - Feast's shipped `registry.db` and the pickled `.joblib` artifacts were probed and do not embed the module path, so neither needs regenerating. This is re-verified during implementation rather than trusted.
-- The 138 `sigild` references are the integration surface and are correct as they stand.
+- The daemon references (524, measured in WP01) are the integration surface and are correct as they stand.
 - Prior missions' `kitty-specs/` entries are historical records; leaving them naming `sigil_ml` is correct, since that is what was true when they were written.
 
 ## Out of Scope
