@@ -145,3 +145,7 @@ spec-kitty agent action implement WP06 --agent <name>
 1. **Read T022 first.** If it does not convince you an install with no base models behaves exactly as it does today, this mission is not safe to merge.
 2. **Check the egress assertion is structural.** Patching a known uploader is not sufficient.
 3. **Confirm provenance is verified against the artifact digest**, not merely read from the manifest.
+
+## Activity Log
+
+- 2026-08-02T02:37:00Z – unknown – Registry mission complete: 959 passed, 9 skipped; 13 production mutations all killed; provenance verified across a 5-stage lifecycle by artifact digest.
