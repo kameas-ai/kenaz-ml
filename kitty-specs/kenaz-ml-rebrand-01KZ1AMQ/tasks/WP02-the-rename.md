@@ -76,7 +76,7 @@ Rename `sigil_ml` → `kenaz_ml` and `kameas-ml` → `kenaz-ml` across every sit
 `kenaz-ml` is the ML sidecar for [`sigil`](https://github.com/wambozi/sigil), a **separate Go daemon** owning `~/.local/share/sigild/data.db`.
 
 - **RENAME**: `sigil_ml` (this package), `kameas-ml` (this distribution and CLI)
-- **NEVER**: `sigild`, `sigil` the daemon, `~/.local/share/sigild/`, `SIGILD_PLUGIN_URL`, `sigilctl`, `github.com/wambozi/sigil`, prose about "the Sigil daemon" — **524 references** (WP01-measured; the plan's 138 was an undercount)
+- **NEVER**: `sigild`, `sigil` the daemon, `~/.local/share/sigild/`, `SIGILD_PLUGIN_URL`, `sigilctl`, `github.com/wambozi/sigil`, prose about "the Sigil daemon" — **242 in-scope references** (WP01 rev 2)
 
 A blanket `sigil` → `kenaz` substitution would rewrite the data path. Every install would then point at a database that does not exist, **while importing perfectly** — it would look like it worked. T010 makes this an asserted invariant rather than a hope.
 
@@ -89,6 +89,8 @@ spec-kitty agent action implement WP02 --agent <name> --mission kenaz-ml-rebrand
 ```
 
 **Depends on WP01** — do not start until the map is approved (C-005).
+
+**BLOCKED ON Q1.** The map found 21 occurrences of this product's own `SIGIL_ML_*` environment variables (`SIGIL_ML_MODE`, `SIGIL_ML_SRC`, `SIGIL_ML_TRAIN_*`, ...), distinct from the ledger's `SIGILD_*`. Renaming them to `KENAZ_ML_*` completes the rebrand but breaks every existing deployment, container spec and shell profile that sets them. The product owner must choose: rename, rename-with-deprecation-shim, or leave. Do not guess.
 
 ---
 
@@ -187,7 +189,7 @@ spec-kitty agent action implement WP02 --agent <name> --mission kenaz-ml-rebrand
 
 **Steps**:
 
-1. **The Sigil surface is unchanged.** After the rename, assert by count that the daemon surface is still present. **The plan's "138" was wrong** — WP01 measured **524 occurrences of `sigil` not followed by `_ml`, across 97 files, 194 of them `sigild` specifically.** Assert the real numbers from `occurrence_map.yaml`, and do not loosen the assertion to make it pass. Then assert at runtime, because text can be present and still wrong:
+1. **The Sigil surface is unchanged.** After the rename, assert by count that the daemon surface is still present. **Both the plan's "138" and WP01 rev 1's "524" were wrong.** The correct figure is **242 in-scope occurrences of `sigil` not followed by `_ml`, across 46 files, 91 of them `sigild`** — measured excluding `kitty-specs/` and `.worktrees/`, which this mission must not touch. Assert those numbers, scoped the same way, and do not loosen the assertion to make it pass. Then assert at runtime, because text can be present and still wrong:
    ```python
    assert config.db_path() == Path.home()/".local/share/sigild/data.db"
    ```
@@ -223,7 +225,7 @@ spec-kitty agent action implement WP02 --agent <name> --mission kenaz-ml-rebrand
 
 - [ ] All eight subtasks complete
 - [ ] `import kenaz_ml` works; `import sigil_ml` raises
-- [ ] The full 524-occurrence daemon surface unchanged, asserted by a committed test
+- [ ] The 242-occurrence in-scope daemon surface unchanged, asserted by a committed test
 - [ ] `db_path()` still resolves to `~/.local/share/sigild/data.db`
 - [ ] The frozen-history alias key preserved and commented
 - [ ] `kitty-specs/` for merged missions untouched
