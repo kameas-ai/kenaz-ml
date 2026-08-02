@@ -1,7 +1,7 @@
 {
-  "event_count": 5,
-  "last_event_id": "01KZ1DK57CF4J3QPYRQXJWCY8Y",
-  "materialized_at": "2026-08-02T14:21:07.180627+00:00",
+  "event_count": 6,
+  "last_event_id": "01KZ1EYEYWYXGM761BGFR71QVD",
+  "materialized_at": "2026-08-02T14:44:46.172550+00:00",
   "mission_number": "",
   "mission_slug": "kenaz-ml-rebrand-01KZ1AMQ",
   "mission_type": "software-dev",
@@ -11,18 +11,18 @@
     "canceled": 0,
     "claimed": 0,
     "done": 0,
-    "for_review": 1,
+    "for_review": 0,
     "in_progress": 0,
     "in_review": 0,
-    "planned": 1
+    "planned": 2
   },
   "work_packages": {
     "WP01": {
       "actor": "user",
-      "force_count": 1,
-      "lane": "for_review",
-      "last_event_id": "01KZ1DK57CF4J3QPYRQXJWCY8Y",
-      "last_transition_at": "2026-08-02T14:21:07.180627+00:00"
+      "force_count": 2,
+      "lane": "planned",
+      "last_event_id": "01KZ1EYEYWYXGM761BGFR71QVD",
+      "last_transition_at": "2026-08-02T14:44:46.172550+00:00"
     },
     "WP02": {
       "actor": "finalize-tasks",
