@@ -1,0 +1,354 @@
+# Occurrence Map — kenaz-ml Rebrand (WP01)
+#
+# Mission: kenaz-ml-rebrand-01KZ1AMQ   Change mode: bulk_edit
+# Produced: 2026-08-02
+#
+# Enumerated with `git grep -oP` (structurally excludes __pycache__/*.pyc).
+# -P is used throughout: git grep without -P silently returns zero matches for
+# \b and negative lookahead, so a sweep can look clean and be wrong.
+
+mission: kenaz-ml-rebrand-01KZ1AMQ
+
+renames:
+  - from: sigil_ml      # Python import package
+    to:   kenaz_ml
+  - from: kameas-ml     # distribution name + CLI command
+    to:   kenaz-ml
+  - from: github.com/kameas-ai/kameas-ml
+    to:   github.com/kameas-ai/kenaz-ml     # org kameas-ai unchanged (D-007)
+
+# ---------------------------------------------------------------------------
+# MEASURED TOTALS — these correct the pre-planning figures in spec.md/plan.md
+# ---------------------------------------------------------------------------
+totals:
+  sigil_ml:
+    repo_wide:  {occurrences: 1810, files: 173}
+    in_scope:   {occurrences:  647, files:  84}   # excluding kitty-specs/
+    historical: {occurrences: 1163, files:  89}   # kitty-specs/, NOT rewritten
+  kameas_ml:
+    repo_wide:  {occurrences:  458, files:  82}
+    in_scope:   {occurrences:  259, files:  34}
+    historical: {occurrences:  199, files:  48}
+  daemon_surface_do_not_change:
+    sigild:          {occurrences: 194, files: 68}
+    share_sigild:    {occurrences:  70, files: 38}   # subset of sigild
+    SIGILD_env:      {occurrences:  16, files: 13}
+    sigilctl:        {occurrences:  15, files: 11}
+    wambozi_sigil:   {occurrences:   7, files:  5}
+    bare_Sigil_prose:{occurrences:  83}
+    total_sigil_not_sigil_ml: {occurrences: 524, files: 97}
+
+reconciliation:
+  # Direction of discrepancy stated explicitly, per T004.
+  sigil_ml:  "+72 vs the 1738 pre-planning figure. The earlier grep UNDERCOUNTED."
+  kameas_ml: "+38 vs the 420 pre-planning figure. Same cause."
+  daemon:    >-
+    The spec's '138 references' figure was WRONG — it undercounted badly.
+    The true do-not-change surface is 524 occurrences of `sigil` not followed
+    by `_ml`, across 97 files. The 138 appears to have counted only a subset.
+    SC-004 and the WP02 invariant test must assert against 524 / 194-sigild,
+    NOT 138.
+
+# ---------------------------------------------------------------------------
+# T002 — THE PARTITION. The core of this mission.
+# ---------------------------------------------------------------------------
+partition:
+  rename:
+    pattern: 'sigil_ml'
+    meaning: The Python import package of THIS product.
+    action: rename to kenaz_ml
+
+  do_not_change:
+    pattern: 'sigil(?!_ml)'
+    meaning: >-
+      The sigild ledger that kenaz-ml reads. Confirmed with the product owner
+      2026-08-02: after the 2026-05-16 workbench host-rendered pivot, kenaz-ml
+      moved host-side but STILL INTERACTS WITH sigild. Corroborated by
+      post-pivot CHANGELOG.md entries in this repo and in kenaz-fleet.
+    why_it_matters: >-
+      config.py:59 hardcodes `_data_home() / "sigild" / "data.db"`. A blanket
+      sigil->kenaz substitution rewrites that path; every install then points
+      at a database that does not exist WHILE IMPORTING PERFECTLY. It would
+      look like the rename worked and fail only at runtime.
+    members:
+      - sigild                      # the ledger/daemon
+      - '~/.local/share/sigild/'    # data path — 70 occurrences
+      - SIGILD_PLUGIN_URL           # and all SIGILD_* env vars
+      - sigilctl                    # the daemon's CLI
+      - github.com/wambozi/sigil
+      - github.com/kameas-ai/sigil  # see findings.conflicting_daemon_urls
+      - 'prose: "the Sigil daemon", "Sigil developer intelligence"'
+
+  ambiguous_prose_resolved:
+    rule: >-
+      Read the sentence. `kameas-ml` renames wherever it appears; `Sigil`
+      stays wherever it names the daemon. Both can occur in one sentence.
+    examples:
+      - text: '"ML prediction sidecar for the Sigil developer intelligence daemon"'
+        file: pyproject.toml (description)
+        decision: >-
+          Rewrite the "sidecar" framing (stale post-pivot) but KEEP "Sigil" —
+          it names what this reads. This is an edit, not a rename.
+      - text: '"kameas-ml currently uses a Thompson Sampling bandit"'
+        file: tasks/prd-classify-predict-pipeline.md
+        decision: rename kameas-ml only.
+      - text: '"changes needed in the sigil Go daemon to consume ... from kameas-ml"'
+        file: tasks/companion-sigil-daemon-changes.md
+        decision: >-
+          MIXED FILE. Rename kameas-ml; keep sigil. The filename itself
+          contains "sigil-daemon" and must NOT be renamed.
+
+# ---------------------------------------------------------------------------
+# T001 — THE EIGHT CATEGORIES. Every one carries an explicit action.
+# ---------------------------------------------------------------------------
+categories:
+
+  code_symbols:
+    action: rename
+    count: 647            # in-scope sigil_ml occurrences
+    notes: >-
+      The package directory src/sigil_ml/ -> src/kenaz_ml/ via `git mv`
+      (D-002), plus every identifier-position reference. No module moves.
+
+  import_paths:
+    action: rename
+    scope: [src/, tests/, scripts/]
+    notes: >-
+      Statement-shaped imports. These fail loudly at collection if missed,
+      which makes them the SAFEST category. The dangerous ones are below.
+
+  filesystem_paths:
+    action: mixed          # <-- read carefully
+    rename:
+      - path: src/sigil_ml/            -> src/kenaz_ml/
+      - path: freeze/kameas-ml.spec    -> freeze/kenaz-ml.spec
+      - file: .gitignore:64
+        text: 'src/sigil_ml/feature_store/registry.db'
+        why: >-
+          NOT PREVIOUSLY IDENTIFIED. If missed, registry.db stops being
+          ignored and gets committed after the package move.
+      - file: .pyre_configuration:2
+        text: '{"root": "src", "subdirectory": "sigil_ml"}'
+        why: >-
+          NOT PREVIOUSLY IDENTIFIED. If missed, pyre type-checks NOTHING —
+          silently, with a green build.
+    do_not_change:
+      - '~/.local/share/sigild/'  # 70 occurrences. THE critical invariant.
+      - '~/.local/share/sigild/ml-models/'
+
+  serialized_keys:
+    action: none_required
+    verified_clean: true
+    evidence:
+      registry_db:
+        path: src/sigil_ml/feature_store/registry.db
+        sigil_ml_byte_hits: 0
+      joblib_artifacts:
+        path: '~/.local/share/sigild/ml-models/*.joblib'
+        probed: 5
+        dirty: 0
+    reasoning: >-
+      Re-probed per D-006 rather than trusting the pre-planning result. Clean,
+      as expected: the pickled objects are plain sklearn estimators, so no
+      project module path is recorded. No artifact regeneration needed; FR-010
+      (pre-rename artifacts load unchanged) should hold.
+
+  cli_commands:
+    action: rename
+    notes: NOT empty, unlike the storage reorganization.
+    sites:
+      - file: pyproject.toml:79
+        text: 'kameas-ml = "sigil_ml.cli:main"'
+        why: BOTH halves change. Entry point resolved by string at install time.
+      - file: .github/workflows/ci.yml
+        lines: [101, 114, 120, 156, 160, 200, 211, 217]
+        text: 'kameas-ml serve | train | health-check'
+      - file: Makefile
+        count: 8
+
+  user_facing_strings:
+    action: rename
+    notes: NOT empty. Log prefixes are user-visible output, not identifiers.
+    sites:
+      - file: src/sigil_ml/logging_config.py
+        count: 6
+      - files: [app.py (4), cli.py (4), config.py (2), routes.py (3)]
+        example: 'logger.info("kameas-ml: using %s data backend", ...)'
+      - file: src/sigil_ml/app.py:215
+        text: 'title="kameas-ml"'
+        why: FastAPI title — appears in the OpenAPI schema and generated docs.
+      - file: src/sigil_ml/modelstore/registry/manifest.py:816
+        text: '"sigil_ml.feature_store.definitions.FEATURE_SERVICES declares..."'
+        why: A module path embedded in an error message.
+
+  tests_fixtures:
+    action: rename_except_one
+    count: 343
+    exception: tests/test_migration_regression.py  # see string_resolved below
+
+  logs_telemetry:
+    action: rename
+    notes: Covered by user_facing_strings; logging_config.py is the hub.
+
+# ---------------------------------------------------------------------------
+# T003 — REFERENCES THAT FAIL AT RUNTIME, NOT AT IMPORT
+# The suite passing proves nothing about these.
+# ---------------------------------------------------------------------------
+string_resolved:
+  - file: src/sigil_ml/cli.py:98
+    text: '"sigil_ml.app:app"'
+    resolved_by: uvicorn, at server start
+    verify: start the server THROUGH THE CLI, not `uvicorn` directly
+
+  - file: freeze/kameas-ml.spec:267
+    text: '"sigil_ml.app"  (hiddenimports)'
+    context_line_265: '# The app is loaded by uvicorn via the string "sigil_ml.app:app", so the'
+    resolved_by: PyInstaller, at build
+    verify: build the binary AND serve a real prediction from it
+    note: the explanatory comment on line 265 must be updated too
+
+  - file: pyproject.toml:79
+    text: 'kameas-ml = "sigil_ml.cli:main"'
+    resolved_by: the installer, writing the console script
+
+  - file: pyproject.toml:106
+    text: 'known-first-party = ["sigil_ml"]'
+    resolved_by: ruff isort
+    why: >-
+      NOT PREVIOUSLY IDENTIFIED. If missed, ruff regroups every first-party
+      import as third-party and `ruff format --check` fails across the tree.
+
+  - file: pyproject.toml:5-6
+    text: '# ... the import package is still `sigil_ml` (the module path is kept
+           for WAL-contract and legacy import-compat reasons ...)'
+    action: REWRITE, not rename
+    why: >-
+      This comment explains why the package name diverged from the
+      distribution name. After this mission they agree, so the comment
+      becomes false. Renaming the strings inside it would leave a comment
+      that contradicts itself.
+
+  - file: '(editable install)'
+    text: __editable__.kameas_ml-*.pth
+    resolved_by: site-packages at interpreter start
+    action: reinstall after the rename; stale .pth silently breaks imports
+
+# ---------------------------------------------------------------------------
+# T003 — THE FROZEN-HISTORY ALIAS. Keeping the old name here is CORRECT.
+# ---------------------------------------------------------------------------
+git_object_references:
+  - file: tests/test_migration_regression.py
+    key: 'sys.modules["sigil_ml.store"]'
+    action: do_not_change_the_key
+    value_action: point it at the renamed module
+    blob: 'ef67e05:src/sigil_ml/features.py'
+    blob_contains: 'from sigil_ml.store import DataStore'
+    why: >-
+      The test asserts the blob's SHA256 immediately before exec'ing it, so
+      the historical text can never change. The alias key exists to satisfy an
+      import inside that frozen source — it must match history, not current
+      code. No working-tree grep can see this reference; it broke a previous
+      bulk edit here and was found by running the suite.
+    reviewer_note: >-
+      A reviewer scanning for leftovers WILL flag this. It is correct.
+      WP02 must add a comment at the site saying so.
+
+# ---------------------------------------------------------------------------
+# T004 — FINDINGS. Things the plan got wrong or did not know.
+# ---------------------------------------------------------------------------
+findings:
+
+  daemon_count_was_wrong:
+    severity: high
+    detail: >-
+      spec.md, plan.md, research.md and both WP prompts all state "138
+      references" for the do-not-change surface. The true figure is 524
+      occurrences across 97 files (194 of them `sigild` specifically).
+    impact: >-
+      SC-004 and WP02's T010 invariant test would assert a wrong number and
+      fail, or worse, be "fixed" by loosening the assertion.
+    action_for_wp02: assert against 524 total / 194 sigild, not 138.
+
+  files_outside_wp02_ownership:
+    severity: high
+    detail: >-
+      Seven files carry sigil_ml or kameas-ml but are NOT in WP02's
+      owned_files list. Three are functionally load-bearing.
+    files:
+      - path: .pyre/taint_models/sources_sinks.pysa
+        impact: CRITICAL — SILENT SECURITY FAILURE
+        detail: >-
+          Contains fully-qualified taint sources:
+          `def sigil_ml.routes.predict_stuck(req: TaintSource[UserInput])`.
+          Pyre matches these by exact module path. If stale, the taint model
+          silently stops applying to every /predict endpoint — no error, no
+          warning, a green build, and the security analysis covering
+          user-controlled input is simply gone.
+      - path: .pyre_configuration
+        impact: high — pyre type-checks nothing if the source dir is stale
+      - path: .gitignore
+        impact: high — registry.db becomes tracked after the package move
+      - path: prd.json
+        impact: medium — live planning doc; project name + src paths
+      - path: .kittify/memory/constitution.md
+        impact: medium — live governance doc titled "kameas-ml Constitution"
+      - path: tasks/prd-classify-predict-pipeline.md
+        impact: medium — live PRD for unbuilt work
+      - path: tasks/companion-sigil-daemon-changes.md
+        impact: medium — MIXED FILE; rename kameas-ml, keep sigil.
+                Do NOT rename the filename itself.
+    action_for_wp02: >-
+      owned_files must be extended to cover these before implementation.
+
+  stale_worktree_exists:
+    severity: low
+    detail: >-
+      research.md asserts "All worktrees are currently cleaned up." That is
+      FALSE. `.worktrees/storage-layer-reorganization-01KYXE54-lane-a` still
+      exists at 956e13a. Its branch IS merged into main and its src/ is empty,
+      so it is an inert husk rather than a live hazard — but the research
+      claim should not be relied on.
+    action: prune at the user's discretion; not a blocker.
+
+  conflicting_daemon_urls:
+    severity: informational
+    detail: >-
+      The daemon is referenced by two different URLs in this repo:
+      github.com/wambozi/sigil (kenaz-fleet README, CLAUDE.md) and
+      github.com/kameas-ai/sigil (tasks/companion-sigil-daemon-changes.md).
+      Both are do_not_change for this mission. Flagging because one of them
+      is presumably stale, which is a separate question from the rebrand.
+
+  pyproject_comment_becomes_false:
+    severity: medium
+    detail: >-
+      pyproject.toml:5-6 documents WHY the package and distribution names
+      diverged. This mission makes them agree, so the comment must be
+      rewritten rather than string-substituted.
+
+# ---------------------------------------------------------------------------
+# WP02 CHECKLIST — tick against this
+# ---------------------------------------------------------------------------
+wp02_checklist:
+  rename:
+    - {area: src/,          sigil_ml: 229, kameas_ml: 27}
+    - {area: tests/,        sigil_ml: 343, kameas_ml: 11}
+    - {area: docs/,         sigil_ml:  24, kameas_ml: 59}
+    - {area: freeze/,       sigil_ml:  17, kameas_ml: 15}
+    - {area: .github/,      sigil_ml:   0, kameas_ml: 44}
+    - {area: README.md,     sigil_ml:   1, kameas_ml: 22}
+    - {area: CLAUDE.md,     sigil_ml:   8, kameas_ml:  6}
+    - {area: pyproject.toml,sigil_ml:   4, kameas_ml:  8}
+    - {area: Makefile,      sigil_ml:   0, kameas_ml:  8}
+    - {area: CONTRIBUTING.md,sigil_ml:  1, kameas_ml:  7}
+    - {area: SECURITY.md,   sigil_ml:   0, kameas_ml:  4}
+    - {area: scripts/,      sigil_ml:   2, kameas_ml:  0}
+    - {area: prd.json,      sigil_ml:   7, kameas_ml: 17}
+    - {area: tasks/,        sigil_ml:   4, kameas_ml: 28}
+    - {area: .pyre*,        sigil_ml:   6, kameas_ml:  0}
+    - {area: .gitignore,    sigil_ml:   1, kameas_ml:  0}
+    - {area: .kittify/,     sigil_ml:   0, kameas_ml:  3}
+  do_not_touch:
+    - {area: 'kitty-specs/ (merged missions)', reason: 'historical record (D-003, FR-013)'}
+    - {area: 'all sigild / share/sigild / SIGILD_ / sigilctl', count: 524}
+    - {area: 'tests/test_migration_regression.py alias KEY', reason: 'frozen history'}
