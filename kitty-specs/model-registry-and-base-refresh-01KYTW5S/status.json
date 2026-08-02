@@ -1,7 +1,7 @@
 {
-  "event_count": 14,
-  "last_event_id": "01KZ00Y5BATKBYFHN5RXCBKGFT",
-  "materialized_at": "2026-08-02T01:20:41.834314+00:00",
+  "event_count": 15,
+  "last_event_id": "01KZ018368646HT6TZY5SAJ49C",
+  "materialized_at": "2026-08-02T01:26:07.304315+00:00",
   "mission_number": "",
   "mission_slug": "model-registry-and-base-refresh-01KYTW5S",
   "mission_type": "software-dev",
@@ -11,8 +11,8 @@
     "canceled": 0,
     "claimed": 0,
     "done": 0,
-    "for_review": 2,
-    "in_progress": 1,
+    "for_review": 3,
+    "in_progress": 0,
     "in_review": 0,
     "planned": 3
   },
@@ -25,11 +25,11 @@
       "last_transition_at": "2026-08-02T01:06:38.170958+00:00"
     },
     "WP02": {
-      "actor": "claude",
+      "actor": "user",
       "force_count": 1,
-      "lane": "in_progress",
-      "last_event_id": "01KZ00A73QAGVTZJ4SVS4HRY6F",
-      "last_transition_at": "2026-08-02T01:09:48.279677+00:00"
+      "lane": "for_review",
+      "last_event_id": "01KZ018368646HT6TZY5SAJ49C",
+      "last_transition_at": "2026-08-02T01:26:07.304315+00:00"
     },
     "WP03": {
       "actor": "user",

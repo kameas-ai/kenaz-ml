@@ -179,3 +179,4 @@ spec-kitty agent action implement WP02 --agent <name>
 ## Activity Log
 
 - 2026-08-02T01:09:48Z – claude – shell_pid=35861 – Started implementation via action command
+- 2026-08-02T01:26:07Z – claude – shell_pid=35861 – T006-T009 complete. base_models_dir()/retained_data_dir(), two-slot resolver, fallthrough logging, 57 tests. Full suite: 769 passed, 9 skipped, 1 known pre-existing perf flake.
