@@ -27,8 +27,8 @@ categories:
       the delta is the underscore form in the editable-install .pth name.
   import_paths:
     action: rename
-    occurrences: 385
-    files: 68
+    occurrences: 380
+    files: 66
     scope:
     - src/
     - tests/
@@ -38,6 +38,8 @@ categories:
     measurement: git grep -oP '^\s*(?:from|import)\s+sigil_ml'
     correction: 'rev 2 said 229/40, which was actually ''sigil_ml occurrences in src/'' —
       a different measurement wearing this label. Real import statements: 385/68.'
+    correction_wp02: Measured 385/68 at WP01; WP02's actual rename touched 380/66. The map
+      figure counted 5 matches in files not carrying real import statements.
   filesystem_paths:
     action: manual_review
     note: MIXED — this is the category that can destroy the product. Some paths rename, one
@@ -167,6 +169,19 @@ categories:
       blast_radius_note: Mostly cloud-path configuration (Postgres URL, S3, tenancy), so breakage
         lands on container specs and deployment manifests rather than a developer's shell
         profile.
+      corrections_from_wp02:
+      - SIGIL_ML_SRC is a module-level variable in the PyInstaller spec file, NOT an env var.
+        It needs renaming but no shim.
+      - SIGIL_CLOUD_ARCHITECTURE is a FILENAME (docs/SIGIL_CLOUD_ARCHITECTURE.md), not an
+        env var. The map counted it in the 65.
+      - Of the 6 modules the map named for env routing, logging_config and modelstore/cache
+        have NO SIGIL_* vars at all — they read XDG_DATA_HOME and unprefixed MODEL_CACHE_*.
+    env_vars_KAMEAS_family:
+      pattern: KAMEAS_ML_FROZEN_BIN
+      occurrences: test-harness only
+      ownership: THIS PRODUCT — a 4th family the map omitted entirely.
+      action: renamed by WP02; no shim needed (test harness, not user configuration).
+      found_by: WP02 implementation, not by any of WP01's three revisions.
   cli_commands:
     action: rename
     note: 'The skill''s default here is do_not_change (users'' scripts break), but renaming
@@ -282,6 +297,11 @@ status:
     wp02_instruction: Assert 163 in-scope / 95 sigild, using the pattern above — it must exclude
       SIGIL_<UPPERCASE> or it re-counts this product's own config keys as the ledger's. Do
       NOT assert 138, 524 or 242.
+    measurement_correction: The pattern MUST be run case-INsensitively (-oPi). With -oP it
+      yields 149/38, not 163/39. Conversely test_rebrand.py must match sigil_ml case-SENSITIVELY,
+      or it flags the SIGIL_ML_* names the FR-014 shim legitimately needs. The map states
+      -oPi; recording explicitly because this mission has been bitten by case-sensitivity
+      four separate times.
   string_resolved:
   - file: src/sigil_ml/cli.py
     line: 98
@@ -335,6 +355,12 @@ status:
       it broke a previous bulk edit here and was found by running the suite.
     reviewer_note: A reviewer scanning for leftovers WILL flag this. It is correct. WP02 must
       add a comment at the site saying so.
+  - file: tests/test_serving_regression.py
+    line: 190
+    action: do_not_change_the_historical_path
+    why: 'A second frozen-history site the map never listed. Same class as the test_migration_regression.py
+      alias: a historical path that must not follow the rename.'
+    found_by: WP02 implementation.
   scope_additions:
     status: ALREADY APPLIED. WP02's owned_files was extended in commit e2fd389 to cover all
       seven. Rev 1 listed this as an open finding; it is closed.
@@ -380,6 +406,17 @@ status:
       Two switches for one decision. This mission renames both to KENAZ_* and PRESERVES the
       duplication under new names. Consolidating them is a behaviour change and must not be
       smuggled into a rename.
+  - id: Q5
+    question: The Pysa taint model covers nothing and has been stale for some time.
+    blocks: nothing in this mission
+    severity: security tooling — no runtime impact
+    detail: '.pyre/taint_models/sources_sinks.pysa declares 5 taint sources as module-level
+      callables: kenaz_ml.routes.predict_stuck, .predict_suggest, .predict_duration, .predict_quality,
+      .train. None of these exist at module level — routes.py defines them as NESTED async
+      functions inside register_routes() (line 182), so their real paths are kenaz_ml.routes.register_routes.<locals>.predict_stuck.
+      Pysa cannot resolve the declared paths, so taint coverage over every user-facing /predict
+      endpoint is absent, and was absent before this rename. WP02 renamed the prefix; restoring
+      coverage is a REPAIR and was correctly kept out of a rename mission. Needs its own issue.'
   revision_history:
     rev1_rejected_at_review:
     - error: Schema violation — invented action values (mixed, none_required, rename_except_one)
@@ -423,6 +460,17 @@ status:
     - error: No kameas-ml count in categories; no reconciliation against 138/1738/420.
     - error: rev1_confirmed_correct attested to a wp02_checklist key removed during the schema
         restructuring — an attestation to something not in the file.
+    rev3_corrections_found_during_wp02:
+    - import_paths 385/68 -> 380/66
+    - SIGIL_ML_SRC is a spec-file variable, not an env var
+    - SIGIL_CLOUD_ARCHITECTURE is a filename, not an env var
+    - 2 of 6 named env-routing modules have no SIGIL_* vars
+    - 'KAMEAS_ML_FROZEN_BIN: a 4th product-owned env family, omitted entirely'
+    - test_serving_regression.py:190 is an unlisted frozen-history site
+    - the ledger measurement requires -oPi; -oP gives 149/38
+    - 'NOTE: the map called .pyre/taint_models/sources_sinks.pysa a high-impact rename site.
+      It was pointing at callables that DO NOT EXIST and had been stale before this mission
+      — see status.open_questions Q5.'
   measurement_scope: 'All counts are IN-SCOPE: git grep -oP <pattern> -- '':!kitty-specs''
     '':!.worktrees''. kitty-specs/ is excluded because D-003/FR-013 forbid rewriting merged
     missions'' records; .worktrees/ is an untracked husk. Counting either inflates the figure
