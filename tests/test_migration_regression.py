@@ -893,7 +893,28 @@ def test_baselines_were_recorded_from_the_pre_migration_commit(tmp_path: Path) -
     spec = importlib.util.spec_from_file_location("pre_migration_features", module_path)
     assert spec is not None and spec.loader is not None
     pre = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(pre)
+    # The historical blob does `from sigil_ml.store import DataStore` (line 13).
+    # The storage-layer reorganization moved that module to
+    # `sigil_ml.datastore.protocol`, so alias it for the duration of the exec.
+    #
+    # This is safe precisely because the SHA256 assertion above already proved
+    # the blob is the real historical text: the alias only lets the recorded
+    # source import, it does not change a byte of what runs. A shim module at
+    # the old path would also work but is forbidden by D-004 of the
+    # storage-layer-reorganization mission.
+    import sys
+
+    from sigil_ml.datastore import protocol as _pre_migration_datastore
+
+    _saved = sys.modules.get("sigil_ml.store")
+    sys.modules["sigil_ml.store"] = _pre_migration_datastore
+    try:
+        spec.loader.exec_module(pre)
+    finally:
+        if _saved is None:
+            sys.modules.pop("sigil_ml.store", None)
+        else:
+            sys.modules["sigil_ml.store"] = _saved
     # Same pinning as the post-migration paths get from `pinned_clock_and_timezone`.
     pre.time = PinnedClock(time)
 
