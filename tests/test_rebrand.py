@@ -144,9 +144,45 @@ ALLOWED_OLD_NAME_PATTERNS = (
     r"sigil_ml\.store",
 )
 
+#: The FROZEN ARTIFACT is named ``kameas-ml``, and that is not a leftover.
+#:
+#: This is the second member of the class of names this mission had to be
+#: careful about, and the original sweep found only the first. ``sigild`` was
+#: correctly identified as a live contract wearing an old-looking name and
+#: carved out. The name of the frozen executable is the same kind of thing, and
+#: it was not: SC-008 renamed it to ``kenaz-ml`` along with the branding.
+#:
+#: The consequence was invisible from inside this repository. The freeze still
+#: built, ``freeze-smoke`` still passed, and CI stayed green — because the
+#: rename was internally consistent. It broke in **kenaz**, whose release build
+#: stages the artifact by name. Eleven version tags between 2026-08-02 and
+#: 2026-08-06 published no release at all before anyone noticed.
+#:
+#: The name is fixed by three ratified consumers:
+#:   * workspace spec 069 LD-3 / FR-001 / FR-002 / SC-003 (Kenaz 1.0 GA);
+#:   * kenaz ``main.go::resolveMLBinary()`` — probes ``kameas-ml/kameas-ml``,
+#:     ``../Resources/kameas-ml/kameas-ml``, then PATH ``kameas-ml``;
+#:   * kenaz's ``Makefile`` (stage-ml / sign-macos / verify-complete) and
+#:     ``release.yml`` AppImage payload.
+#:
+#: Renaming it is therefore a coordinated cross-repo change, not a tidy-up.
+ARTIFACT_NAME = "kameas-ml"
+
+#: The freeze recipe names the artifact, and its header explains at length why.
+#: Sweeping it for ``kameas-ml`` would forbid the very thing it must say.
+ARTIFACT_EXEMPT_PATHS = ("freeze/kenaz-ml.spec",)
+
+#: Everywhere else, the artifact may only appear PATH-SHAPED — a reference to
+#: the freeze output, never a stray brand name. A bare ``kameas-ml`` in prose
+#: outside the freeze recipe is still an offence.
+ALLOWED_ARTIFACT_PATTERNS = (
+    rf"dist/{ARTIFACT_NAME}(?:/{ARTIFACT_NAME})?",
+    rf"\$MOUNT/{ARTIFACT_NAME}",
+)
+
 
 def _strip_allowed(line: str) -> str:
-    for pattern in ALLOWED_OLD_NAME_PATTERNS:
+    for pattern in (*ALLOWED_OLD_NAME_PATTERNS, *ALLOWED_ARTIFACT_PATTERNS):
         line = re.sub(pattern, "", line)
     return line
 
@@ -168,6 +204,11 @@ def test_no_old_name_survives(area: str) -> None:
     demand deleting the very code that makes the rename survivable.
     ``kameas`` never named an environment variable of its own, so it is matched
     case-insensitively to also catch ``KAMEAS_ML_FROZEN_BIN``.
+
+    **``kameas-ml`` is no longer forbidden outright.** It is the name of the
+    frozen artifact — a cross-repo interface, see ``ARTIFACT_NAME`` above — so
+    it is permitted path-shaped, and permitted freely inside the freeze recipe
+    that defines it. Everywhere else it is still an offence.
     """
     pattern = r"sigil_ml|(?i:kameas[-_]ml)"
     try:
@@ -182,7 +223,11 @@ def test_no_old_name_survives(area: str) -> None:
     if completed.returncode not in (0, 1):
         pytest.skip(f"git grep failed: {completed.stderr.strip()}")
 
-    offences = [line for line in completed.stdout.splitlines() if re.search(pattern, _strip_allowed(line))]
+    offences = [
+        line
+        for line in completed.stdout.splitlines()
+        if not line.startswith(ARTIFACT_EXEMPT_PATHS) and re.search(pattern, _strip_allowed(line))
+    ]
     assert offences == [], "old names survive:\n  " + "\n  ".join(offences)
 
 
@@ -195,6 +240,64 @@ def test_the_documented_exceptions_are_still_present() -> None:
         "the frozen-history alias KEY was renamed; it must match text inside commit ef67e05"
     )
     assert "src/sigil_ml/features.py" in text, "the git-object path was renamed; it names a path in history"
+
+
+# ===========================================================================
+# The frozen artifact keeps the name kenaz resolves it by  (spec 069 LD-3)
+# ===========================================================================
+#
+# These are the inverse of the sweep above, and they exist because the sweep
+# alone caused an outage. Forbidding a name is only half a policy; the other
+# half is asserting the name that must be there. Without these, the next
+# consistent-looking rename of the freeze recipe passes every test in this
+# repository and breaks kenaz's release train again.
+
+FREEZE_SPEC = REPO_ROOT / "freeze" / "kenaz-ml.spec"
+
+
+def test_the_frozen_artifact_is_named_for_the_kenaz_contract() -> None:
+    """Both PyInstaller output names are the artifact name, via one constant.
+
+    ``EXE(name=...)`` sets the bootloader's filename and ``COLLECT(name=...)``
+    the onedir directory's; kenaz needs ``dist/kameas-ml/kameas-ml``, so both
+    must be this name and they must not be able to drift apart.
+    """
+    source = FREEZE_SPEC.read_text(encoding="utf-8")
+
+    assert f'ARTIFACT_NAME = "{ARTIFACT_NAME}"' in source, (
+        f"the freeze recipe no longer defines ARTIFACT_NAME = {ARTIFACT_NAME!r}; kenaz "
+        "resolves the sidecar by that name (spec 069 LD-3, resolveMLBinary())"
+    )
+
+    names = re.findall(r"^\s{4}name=(.+),$", source, flags=re.MULTILINE)
+    assert names == ["ARTIFACT_NAME", "ARTIFACT_NAME"], (
+        f"expected EXE(name=ARTIFACT_NAME) and COLLECT(name=ARTIFACT_NAME), found {names}. "
+        "Hard-coding either one lets the exe and its onedir directory drift apart."
+    )
+
+
+def test_the_build_paths_agree_with_the_artifact_name() -> None:
+    """A correct freeze that nothing can find is still a broken release."""
+    expected = f"dist/{ARTIFACT_NAME}/{ARTIFACT_NAME}"
+
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    assert expected in makefile, f"the Makefile's freeze-smoke target does not point at {expected}"
+
+    ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert expected in ci, f"CI does not point at {expected}"
+    assert "dist/kenaz-ml" not in ci, "CI still refers to dist/kenaz-ml — the freeze does not produce that path"
+
+
+def test_the_reason_the_artifact_keeps_its_name_is_recorded_where_it_is_set() -> None:
+    """The rationale has to live next to the constant, not only in this test.
+
+    Whoever next runs a rename sweep will open the freeze recipe, not the test
+    suite. The 2026-08-02 regression was a careful mission that simply had no
+    way of knowing this name was load-bearing.
+    """
+    header = FREEZE_SPEC.read_text(encoding="utf-8")[:4000]
+    assert "DO NOT REBRAND" in header, "the freeze recipe lost the warning that explains its artifact name"
+    assert "resolveMLBinary" in header, "the freeze recipe no longer names kenaz's consumer of this artifact"
 
 
 # ===========================================================================

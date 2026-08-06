@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec for the frozen, self-contained `kenaz-ml` executable.
+# PyInstaller spec for the frozen, self-contained ML sidecar executable.
 #
 # FR-3 (ADR-ml-packaging.md, Option 2): kenaz supervises a frozen Python ML
 # sidecar instead of dropping to a fake backend. This spec produces a single
@@ -10,7 +10,39 @@
 # Build (from the kenaz-ml repo root):
 #     pip install -e ".[freeze]"
 #     pyinstaller freeze/kenaz-ml.spec --noconfirm
-#     # → dist/kenaz-ml/  (ONEDIR bundle: dist/kenaz-ml/kenaz-ml + _internal/)
+#     # → dist/kameas-ml/  (ONEDIR bundle: dist/kameas-ml/kameas-ml + _internal/)
+#
+# ---------------------------------------------------------------------------
+# THE ARTIFACT IS NAMED `kameas-ml`. DO NOT REBRAND IT.
+# ---------------------------------------------------------------------------
+# The product, the repository, the distribution, the CLI command and the log
+# prefixes are all `kenaz-ml` (kenaz-ml-rebrand-01KZ1AMQ). The name of the
+# FROZEN EXECUTABLE is not branding — it is a cross-repo interface, in exactly
+# the same class as the ledger daemon's name and data directory, which that
+# same mission identified and correctly refused to rewrite. This one it missed.
+#
+# Three ratified consumers resolve this artifact BY NAME:
+#
+#   1. Workspace spec 069 (self-contained artifact) LD-3 / FR-001 / FR-002 /
+#      SC-003 — the release-completeness contract, ratified at Kenaz 1.0 GA.
+#   2. kenaz `main.go::resolveMLBinary()` — probes `kameas-ml/kameas-ml`
+#      beside the executable, `../Resources/kameas-ml/kameas-ml` inside the
+#      .app, then falls back to a PATH lookup of `kameas-ml`.
+#   3. kenaz `Makefile` (`stage-ml`, `sign-macos`, `verify-complete`) and
+#      `.github/workflows/release.yml` (AppImage payload), all of which copy
+#      from `$KENAZ_ML_REPO/dist/kameas-ml/`.
+#
+# Renaming the EXE/COLLECT names below does not fail here — the freeze
+# succeeds and its own smoke test passes, because this repo is internally
+# consistent either way. It fails in kenaz's release build, at the staging
+# step, in another repository. That is precisely what happened on 2026-08-02:
+# the rebrand renamed this artifact, kenaz's release train broke on the next
+# run, and eleven tags shipped no release over four days.
+#
+# If the artifact should genuinely be renamed, that is a coordinated change:
+# amend spec 069, update `resolveMLBinary()` (keeping the old path as a
+# fallback for installed builds), update the kenaz Makefile and release
+# workflow — then change it here. `tests/test_rebrand.py` guards this name.
 #
 # ONEDIR, not onefile (spec 069 LD-3 / FR-002): a onefile build self-extracts
 # its (unsigned copies of) dylibs to a temp dir at runtime, which Apple
@@ -485,9 +517,13 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# The frozen artifact's name. A cross-repo interface, NOT branding — see the
+# "DO NOT REBRAND IT" block in this file's header before changing it.
+ARTIFACT_NAME = "kameas-ml"
+
 # ONEDIR: the EXE is the thin bootloader only (exclude_binaries=True); the
 # interpreter + all compiled deps land beside it via COLLECT in
-# dist/kenaz-ml/_internal/. Signing is deliberately NOT done here
+# dist/kameas-ml/_internal/. Signing is deliberately NOT done here
 # (codesign_identity=None): kenaz's `make sign-macos` signs the staged tree
 # inside-out with the release identity + per-file hardened runtime, so the
 # freeze stays identity-agnostic and reproducible across dev/CI.
@@ -496,7 +532,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="kenaz-ml",
+    name=ARTIFACT_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -518,5 +554,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="kenaz-ml",
+    name=ARTIFACT_NAME,
 )
