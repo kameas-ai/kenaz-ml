@@ -35,7 +35,7 @@ Run them explicitly after a freeze build:
 
     pip install -e ".[freeze]"
     pyinstaller freeze/kenaz-ml.spec --noconfirm
-    KENAZ_ML_FROZEN_BIN=$PWD/dist/kenaz-ml/kenaz-ml pytest tests/test_frozen_smoke.py -v
+    KENAZ_ML_FROZEN_BIN=$PWD/dist/kameas-ml/kameas-ml pytest tests/test_frozen_smoke.py -v
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ pytestmark = pytest.mark.skipif(
     not FROZEN_BIN,
     reason="KENAZ_ML_FROZEN_BIN not set; build the frozen binary first "
     "(pyinstaller freeze/kenaz-ml.spec) and point the env var at "
-    "dist/kenaz-ml/kenaz-ml (onedir layout)",
+    "dist/kameas-ml/kameas-ml (onedir layout)",
 )
 
 #: NFR-003 — process start-to-serving budget for a background daemon.

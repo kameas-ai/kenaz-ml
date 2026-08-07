@@ -274,7 +274,7 @@ jobs:
           #   git archive ef67e05 | tar -x -C /tmp/baseline
           #   cd /tmp/baseline && pip install -e ".[freeze]" \
           #     && pyinstaller freeze/kenaz-ml.spec --noconfirm --clean
-          #   du -sm dist/kenaz-ml
+          #   du -sm dist/kameas-ml
           #
           # 126 MB / 210 native libraries. Update this only alongside a recorded
           # re-measurement; silently raising it to make a red build green is
@@ -283,8 +283,8 @@ jobs:
           # NFR-001: no more than 350 MB over the pre-migration set.
           GROWTH_CEILING_MB: '350'
         run: |
-          BUNDLE_MB=$(du -sm dist/kenaz-ml | cut -f1)
-          LIBS=$(find dist/kenaz-ml \( -name '*.so' -o -name '*.dylib' \) | wc -l | tr -d ' ')
+          BUNDLE_MB=$(du -sm dist/kameas-ml | cut -f1)
+          LIBS=$(find dist/kameas-ml \( -name '*.so' -o -name '*.dylib' \) | wc -l | tr -d ' ')
           DELTA_MB=$((BUNDLE_MB - BASELINE_BUNDLE_MB))
           HEADROOM_MB=$((GROWTH_CEILING_MB - DELTA_MB))
 
@@ -317,14 +317,14 @@ jobs:
         #     that the online store landed in the user data directory (FR-013)
         #   * cold start against NFR-003's 10 s budget, on the real binary
         run: |
-          KENAZ_ML_FROZEN_BIN="$PWD/dist/kenaz-ml/kenaz-ml" \
+          KENAZ_ML_FROZEN_BIN="$PWD/dist/kameas-ml/kameas-ml" \
             pytest tests/test_frozen_smoke.py -v -s
 
       - name: Upload frozen bundle
         uses: actions/upload-artifact@v4
         with:
           name: kenaz-ml-macos-arm64
-          path: dist/kenaz-ml
+          path: dist/kameas-ml
           retention-days: 7
 
   # ==========================================================================
@@ -358,13 +358,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: kenaz-ml-macos-arm64
-          path: dist/kenaz-ml
+          path: dist/kameas-ml
 
       - name: Restore executable bits
         # actions/upload-artifact does not preserve the executable bit.
         run: |
-          chmod +x dist/kenaz-ml/kenaz-ml
-          find dist/kenaz-ml -name '*.dylib' -o -name '*.so' | xargs -I{} chmod +x {}
+          chmod +x dist/kameas-ml/kameas-ml
+          find dist/kameas-ml -name '*.dylib' -o -name '*.so' | xargs -I{} chmod +x {}
 
       - name: Check for signing credentials
         id: creds
@@ -427,10 +427,10 @@ jobs:
           # Inside-out: every nested Mach-O first, the launcher last. Signing the
           # launcher before its dylibs invalidates the outer signature the moment
           # an inner one is written (ADR-nested-binary-signing).
-          find dist/kenaz-ml -type f \( -name '*.dylib' -o -name '*.so' \) -print0 \
+          find dist/kameas-ml -type f \( -name '*.dylib' -o -name '*.so' \) -print0 \
             | xargs -0 -n 25 codesign --force --timestamp --options runtime --sign "$IDENTITY"
-          codesign --force --timestamp --options runtime --sign "$IDENTITY" dist/kenaz-ml/kenaz-ml
-          echo "signed $(find dist/kenaz-ml \( -name '*.so' -o -name '*.dylib' \) | wc -l | tr -d ' ') nested Mach-O files plus the launcher"
+          codesign --force --timestamp --options runtime --sign "$IDENTITY" dist/kameas-ml/kameas-ml
+          echo "signed $(find dist/kameas-ml \( -name '*.so' -o -name '*.dylib' \) | wc -l | tr -d ' ') nested Mach-O files plus the launcher"
 
       - name: Verify every nested signature before notarizing
         if: steps.creds.outputs.configured == 'true'
@@ -445,8 +445,8 @@ jobs:
               echo "::error::unsigned or invalid signature: $macho"
               failed=1
             fi
-          done < <(find dist/kenaz-ml -type f \( -name '*.dylib' -o -name '*.so' \))
-          codesign --verify --deep --strict --verbose=2 dist/kenaz-ml/kenaz-ml
+          done < <(find dist/kameas-ml -type f \( -name '*.dylib' -o -name '*.so' \))
+          codesign --verify --deep --strict --verbose=2 dist/kameas-ml/kameas-ml
           [ "$failed" -eq 0 ]
 
       - name: Notarize and staple
@@ -461,7 +461,7 @@ jobs:
           echo "$AC_API_PRIVATE_KEY" > "/tmp/ac/AuthKey_${AC_API_KEY_ID}.p8"
 
           # A .dmg, because a ticket has to be stapled to a container.
-          hdiutil create -volname kenaz-ml -srcfolder dist/kenaz-ml \
+          hdiutil create -volname kenaz-ml -srcfolder dist/kameas-ml \
             -ov -format UDZO /tmp/kenaz-ml.dmg
 
           xcrun notarytool submit /tmp/kenaz-ml.dmg \
@@ -481,7 +481,7 @@ jobs:
           # outer signature, `stapler validate` proves the ticket is attached
           # (so a machine offline at first launch still passes), and `spctl`
           # is the assessment Gatekeeper itself performs.
-          codesign --verify --deep --strict --verbose=2 dist/kenaz-ml/kenaz-ml
+          codesign --verify --deep --strict --verbose=2 dist/kameas-ml/kameas-ml
           xcrun stapler validate /tmp/kenaz-ml.dmg
           spctl --assess --type open --context context:primary-signature -vv /tmp/kenaz-ml.dmg
           echo "### Notarization gate: PASSED" >> "$GITHUB_STEP_SUMMARY"
@@ -497,7 +497,7 @@ jobs:
           set -euo pipefail
           pip install -e ".[dev]"
           MOUNT=$(hdiutil attach /tmp/kenaz-ml.dmg -nobrowse -readonly | tail -1 | awk '{print $NF}')
-          KENAZ_ML_FROZEN_BIN="$MOUNT/kenaz-ml" pytest tests/test_frozen_smoke.py -v -s \
+          KENAZ_ML_FROZEN_BIN="$MOUNT/kameas-ml" pytest tests/test_frozen_smoke.py -v -s \
             -k "feature_store or registry_records" || {
               hdiutil detach "$MOUNT" || true
               exit 1

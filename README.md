@@ -102,7 +102,7 @@ backend. See `.specify/decisions/ADR-ml-packaging.md`.
 
 ```bash
 pip install -e ".[freeze]"
-make freeze            # → dist/kenaz-ml/ (onedir bundle: kenaz-ml exe + _internal/; current host platform)
+make freeze            # → dist/kameas-ml/ (onedir bundle: kameas-ml exe + _internal/; current host platform)
 make freeze-smoke      # boots the frozen binary, asserts /predict/stuck returns a real prediction
 ```
 
