@@ -218,7 +218,7 @@ def _incomplete_signatures(
         snapshot = record.get("snapshot_ms")
         try:
             as_of = int(snapshot) if snapshot is not None else int(record["ts"])
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             continue
         if record.get("features_complete", False):
             complete_as_of.add(as_of)
@@ -227,7 +227,7 @@ def _incomplete_signatures(
         if all(name in features for name in names):
             try:
                 with_vector.add((as_of, tuple(float(features[name]) for name in names)))
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 as_of_only.add(as_of)
         else:
             as_of_only.add(as_of)

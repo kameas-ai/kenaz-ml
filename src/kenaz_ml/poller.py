@@ -76,7 +76,7 @@ class EventPoller:
             if isinstance(e.get("payload"), str):
                 try:
                     e["payload"] = json.loads(e["payload"])
-                except (json.JSONDecodeError, TypeError):
+                except json.JSONDecodeError, TypeError:
                     pass
 
             # Classify each event as it enters the buffer.

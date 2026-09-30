@@ -129,7 +129,7 @@ def extract_activity_features(event: dict) -> dict[str, float]:
     if isinstance(payload, str):
         try:
             payload = json.loads(payload)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             payload = {}
 
     features: dict[str, float] = {}
@@ -465,7 +465,7 @@ def extract_duration_features_from_data(
     if isinstance(files_map, str):
         try:
             files_map = json.loads(files_map)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             files_map = {}
     file_count = float(len(files_map)) if isinstance(files_map, dict) else 0.0
 

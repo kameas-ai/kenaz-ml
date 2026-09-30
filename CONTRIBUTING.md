@@ -25,7 +25,7 @@ pip install -e ".[dev]"
 pytest tests/ -v          # must pass before submitting
 ```
 
-Requires Python 3.10+. No native extensions — pure Python + scikit-learn.
+Requires Python 3.14+. No native extensions — pure Python + scikit-learn.
 
 ## Code Standards
 

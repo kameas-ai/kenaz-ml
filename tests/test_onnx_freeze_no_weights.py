@@ -56,14 +56,7 @@ def test_torch_is_never_a_declared_dependency() -> None:
 def test_onnxruntime_is_declared_and_pinned_exactly() -> None:
     deps = _pyproject()["project"]["dependencies"]
     pins = [d for d in deps if d.lower().startswith("onnxruntime")]
-    # Every entry is an exact pin. More than one is allowed only as a split over
-    # disjoint interpreter ranges (1.30.0 publishes no Python 3.10 wheels), so
-    # any one interpreter still resolves exactly one version.
-    pattern = r"onnxruntime==\d+\.\d+\.\d+(; python_version (>=|<) '3\.\d+')?"
-    assert pins and all(re.fullmatch(pattern, p) for p in pins), pins
-    if len(pins) > 1:
-        markers = sorted(p.split("; ", 1)[1] for p in pins)
-        assert markers == ["python_version < '3.11'", "python_version >= '3.11'"], pins
+    assert len(pins) == 1 and re.fullmatch(r"onnxruntime==\d+\.\d+\.\d+", pins[0]), pins
 
 
 def test_freeze_spec_refuses_checkpoint_artifacts_and_torch() -> None:
@@ -223,7 +216,7 @@ def test_frozen_engine_starts_with_no_checkpoint_and_reports_laya_unavailable() 
                 status, health = _get(f"{base}/health")
                 if status == 200:
                     break
-            except (URLError, ConnectionError, OSError):
+            except URLError, ConnectionError, OSError:
                 time.sleep(0.5)
         assert health.get("status") == "ok", "frozen engine did not become healthy"
         # /health carries the lazily-measured verdict: honest nulls before anything dispatched.

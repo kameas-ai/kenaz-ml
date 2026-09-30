@@ -115,7 +115,7 @@ def _resolve_max_concurrent() -> int:
 def _state_length(state: Any) -> int:
     try:
         return len(state) if isinstance(state, str) else len(json.dumps(state, ensure_ascii=False))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raise HTTPException(status_code=400, detail="'state' must be JSON-serializable") from None
 
 
@@ -148,7 +148,7 @@ async def _read_json_body(request: Request) -> Any:
         raise HTTPException(status_code=413, detail="request body too large")
     try:
         return json.loads(raw)
-    except (ValueError, UnicodeDecodeError):
+    except ValueError, UnicodeDecodeError:
         raise HTTPException(status_code=400, detail="request body must be valid JSON") from None
 
 

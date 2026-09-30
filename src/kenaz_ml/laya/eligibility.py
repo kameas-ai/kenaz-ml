@@ -172,11 +172,11 @@ def _linux_available_bytes() -> tuple[int | None, str]:
             for line in handle:
                 if line.startswith("MemAvailable:"):
                     return int(line.split()[1]) * 1024, "/proc/meminfo MemAvailable"
-    except (OSError, ValueError):
+    except OSError, ValueError:
         pass
     try:
         return os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE"), "sysconf SC_AVPHYS_PAGES"
-    except (ValueError, OSError, AttributeError):
+    except ValueError, OSError, AttributeError:
         return None, "unavailable"
 
 
@@ -193,7 +193,7 @@ def _darwin_available_bytes() -> tuple[int | None, str]:
                 return None, "unavailable"
             pages += int(found.group(1))
         return pages * int(page.group(1)), "vm_stat free+inactive+speculative pages"
-    except (OSError, subprocess.SubprocessError, ValueError):
+    except OSError, subprocess.SubprocessError, ValueError:
         return None, "unavailable"
 
 
@@ -344,7 +344,7 @@ def validate_output(probs: Any) -> str | None:
     """``None`` when ``probs`` is a sane probability vector, else why it is not."""
     try:
         values = [float(v) for v in probs]
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return "output is not a numeric vector"
     if len(values) < 2:
         return f"expected a probability vector of at least 2 entries, got {len(values)}"
@@ -483,7 +483,7 @@ def _read_cache(stamp: dict[str, Any]) -> Benchmark | None:
         if bench.p50_ms is None or bench.p95_ms is None or bench.max_ms is None:
             return None
         return bench
-    except (OSError, ValueError, KeyError, TypeError):
+    except OSError, ValueError, KeyError, TypeError:
         return None
 
 

@@ -59,7 +59,7 @@ import json
 import os
 import subprocess
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -98,7 +98,7 @@ PRE_MIGRATION_SHA = "ef67e0539feaa914dbd0c39b92500474fdd92b78"
 PRE_MIGRATION_FEATURES_SHA256 = "2b7fd419583068944ea195ae0b2bfeb6b6be84829dec738ffcc5d322c556bec5"
 
 PINNED_TZ = "UTC"
-PINNED_NOW = datetime(2026, 3, 17, 14, 30, 0, tzinfo=timezone.utc)
+PINNED_NOW = datetime(2026, 3, 17, 14, 30, 0, tzinfo=UTC)
 NOW_MS = int(PINNED_NOW.timestamp() * 1000)  # 1773757800000
 NOW_S = NOW_MS / 1000.0
 
@@ -107,7 +107,7 @@ MINUTE_MS = 60_000
 #: The materialization write clock, six months after the tasks. Deliberately far
 #: away: if a value ever started depending on write time rather than on the moment
 #: it describes, the failure is half a year wide, not a few milliseconds.
-WRITE_TIME = datetime(2026, 9, 21, 8, 0, 0, tzinfo=timezone.utc)
+WRITE_TIME = datetime(2026, 9, 21, 8, 0, 0, tzinfo=UTC)
 WRITE_TIME_MS = int(WRITE_TIME.timestamp() * 1000)
 
 

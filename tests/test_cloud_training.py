@@ -17,7 +17,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -253,7 +253,7 @@ class TestTrainingRun:
         assert d["error"] == "boom"
 
     def test_to_dict_with_timestamps(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         run = TrainingRun(
             tenant_id="t1",
             status="trained",

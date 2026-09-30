@@ -181,7 +181,7 @@ def label_vector_hash(kind: str, record: Mapping[str, Any], names: Sequence[str]
     features = record.get("features") or {}
     try:
         return vector_hash(kind, [float(features[name]) for name in names])
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
 
 
@@ -293,7 +293,7 @@ def _exact_key(shadow: Mapping[str, Any]) -> tuple[str, int] | None:
         return None
     try:
         return str(features_hash), int(label_ts)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -319,7 +319,7 @@ def join_shadow_to_labels(kind: str, log: ShadowLog) -> list[JoinedDecision]:
     for label in log.labels:
         try:
             by_key.setdefault((str(label["features_hash"]), int(label["ts"])), []).append(label)
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             continue
     fallback: list[dict[str, Any]] = []
     for shadow in shadows:
@@ -567,7 +567,7 @@ def served_by_classic(label: Mapping[str, Any], kind: str) -> bool:
 def in_window(label: Mapping[str, Any], start_ms: int, end_ms: int) -> bool:
     try:
         ts = int(label["ts"])
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return False
     return start_ms <= ts <= end_ms
 

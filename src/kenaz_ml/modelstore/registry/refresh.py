@@ -609,7 +609,7 @@ def _next_local_version(previous: Manifest | None) -> str:
         return "1"
     try:
         return str(int(str(previous.version)) + 1)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return "1"
 
 

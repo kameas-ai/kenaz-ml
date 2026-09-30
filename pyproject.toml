@@ -16,7 +16,7 @@ version = "0.1.0"
 description = "ML prediction sidecar for the Sigil developer intelligence daemon"
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 authors = [{ name = "Sigil Contributors" }]
 keywords = ["developer-tools", "machine-learning", "productivity", "workflow"]
 classifiers = [
@@ -24,9 +24,7 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
@@ -72,12 +70,7 @@ dependencies = [
     # requires torch>=2.0.0 and transformers>=4.48.0 unconditionally (C-004
     # forbids torch in the base set); `laya-serve` 0.2.1 is deprecated upstream.
     # src/kenaz_ml/laya/ imports laya lazily and refuses truthfully when absent.
-    #
-    # 1.30.0 publishes no Python 3.10 wheels. The frozen bundle is built on 3.12
-    # and always gets 1.30.0; a 3.10 source install gets the last release that
-    # supports it, so `pip install kenaz-ml` still resolves there.
-    "onnxruntime==1.30.0; python_version >= '3.11'",
-    "onnxruntime==1.23.2; python_version < '3.11'",
+    "onnxruntime==1.30.0",
 ]
 
 [project.optional-dependencies]
@@ -104,7 +97,7 @@ Issues = "https://github.com/kameas-ai/kenaz-ml/issues"
 kenaz-ml = "kenaz_ml.cli:main"
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py314"
 line-length = 120
 
 [tool.ruff.lint]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
@@ -358,9 +359,9 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
             if callable(last_modified):
                 mtime = last_modified(attr)
                 if mtime is not None:
-                    from datetime import datetime, timezone
+                    from datetime import datetime
 
-                    last_trained = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+                    last_trained = datetime.fromtimestamp(mtime, tz=UTC).isoformat()
 
             provenance = _resolution_provenance(getattr(state, "resolutions", {}).get(attr))
 
@@ -775,7 +776,7 @@ def engine_sha256() -> str | None:
             for chunk in iter(lambda: handle.read(1 << 20), b""):
                 digest.update(chunk)
         return digest.hexdigest()
-    except (OSError, TypeError, ValueError):
+    except OSError, TypeError, ValueError:
         logger.warning("health: could not hash the engine executable", exc_info=True)
         return None
 

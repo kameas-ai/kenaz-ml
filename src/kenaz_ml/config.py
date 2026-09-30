@@ -86,7 +86,7 @@ BASE_MODELS_DIRNAME = "ml-base"
 RETAINED_DIRNAME = "retained"
 
 
-class ServingMode(str, enum.Enum):
+class ServingMode(str, enum.Enum):  # noqa: UP042 - StrEnum would change str(mode)
     """Operating mode for the kenaz-ml service.
 
     LOCAL: Default. Poller, SQLite, local models. Current behavior.

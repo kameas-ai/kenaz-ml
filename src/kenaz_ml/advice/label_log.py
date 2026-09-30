@@ -165,7 +165,7 @@ class LabelLogRead:
                 continue
             try:
                 key = label_key(record)
-            except (KeyError, TypeError, ValueError):
+            except KeyError, TypeError, ValueError:
                 continue
             prior = out.get(key)
             if prior is None or int(record.get("revision", 0)) > int(prior.get("revision", 0)):
@@ -390,12 +390,12 @@ def _row_refusal(row: Mapping[str, Any], client: str, kind: str, names: Sequence
         try:
             if not math.isfinite(float(value)):
                 return ROW_FEATURES_INVALID
-        except (TypeError, ValueError, OverflowError):  # OverflowError: an int too large for a float
+        except TypeError, ValueError, OverflowError:  # OverflowError: an int too large for a float
             return ROW_FEATURES_INVALID
     try:
         if len(_dumps(row).encode("utf-8")) > MAX_ROW_BYTES:
             return ROW_TOO_LARGE
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return ROW_FEATURES_INVALID
     return None
 
@@ -577,7 +577,7 @@ def _ingest(
                 if rec.get("record") == RECORD_LABEL:
                     try:
                         k = label_key(rec)
-                    except (KeyError, TypeError, ValueError):
+                    except KeyError, TypeError, ValueError:
                         lines.append(_dumps(rec))
                         continue
                     if k in seen:

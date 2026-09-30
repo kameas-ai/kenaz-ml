@@ -57,7 +57,7 @@ import logging
 import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from kenaz_ml.feature_store import definitions
@@ -256,7 +256,7 @@ ML_FEATURES_INSERT = f"""
 
 def _to_datetime(epoch_ms: int) -> datetime:
     """Convert epoch milliseconds to a timezone-aware UTC datetime."""
-    return datetime.fromtimestamp(epoch_ms / 1000.0, tz=timezone.utc)
+    return datetime.fromtimestamp(epoch_ms / 1000.0, tz=UTC)
 
 
 @dataclass(frozen=True)
