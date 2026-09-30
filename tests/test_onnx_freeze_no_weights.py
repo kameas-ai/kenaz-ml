@@ -150,7 +150,17 @@ def test_frozen_bundle_carries_onnxruntime_natives_and_no_checkpoint_artifact() 
         if p.suffix == ".onnx" or p.name in CHECKPOINT_NAMES or "tokenizer" in p.parts
     ]
     assert offenders == []  # FR-003 / C-001: zero checkpoint artifacts of any kind
-    assert not list(root.rglob("torch")), "torch must not be in the bundle (C-004)"
+    # C-004. `excludes` only prunes the *module* graph; a torch native library contributed as a binary by
+    # some other package's hook would pass it, and a bare `rglob("torch")` sees only a directory named
+    # exactly "torch". So: the packages by name, and torch's native libraries by file name (review fix).
+    # (Feast ships `torch_wrapper.py` and a `pytorch_nlp` template: Python text, deliberately not matched.)
+    torch_native = re.compile(r"^(lib)?(torch|c10|shm)([_.-][\w.-]*)?\.(so|dylib|dll|pyd)$", re.IGNORECASE)
+    torch_like = [
+        str(p.relative_to(root))
+        for p in root.rglob("*")
+        if p.name in {"torch", "transformers", "laya"} or torch_native.match(p.name)
+    ]
+    assert torch_like == [], f"torch/transformers/laya must not be in the bundle (C-004): {torch_like}"
 
 
 def _free_port() -> int:
