@@ -40,6 +40,47 @@ def _events_at_or_before(events: list[dict], now_ms: int) -> list[dict]:
     return [e for e in events if e.get("ts", 0) <= now_ms]
 
 
+def _normalise_kind(kind: Any) -> str:
+    """Canonical event kind. The ONLY place raw ``git`` is mapped to ``commit``.
+
+    The daemon stream and the task-window stream historically disagreed on the
+    spelling of a commit event; neither is verified reliable, so both mean the
+    same signal. Every other kind passes through unchanged.
+    """
+    return "commit" if kind == "git" else kind
+
+
+def _valid_pushed_ts(pushed_commit_ts_ms: Any) -> int | None:
+    """A usable pushed commit timestamp, or None. Bad values are ignored, never raised."""
+    if isinstance(pushed_commit_ts_ms, bool) or not isinstance(pushed_commit_ts_ms, int):
+        return None
+    return pushed_commit_ts_ms if pushed_commit_ts_ms > 0 else None
+
+
+def _time_since_last_commit_sec(
+    events: list[dict],
+    now_ms: int,
+    session_length_sec: float,
+    pushed_commit_ts_ms: int | None = None,
+) -> float:
+    """The one definition of ``time_since_last_commit_sec`` (both extractors call it).
+
+    ``events`` must already be filtered to the reference time. Candidates for
+    the last commit are every event whose *normalised* kind is ``commit``
+    (raw ``commit`` or ``git``) plus, non-exclusively, a pushed commit
+    timestamp; the latest wins. A pushed timestamp after ``now_ms`` is ignored
+    (inclusive boundary, same as ``_events_at_or_before``): no lookahead.
+    With no candidate the value falls back to ``session_length_sec``.
+    """
+    candidates = [e.get("ts", 0) for e in events if _normalise_kind(e.get("kind")) == "commit"]
+    pushed = _valid_pushed_ts(pushed_commit_ts_ms)
+    if pushed is not None and pushed <= now_ms:
+        candidates.append(pushed)
+    if not candidates:
+        return session_length_sec
+    return _elapsed_sec(now_ms, max(candidates))
+
+
 def _empty_stuck_features() -> dict[str, float]:
     """Documented empty stuck vector, returned when there is nothing to measure."""
     return {
@@ -69,7 +110,13 @@ def _empty_duration_features() -> dict[str, float]:
 
 # --- Activity classification features ---
 
-_EVENT_KINDS = ["file", "process", "hyprland", "git", "terminal", "ai"]
+#: Observed kinds (CLAUDE.md "Known Data Gotchas"), in the order shown. Any other
+#: normalised kind (``ai``, ``commit``, anything unknown) sets ``kind_other``.
+#: The one-hot block is therefore {browser, file, hyprland, other, power,
+#: process, terminal}; ``models/activity.py`` orders its vector by
+#: ``sorted(keys)``, so this changes both its width and its column order
+#: (feature-vocabulary-refresh R7) -- versioned through the activity contract.
+_EVENT_KINDS = ["file", "process", "hyprland", "browser", "terminal", "power"]
 
 
 def extract_activity_features(event: dict) -> dict[str, float]:
@@ -87,9 +134,11 @@ def extract_activity_features(event: dict) -> dict[str, float]:
 
     features: dict[str, float] = {}
 
-    # One-hot encode event kind.
+    # One-hot encode event kind; unknown kinds are never all-zeros.
+    kind = _normalise_kind(kind)
     for k in _EVENT_KINDS:
         features[f"kind_{k}"] = 1.0 if kind == k else 0.0
+    features["kind_other"] = 0.0 if kind in _EVENT_KINDS else 1.0
 
     # Payload key presence flags.
     features["has_cmd"] = 1.0 if "cmd" in payload else 0.0
@@ -130,6 +179,7 @@ def extract_stuck_features(
     task_id: str,
     *,
     as_of_ms: int | None = None,
+    pushed_commit_ts_ms: int | None = None,
 ) -> dict[str, float]:
     """Fetch a task and delegate to the authoritative stuck extractor.
 
@@ -137,6 +187,7 @@ def extract_stuck_features(
 
     Args:
         as_of_ms: Reference time in epoch ms. None means current wall clock.
+        pushed_commit_ts_ms: Externally pushed commit timestamp (live callers only).
 
     Returns:
         Dict with keys: test_failure_count, time_in_phase_sec, edit_velocity,
@@ -145,7 +196,9 @@ def extract_stuck_features(
     task = store.get_task_by_id(task_id)
     if task is None:
         return _empty_stuck_features()
-    return extract_stuck_features_from_data(task, store.get_events_for_task(task_id), as_of_ms=as_of_ms)
+    return extract_stuck_features_from_data(
+        task, store.get_events_for_task(task_id), as_of_ms=as_of_ms, pushed_commit_ts_ms=pushed_commit_ts_ms
+    )
 
 
 def extract_duration_features(
@@ -170,7 +223,12 @@ def extract_duration_features(
     return extract_duration_features_from_data(task, store.get_events_for_task(task_id), as_of_ms=as_of_ms)
 
 
-def extract_features_from_buffer(events: list[dict], *, as_of_ms: int | None = None) -> dict[str, float]:
+def extract_features_from_buffer(
+    events: list[dict],
+    *,
+    as_of_ms: int | None = None,
+    pushed_commit_ts_ms: int | None = None,
+) -> dict[str, float]:
     """Extract stuck-predictor features from a raw event buffer.
 
     Used by the poller when no active task_id exists (between tasks,
@@ -181,6 +239,8 @@ def extract_features_from_buffer(events: list[dict], *, as_of_ms: int | None = N
         events: List of raw event dicts from the polling buffer.
                 Each dict has keys: id, kind, source, payload (parsed), ts.
         as_of_ms: Reference time in epoch ms. None means current wall clock.
+        pushed_commit_ts_ms: Externally pushed commit timestamp. An empty buffer
+                still returns the empty vector: a push alone does not create one.
     """
     now_ms = _resolve_now_ms(as_of_ms)
     events = _events_at_or_before(events, now_ms)
@@ -204,12 +264,7 @@ def extract_features_from_buffer(events: list[dict], *, as_of_ms: int | None = N
             files_seen.add(p["path"])
     file_switch_rate = len(files_seen) / max(edits, 1)
 
-    commit_events = [e for e in events if e.get("kind") == "git"]
-    if commit_events:
-        last_commit_ts = max(e.get("ts", 0) for e in commit_events)
-        time_since_last_commit_sec = _elapsed_sec(now_ms, last_commit_ts)
-    else:
-        time_since_last_commit_sec = session_length_sec
+    time_since_last_commit_sec = _time_since_last_commit_sec(events, now_ms, session_length_sec, pushed_commit_ts_ms)
 
     terminal_events = [e for e in events if e.get("kind") == "terminal"]
     test_failures = sum(
@@ -324,6 +379,7 @@ def extract_stuck_features_from_data(
     events: list[dict[str, Any]],
     *,
     as_of_ms: int | None = None,
+    pushed_commit_ts_ms: int | None = None,
 ) -> dict[str, float]:
     """Authoritative definition of the stuck feature vector.
 
@@ -336,6 +392,9 @@ def extract_stuck_features_from_data(
         as_of_ms: Reference time in epoch ms. None means current wall clock.
                   Events later than this are excluded before any aggregation,
                   and elapsed features are measured relative to it.
+        pushed_commit_ts_ms: Externally pushed commit timestamp. Live callers
+                  only; replay/materialization pass None (no as-of history
+                  exists for pushes). Later than the reference time is ignored.
     """
     now_ms = _resolve_now_ms(as_of_ms)
     events = _events_at_or_before(events, now_ms)
@@ -366,15 +425,9 @@ def extract_stuck_features_from_data(
             files_in_edits.add(payload["file"])
     file_switch_rate = len(files_in_edits) / max(edit_count, 1)
 
-    # Time since last commit. The task-window event stream labels commits with
-    # kind == "commit" (source == "git"); "git" is the raw daemon-stream kind
-    # used by the buffer extractor, which reads a different event vocabulary.
-    commit_events = [e for e in events if e.get("kind") == "commit"]
-    if commit_events:
-        last_commit_ts = max(e.get("ts", 0) for e in commit_events)
-        time_since_last_commit_sec = _elapsed_sec(now_ms, last_commit_ts)
-    else:
-        time_since_last_commit_sec = session_length_sec
+    # Time since last commit: one shared definition; raw "git" and "commit"
+    # are the same signal (see _normalise_kind).
+    time_since_last_commit_sec = _time_since_last_commit_sec(events, now_ms, session_length_sec, pushed_commit_ts_ms)
 
     return {
         "test_failure_count": test_failure_count,

@@ -15,9 +15,64 @@ from kenaz_ml.modelstore import LocalModelStore, ModelStore
 from kenaz_ml.modelstore.loader import resolve_for_serving  # not in the pinned package __all__
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from kenaz_ml.modelstore.registry import Resolution
+    from kenaz_ml.modelstore.registry import FeatureContract, Resolution
 
 logger = logging.getLogger(__name__)
+
+#: The ordered input vector of the ML classifier -- the registered activity
+#: contract (feature-vocabulary-refresh D-D6). Explicit and ordered, replacing
+#: the implicit ``sorted(features.keys())`` derivation: a vocabulary change in
+#: ``features.extract_activity_features`` is now a *visible* edit here (a test
+#: pins the two together) and a versioned event through
+#: :func:`activity_feature_contract`. Order is the vector layout; do not sort
+#: it at the call site, do not compare it as a set.
+ACTIVITY_FEATURE_NAMES: tuple[str, ...] = (
+    "cmd_is_build",
+    "cmd_is_git",
+    "cmd_is_lint",
+    "cmd_is_test",
+    "exit_code_nonzero",
+    "ext_code",
+    "ext_config",
+    "ext_docs",
+    "has_branch",
+    "has_cmd",
+    "has_exit_code",
+    "has_path",
+    "kind_browser",
+    "kind_file",
+    "kind_hyprland",
+    "kind_other",
+    "kind_power",
+    "kind_process",
+    "kind_terminal",
+)
+
+#: The dtype every activity feature is declared with (registry convention).
+ACTIVITY_FEATURE_DTYPE = "float64"
+
+
+def activity_feature_contract() -> FeatureContract:
+    """The registered, ordered contract for the activity classifier.
+
+    Hand-authored (there is no Feast service for ``activity``), but versioned by
+    the same recipe as the Feast-derived contracts --
+    :func:`kenaz_ml.feature_store.materialize.versioned_contract_hash` with the
+    ``activity`` service name, so the ``VOCABULARY_VERSION`` salt applies. The
+    loader seam (``modelstore.loader._expected_contract``) returns this for
+    ``activity`` instead of the empty unregistered contract.
+    """
+    from kenaz_ml.feature_store.materialize import versioned_contract_hash
+    from kenaz_ml.modelstore.registry import FeatureContract
+
+    references = [f"activity:{name}" for name in ACTIVITY_FEATURE_NAMES]
+    return FeatureContract(
+        service="activity",
+        service_version=versioned_contract_hash("activity", references),
+        names=ACTIVITY_FEATURE_NAMES,
+        dtypes=(ACTIVITY_FEATURE_DTYPE,) * len(ACTIVITY_FEATURE_NAMES),
+    )
+
 
 CATEGORIES = [
     "editing",
@@ -125,20 +180,78 @@ class ActivityClassifier:
         if resolution is not None:
             self.resolution = resolution
             if resolution.served:
-                self._ml_model = resolution.model
-                self._trained = True
-                logger.info("Loaded activity classifier from %s (%s slot)", type(self._store).__name__, resolution.slot)
+                if self._accept_width(resolution.model):
+                    self._ml_model = resolution.model
+                    self._trained = True
+                    logger.info(
+                        "Loaded activity classifier from %s (%s slot)", type(self._store).__name__, resolution.slot
+                    )
+                else:
+                    # The guard refused what the registry served. Do not let /introspect keep claiming a
+                    # local/base slot while the classifier answers from rules: report cold start + the refusal.
+                    self.resolution = self._as_width_refused(resolution)
             return
 
         data = self._store.load("activity")
         if data is not None:
             try:
-                self._ml_model = joblib.load(io.BytesIO(data))
-                self._trained = True
-                logger.info("Loaded activity classifier from %s", type(self._store).__name__)
+                model = joblib.load(io.BytesIO(data))
+                if self._accept_width(model):
+                    self._ml_model = model
+                    self._trained = True
+                    logger.info("Loaded activity classifier from %s", type(self._store).__name__)
             except Exception:
                 logger.warning("Failed to load activity classifier, using rules")
                 self._ml_model = None
+
+    @staticmethod
+    def _as_width_refused(resolution: Resolution) -> Resolution:
+        """The resolution to report after the width guard refused a served artifact (cold start + why)."""
+        from dataclasses import replace
+
+        from kenaz_ml.modelstore.registry import SLOT_COLD_START, Refusal, SlotRefusal
+        from kenaz_ml.modelstore.registry.slots import CHECK_SLOT
+
+        width = getattr(resolution.model, "n_features_in_", None)
+        refusal = SlotRefusal(
+            resolution.slot,
+            resolution.name,
+            Refusal(
+                CHECK_SLOT,
+                "feature_width_mismatch",
+                f"{resolution.name}: artifact was fitted on {width} input features but the current contract has "
+                f"{len(ACTIVITY_FEATURE_NAMES)}; serving rules until retrained",
+            ),
+        )
+        return replace(
+            resolution,
+            slot=SLOT_COLD_START,
+            model=None,
+            manifest=None,
+            artifact=None,
+            refusals=(*resolution.refusals, refusal),
+        )
+
+    @staticmethod
+    def _accept_width(model: object) -> bool:
+        """Refuse an artifact fitted on a different input width (rules fallback instead).
+
+        The registry contract refuses a stale *manifested* artifact before it is
+        deserialized; this catches the case a manifest cannot: a pre-registry
+        artifact (no manifest) that the loader would stamp with the *current*
+        contract. Such an artifact was fitted on the pre-refresh vector, and
+        would otherwise fail on every ``predict``/``partial_fit``.
+        """
+        width = getattr(model, "n_features_in_", None)
+        if width is None or width == len(ACTIVITY_FEATURE_NAMES):
+            return True
+        logger.warning(
+            "activity classifier refused: it was fitted on %s input features but the current activity "
+            "contract has %d; using rules until it is retrained",
+            width,
+            len(ACTIVITY_FEATURE_NAMES),
+        )
+        return False
 
     @classmethod
     def from_trained_model(cls, model: SGDClassifier, store: ModelStore | None = None) -> ActivityClassifier:
@@ -234,11 +347,10 @@ class ActivityClassifier:
 
     def _classify_ml(self, event: dict) -> dict:
         """ML-based classification using trained SGDClassifier."""
-        features = extract_activity_features(event)
-        feature_names = sorted(features.keys())
-        x = np.array([[features[f] for f in feature_names]])
-
         try:
+            features = extract_activity_features(event)
+            # Positional and strict: the registered contract, not sorted(keys).
+            x = np.array([[features[f] for f in ACTIVITY_FEATURE_NAMES]])
             category = self._ml_model.predict(x)[0]
             proba = self._ml_model.predict_proba(x)[0]
             confidence = float(max(proba))

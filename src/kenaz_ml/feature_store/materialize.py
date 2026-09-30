@@ -83,6 +83,8 @@ __all__ = [
     "ML_FEATURES_TABLE",
     "OFFLINE_FEATURE_VIEWS",
     "STUCK_OFFLINE_VIEW",
+    "VOCABULARY_SALTED_SERVICES",
+    "VOCABULARY_VERSION",
     "MaterializationResult",
     "OfflineFeatureRow",
     "OfflineFeatureSink",
@@ -102,6 +104,7 @@ __all__ = [
     "postgres_source",
     "rows_to_source_frame",
     "source_query_columns",
+    "versioned_contract_hash",
 ]
 
 
@@ -603,6 +606,42 @@ def cloud_feature_services(views: Sequence[Any]) -> list[Any]:
     return services
 
 
+#: Semantic salt for the Feast-derived, event-vocabulary-consuming contracts
+#: (feature-vocabulary-refresh D-D4). The name/order hash below cannot see a
+#: change to what a feature *means* (how ``time_since_last_commit_sec`` is
+#: detected, what ``kind_*`` dimensions exist) while its name and position stay
+#: put, so this integer is folded into the hash of the services in
+#: :data:`VOCABULARY_SALTED_SERVICES`. **Increment it on every semantic change
+#: to those services' features**, and extend the covered set deliberately when
+#: another service starts consuming the event vocabulary. This is this
+#: family's own constant: the hand-authored advice contracts
+#: (``kenaz_ml.advice.contracts.VOCABULARY_VERSION``) keep a separate one, so a
+#: semantics change in one family never resets the other's retained data.
+#:
+#: 1 -- the initial salt, introduced by the vocabulary refresh itself: ``git``
+#: normalised to ``commit``, a pushed commit timestamp, the six-kind activity
+#: one-hot with ``kind_other``.
+VOCABULARY_VERSION = 1
+
+#: Services whose values depend on the event vocabulary / commit semantics.
+#: ``duration`` is deliberately absent: its hash is exactly what it was before
+#: the salt existed.
+VOCABULARY_SALTED_SERVICES: frozenset[str] = frozenset({"stuck", "activity"})
+
+
+def versioned_contract_hash(name: str, references: Sequence[str]) -> str:
+    """The 16-hex ``service_version`` recipe shared by every Feast-family contract.
+
+    ``sha256("|".join([name, *references]))[:16]``, with one final
+    ``"vocabulary:<N>"`` element appended for the services in
+    :data:`VOCABULARY_SALTED_SERVICES`; every other service hashes unsalted.
+    """
+    parts = [name, *references]
+    if name in VOCABULARY_SALTED_SERVICES:
+        parts.append(f"vocabulary:{VOCABULARY_VERSION}")
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
 def feature_service_version(service: Any) -> str:
     """Return a stable content version for a feature service (FR-010).
 
@@ -611,14 +650,17 @@ def feature_service_version(service: Any) -> str:
     renamed, or reordered — and does not change when unrelated code does. A
     training run records this alongside the service name so the feature set it
     consumed is identifiable after the fact.
+
+    For the vocabulary-consuming services the hash also folds in
+    :data:`VOCABULARY_VERSION`, so a change to what the features *mean* is a
+    contract change too.
     """
     references = [
         f"{projection.name}:{feature.name}"
         for projection in service.feature_view_projections
         for feature in projection.features
     ]
-    payload = "|".join([service.name, *references])
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    return versioned_contract_hash(service.name, references)
 
 
 def apply_cloud_definitions(store: Any, views: Sequence[Any] | None = None) -> list[Any]:
