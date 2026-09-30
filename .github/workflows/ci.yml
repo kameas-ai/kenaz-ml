@@ -556,8 +556,9 @@ jobs:
         if: steps.creds.outputs.configured == 'true'
         # Repair R3's spawn-smoke half, on the artifact users actually receive:
         # the stapled .dmg, mounted read-only. Spawns the staged binary with a
-        # temporary install root (never the runner's real directories) and short
-        # lifecycle windows, asserts the WP05 identity payload, then proves the
+        # temporary install root (never the runner's real directories) and a 1 s
+        # lease sweep (the 600 s idle window keeps the timer from racing the
+        # smoke), asserts the WP05 identity payload, then proves the
         # token-authorized shutdown really stops it. `spctl --assess` on the same
         # .dmg ran in "Verify notarization" above.
         run: |
