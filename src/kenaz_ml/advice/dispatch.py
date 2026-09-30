@@ -370,13 +370,22 @@ class LayaBackend:
         """Consult the per-host eligibility gate; raise :class:`Refused` if the host is ineligible."""
         from kenaz_ml.laya import eligibility
 
-        verdict = eligibility.current_verdict(self.checkpoint.sha8 or "")
+        verdict = eligibility.current_verdict()
         if not verdict.eligible:
             raise Refused(
                 self.kind_id,
                 REASON_HOST_INELIGIBLE,
                 f"kind unavailable: host ineligible: {verdict.reason} ({verdict.detail})",
             )
+
+    def standing_refusal(self) -> tuple[str, str] | None:
+        """``(reason, detail)`` if the host is *already known* ineligible this boot; never triggers a measurement."""
+        from kenaz_ml.laya import eligibility
+
+        verdict = eligibility.cached_verdict()
+        if verdict is not None and not verdict.eligible:
+            return REASON_HOST_INELIGIBLE, f"kind unavailable: host ineligible: {verdict.reason} ({verdict.detail})"
+        return None
 
     def answer(self, vector: tuple[float, ...]) -> BackendAnswer:
         from kenaz_ml.laya.agent import LayaNotInstalledError
@@ -566,6 +575,7 @@ def _entry_for(kind_id: str, local_dir: Path, base_dir: Path) -> DispatchEntry:
 
 
 def _laya_refusal(kind_id: str, contract: Any, manifest: Any) -> DispatchEntry:
+    _note_checkpoint(kind_id, None)
     return DispatchEntry(
         kind_id=kind_id,
         contract=contract,
@@ -574,6 +584,19 @@ def _laya_refusal(kind_id: str, contract: Any, manifest: Any) -> DispatchEntry:
         reason=REASON_LAYA_NOT_INSTALLED,
         detail=LAYA_NOT_INSTALLED_DETAIL,
     )
+
+
+def _note_checkpoint(kind_id: str, identity: str | None) -> None:
+    """Keep the eligibility gate's view of the installed-checkpoint set current (a change recomputes the verdict)."""
+    try:
+        from kenaz_ml.laya import eligibility
+
+        if identity is None:
+            eligibility.unregister_checkpoint(kind_id)
+        else:
+            eligibility.register_checkpoint(kind_id, identity)
+    except Exception:  # pragma: no cover - bookkeeping must never break table population
+        logger.debug("dispatch: could not update the eligibility checkpoint set", exc_info=True)
 
 
 def _laya_entry(kind_id: str, contract: Any, manifest: Any, local_dir: Path, base_dir: Path) -> DispatchEntry:
@@ -594,6 +617,7 @@ def _laya_entry(kind_id: str, contract: Any, manifest: Any, local_dir: Path, bas
         ref = None
     if ref is None:
         return _laya_refusal(kind_id, contract, manifest)
+    _note_checkpoint(kind_id, f"{ref.sha8}@{ref.provenance}")
     server = LayaBackend(kind_id=kind_id, checkpoint=ref, names=tuple(contract.names) if contract else ())
     return DispatchEntry(kind_id=kind_id, contract=contract, backend=BACKEND_LAYA, server=server, manifest=manifest)
 
@@ -795,15 +819,20 @@ def contracts_payload(snapshot: Mapping[str, DispatchEntry]) -> ContractsRespons
     kinds: dict[str, ContractEntry] = {}
     for kind_id, entry in snapshot.items():
         contract = entry.contract
+        available, reason, detail = entry.available, entry.reason, entry.detail
+        standing = getattr(entry.server, "standing_refusal", None)
+        refusal = standing() if callable(standing) else None
+        if refusal is not None:  # a laya kind on a host already measured ineligible: honest, not "available"
+            available, (reason, detail) = False, refusal
         kinds[kind_id] = ContractEntry(
             features=list(getattr(contract, "names", ())),
             dtypes=list(getattr(contract, "dtypes", ())),
             version=getattr(contract, "service_version", None) or "",
             supported_versions=list(entry.supported_versions),
-            available=entry.available,
+            available=available,
             backend=entry.server.name if entry.server is not None else entry.backend,
-            reason=entry.reason,
-            detail=entry.detail,
+            reason=reason,
+            detail=detail,
         )
     return ContractsResponse(kinds=kinds)
 

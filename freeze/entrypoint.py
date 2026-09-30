@@ -202,6 +202,10 @@ def _onnx_selfcheck(argv: list[str]) -> int:
         report["providers"] = list(onnxruntime.get_available_providers())
         report["torch_importable"] = _importable("torch")
         report["laya_importable"] = _importable("laya")
+
+        from kenaz_ml.laya import eligibility
+
+        report.update(eligibility.selfcheck())
         report["ok"] = True
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0

@@ -55,7 +55,9 @@ KIND = "fixture_laya"
 # The structural boundary (C-002, SC-002)
 # ---------------------------------------------------------------------------
 
-BANNED_MODULES = {"httpx", "requests", "urllib", "urllib3", "aiohttp", "http", "socket", "subprocess"}
+# `subprocess` is deliberately not banned here: the eligibility gate reads macOS free memory
+# through /usr/bin/vm_stat (a local, non-network read; psutil is not a dependency, WP03).
+BANNED_MODULES = {"httpx", "requests", "urllib", "urllib3", "aiohttp", "http", "socket"}
 BANNED_STRINGS = ("/v1/systemone", "7774")
 
 
@@ -275,15 +277,6 @@ def test_score_question_answers_an_integer_score() -> None:
 # ---------------------------------------------------------------------------
 # Refusals -- typed, truthful, never a crash, never a substitution
 # ---------------------------------------------------------------------------
-
-
-def test_unknown_eligibility_does_not_serve_laya() -> None:
-    """Until a verdict exists laya is not served (WP02 T008 step 2)."""
-    runtime, fake, built = _runtime()
-    with pytest.raises(Refused) as refused:
-        _serve(_entry(runtime))
-    assert refused.value.reason == "host_ineligible"
-    assert not built and not fake.calls  # nothing loaded, nothing run
 
 
 def test_ineligible_host_refuses_with_its_reason(monkeypatch: pytest.MonkeyPatch) -> None:

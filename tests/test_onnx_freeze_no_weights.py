@@ -132,6 +132,11 @@ def test_frozen_onnxruntime_runs_and_torch_is_absent() -> None:
     assert "CPUExecutionProvider" in report["providers"]
     assert report["torch_importable"] is False  # C-004
     assert report["laya_importable"] is False  # not bundled (see systemone_mount.py)
+    # The bundled fixture ran through the *frozen* ONNX Runtime (WP03), and an unloaded runtime refuses.
+    bench = report["fixture_benchmark"]
+    assert bench["ok"] is True and bench["basis"] == "fixture" and bench["calls"] == 10
+    assert bench["p50_ms"] is not None and bench["p95_ms"] is not None
+    assert report["unloaded_runtime_refuses"] is True
 
 
 @frozen
@@ -146,3 +151,80 @@ def test_frozen_bundle_carries_onnxruntime_natives_and_no_checkpoint_artifact() 
     ]
     assert offenders == []  # FR-003 / C-001: zero checkpoint artifacts of any kind
     assert not list(root.rglob("torch")), "torch must not be in the bundle (C-004)"
+
+
+def _free_port() -> int:
+    import socket
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def _get(url: str) -> tuple[int, dict]:
+    from urllib.error import HTTPError
+    from urllib.request import urlopen
+
+    try:
+        with urlopen(url, timeout=10) as resp:
+            return resp.status, json.loads(resp.read())
+    except HTTPError as err:
+        return err.code, json.loads(err.read() or b"{}")
+
+
+def _post(url: str, payload: dict) -> tuple[int, dict, dict]:
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+
+    req = Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urlopen(req, timeout=10) as resp:
+            return resp.status, json.loads(resp.read()), dict(resp.headers)
+    except HTTPError as err:
+        return err.code, json.loads(err.read() or b"{}"), dict(err.headers)
+
+
+@frozen
+def test_frozen_engine_starts_with_no_checkpoint_and_reports_laya_unavailable() -> None:
+    """User Story 2 scenario 3: day-one state -- starts, never hangs or crashes on a missing weight file."""
+    import time
+    from urllib.error import URLError
+
+    port = _free_port()
+    base = f"http://127.0.0.1:{port}"
+    proc = subprocess.Popen(
+        [FROZEN_BIN, "serve", "--host", "127.0.0.1", "--port", str(port)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 60
+        health: dict = {}
+        while time.monotonic() < deadline:
+            try:
+                status, health = _get(f"{base}/health")
+                if status == 200:
+                    break
+            except (URLError, ConnectionError, OSError):
+                time.sleep(0.5)
+        assert health.get("status") == "ok", "frozen engine did not become healthy"
+        # /health carries the lazily-measured verdict: honest nulls before anything dispatched.
+        assert health["laya_eligibility"]["verdict"] == "not_evaluated"
+        # Every laya-bearing kind is honestly unavailable; none is served, none hangs.
+        status, contracts = _get(f"{base}/v1/contracts")
+        assert status == 200
+        assert all(not k["available"] for k in contracts["kinds"].values())
+        # The raw laya route answers with its "model not loaded" 503 (no Retry-After: retrying cannot help).
+        status, body, headers = _post(
+            f"{base}/v1/systemone", {"state": "x", "questions": {"q": {"type": "noul", "instructions": "i"}}}
+        )
+        assert status == 503 and body["detail"].startswith("model not loaded")
+        assert "Retry-After" not in headers
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
