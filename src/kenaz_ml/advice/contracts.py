@@ -9,7 +9,7 @@ keeps its own copy: look contracts up through :func:`contract_for`.
 Source of truth, and the sync obligation
 ----------------------------------------
 These features are computed **harness-side** and arrive already computed in
-the request body, so there is no sigild event stream for Feast to materialize
+the request body, so there is no daemon-observed event stream for Feast to materialize
 and these contracts are *not* Feast-derived. The authoritative feature lists
 are the kenaz-harness design doc's §4 recommendation catalog
 (``kitty-specs/laya-advisors-01LAYA001/research/kenaz-ml-integration-design.md``)
