@@ -373,3 +373,19 @@ def test_label_log_is_bounded(tmp_path: Path) -> None:
     assert path.stat().st_size <= 4096
     surviving = [json.loads(line)["ts"] for line in path.read_text().splitlines()]
     assert surviving == list(range(1100 - len(surviving), 1100))
+
+
+def test_an_int_too_large_for_a_float_is_a_row_refusal_not_a_500(env: dict) -> None:
+    # Review fix: float(10**400) raises OverflowError, which the finiteness
+    # check did not catch -- the whole batch 500'd and, re-sent, 500'd forever.
+    poisoned = row(1000)
+    name = NAMES[0]
+    wire = json.dumps({"client": "harness", "rows": [poisoned, row(2000)]}).replace(
+        f'"{name}": {json.dumps(poisoned["features"][name])}', f'"{name}": 1{"0" * 400}', 1
+    )
+    resp = env["client"].post(f"/v1/labels/{KIND}", content=wire, headers={"content-type": "application/json"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["acked"] is None
+    assert body["refusals"][0]["reason"] == "features_invalid"
+    assert body["applied"] == 1

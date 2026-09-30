@@ -456,3 +456,13 @@ def test_latency_ring_is_bounded() -> None:
     for i in range(dispatch_mod.LATENCY_RING_SIZE + 50):
         t.record_latency("k", float(i))
     assert len(t.latency_samples("k")) == dispatch_mod.LATENCY_RING_SIZE
+
+
+def test_unknown_kinds_never_grow_the_latency_rings(table: DispatchTable) -> None:
+    # Review fix: the {kind} path segment is caller-controlled; recording a
+    # ring per unknown kind made the FR-025 measurement unbounded in ring count.
+    client, state = _app(table)
+    for i in range(20):
+        assert _post(client, f"junk_{i}", {}, "x").status_code == 422
+    assert all(state.dispatch_table.latency_p95_ms(f"junk_{i}") is None for i in range(20))
+    assert not state.dispatch_table._latency

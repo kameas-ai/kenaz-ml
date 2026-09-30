@@ -364,7 +364,7 @@ def _row_refusal(row: Mapping[str, Any], client: str, kind: str, names: Sequence
         try:
             if not math.isfinite(float(value)):
                 return ROW_FEATURES_INVALID
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):  # OverflowError: an int too large for a float
             return ROW_FEATURES_INVALID
     return None
 

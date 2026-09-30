@@ -644,9 +644,16 @@ def contracts_payload(snapshot: Mapping[str, DispatchEntry]) -> ContractsRespons
 
 
 def timed_dispatch(table: DispatchTable, kind_id: str, request: RecommendRequest) -> RecommendResponse:
-    """:func:`dispatch` against one snapshot, recording serving latency (FR-025) either way."""
+    """:func:`dispatch` against one snapshot, recording serving latency (FR-025) either way.
+
+    Latency is recorded only for kinds registered in that snapshot: the path
+    segment is caller-controlled, and a ring per arbitrary unknown kind would
+    make the "bounded" measurement unbounded in the number of rings.
+    """
+    snapshot = table.snapshot()
     started = time.perf_counter()
     try:
-        return dispatch(table.snapshot(), kind_id, request)
+        return dispatch(snapshot, kind_id, request)
     finally:
-        table.record_latency(kind_id, (time.perf_counter() - started) * 1000)
+        if kind_id in snapshot:
+            table.record_latency(kind_id, (time.perf_counter() - started) * 1000)
