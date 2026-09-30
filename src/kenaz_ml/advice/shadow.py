@@ -42,6 +42,28 @@ Tunable parameters (D-B7)
 Every number below is an **initial, tunable engineering parameter** (ruled
 2026-09-30), not an owner-ruled constant. They live here, in one place, and
 :func:`tunables` records them beside every verdict they produced.
+
+Accept rate, and its known bias
+-------------------------------
+*Accept rate* = ``accepted / (accepted + dismissed)`` over **shown** label rows
+(``shown=true`` at or above :data:`SHOWN_CONFIDENCE_THRESHOLD`), with
+``auto_acted`` counted as accepted and ``ignored`` in neither numerator nor
+denominator. **Known, accepted measurement caveat (2026-09-30):** counting
+``auto_acted`` as accepted inflates the accept rate for reversible kinds at the
+Autonomous tier, but the bias applies to both comparison windows
+symmetrically, so the flip-back comparison stays valid.
+
+Flip-back (WP05, spec User Story F)
+-----------------------------------
+:func:`evaluate_post_flip` compares the flipped classic model's accept rate
+since ``metrics["flipped_at_ms"]`` with the heuristic's over its own last
+:data:`BASELINE_WINDOW_DAYS` of label rows. Verdicts
+(``metrics["flipback_verdict"]``): ``pending`` (fewer than
+:data:`FLIPBACK_MIN_SHOWN` shown decisions, or no heuristic baseline, inside
+the window), ``holding`` (not worse than baseline minus
+:data:`DEMOTION_MARGIN_PP`), ``demoted`` (worse beyond it, or a sustained p95
+over :data:`LATENCY_BUDGET_MS`), ``insufficient_data`` (the window passed
+:data:`MAX_EVAL_WINDOW_DAYS` without the sample — the kind stays flipped).
 """
 
 from __future__ import annotations
@@ -79,6 +101,18 @@ LATENCY_MIN_SAMPLES = 100
 #: Shadow-to-label join: a label row within this many ms of the shadow record.
 SHADOW_JOIN_TOLERANCE_MS = 120_000
 
+# -- flip-back (WP05, spec User Story F) --
+#: Post-flip evaluation renders no verdict before this many **shown** decided
+#: (accepted/auto_acted/dismissed) rows served by the flipped classic model.
+FLIPBACK_MIN_SHOWN = 30
+#: Noise guard: demote only when the flipped rate < baseline - this many points.
+DEMOTION_MARGIN_PP = 5.0
+#: Maximum post-flip window. Past it without the sample: ``insufficient_data``,
+#: the kind stays flipped, and the state is recorded and logged.
+MAX_EVAL_WINDOW_DAYS = 21
+#: The heuristic baseline: its last this-many days of label rows (all-time if fewer).
+BASELINE_WINDOW_DAYS = TRAILING_WINDOW_DAYS
+
 DAY_MS = 24 * 3600 * 1000
 
 RECORD_SHADOW = "shadow"
@@ -86,6 +120,14 @@ RECORD_SHADOW = "shadow"
 VERDICT_NOT_ELIGIBLE = "not_eligible"
 VERDICT_ELIGIBLE = "eligible"
 VERDICT_DEMOTE = "demote"
+
+# Flip-back verdicts (manifest ``metrics["flipback_verdict"]``). A demotion also
+# sets the graduation ``metrics["verdict"]`` to :data:`VERDICT_DEMOTED`.
+FLIPBACK_PENDING = "pending"  # window open, minimum sample not yet reached
+FLIPBACK_HOLDING = "holding"  # sample reached, not worse than baseline beyond the margin
+FLIPBACK_DEMOTED = "demoted"
+FLIPBACK_INSUFFICIENT_DATA = "insufficient_data"
+VERDICT_DEMOTED = "demoted"
 
 ACCEPT_ACTIONS = frozenset({"accepted", "auto_acted"})  # auto_acted counts as accepted (ruled)
 DISMISS_ACTIONS = frozenset({"dismissed"})  # ignored: in neither numerator nor denominator
@@ -101,6 +143,10 @@ def tunables() -> dict[str, Any]:
         "latency_budget_ms": LATENCY_BUDGET_MS,
         "latency_min_samples": LATENCY_MIN_SAMPLES,
         "shadow_join_tolerance_ms": SHADOW_JOIN_TOLERANCE_MS,
+        "flipback_min_shown": FLIPBACK_MIN_SHOWN,
+        "demotion_margin_pp": DEMOTION_MARGIN_PP,
+        "max_eval_window_days": MAX_EVAL_WINDOW_DAYS,
+        "baseline_window_days": BASELINE_WINDOW_DAYS,
     }
 
 
@@ -587,7 +633,7 @@ def _graduation_check(
     result.heuristic_precision = baseline.rate
 
     if result.promoted:
-        return _promoted_verdict(result, in_range, latency_p95_ms, latency_samples)
+        return _promoted_verdict(result, log.labels, metrics, now_ms, latency_p95_ms, latency_samples)
 
     if not log.exists or not log.shadows:
         result.reason = "no shadow log"
@@ -622,27 +668,191 @@ def _graduation_check(
 
 def _promoted_verdict(
     result: GraduationResult,
-    in_range: list[dict[str, Any]],
+    labels: list[dict[str, Any]],
+    metrics: Mapping[str, Any],
+    now_ms: int,
     latency_p95_ms: float | None,
     latency_samples: int,
 ) -> GraduationResult:
-    """An already-promoted kind: demote on sustained p95 over budget or live precision below the heuristic's."""
-    live = classic_live_rate(in_range, result.kind, result.window_start_ms, result.window_end_ms)
-    result.live_shown = live.decided
-    result.live_precision = live.rate
+    """An already-promoted kind: the demotion criteria are exactly the flip-back's (D-B5).
+
+    One evaluator, not two: FR-010's "trailing precision below the heuristic's"
+    is measured by :func:`evaluate_post_flip` with its minimum sample and noise
+    guard, and the sustained-p95 criterion is the same one.
+    """
+    flip = _evaluate_post_flip(result.kind, labels, metrics, result.generation, now_ms, latency_p95_ms, latency_samples)
+    result.live_shown = flip.flipped.decided
+    result.live_precision = flip.flipped.rate
+    result.heuristic_precision = flip.baseline.rate
+    result.heuristic_shown = flip.baseline.decided
     result.latency_p95_ms = latency_p95_ms
     result.latency_samples = latency_samples
     result.latency_evaluated = True
+    if flip.verdict == FLIPBACK_DEMOTED:
+        result.verdict = VERDICT_DEMOTE
+    else:
+        result.verdict = VERDICT_ELIGIBLE
+    result.reason = flip.reason
+    return result
+
+
+# ---------------------------------------------------------------------------
+# WP05 — post-flip evaluation (spec User Story F, D-B5, FR-015..FR-017)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FlipbackResult:
+    """The post-flip comparison with both windows' numbers (never only a verdict)."""
+
+    kind: str
+    verdict: str
+    reason: str
+    evaluated_at_ms: int
+    generation: str | None
+    flipped_at_ms: int | None
+    flipped: RateStats = field(default_factory=RateStats)
+    flipped_window: tuple[int, int] = (0, 0)
+    baseline: RateStats = field(default_factory=RateStats)
+    baseline_window: tuple[int, int] | None = None
+    delta_pp: float | None = None
+    latency_p95_ms: float | None = None
+    latency_samples: int = 0
+
+    def to_metrics(self) -> dict[str, Any]:
+        return {
+            "flipback_verdict": self.verdict,
+            "flipback_reason": self.reason,
+            "flipback_evaluated_at_ms": self.evaluated_at_ms,
+            "flipback_generation": int(self.generation) if self.generation and self.generation.isdigit() else None,
+            "flipped_accept_rate": self.flipped.rate,
+            "flipped_accepted": self.flipped.accepted,
+            "flipped_dismissed": self.flipped.dismissed,
+            "flipped_ignored": self.flipped.ignored,
+            "flipped_window_start_ms": self.flipped_window[0],
+            "flipped_window_end_ms": self.flipped_window[1],
+            "baseline_accept_rate": self.baseline.rate,
+            "baseline_accepted": self.baseline.accepted,
+            "baseline_dismissed": self.baseline.dismissed,
+            "baseline_ignored": self.baseline.ignored,
+            "baseline_window_start_ms": self.baseline_window[0] if self.baseline_window else None,
+            "baseline_window_end_ms": self.baseline_window[1] if self.baseline_window else None,
+            "flipback_delta_pp": self.delta_pp,
+            "latency_p95_ms": self.latency_p95_ms,
+            "latency_samples": self.latency_samples,
+            "flipback_params": tunables(),
+        }
+
+
+def heuristic_baseline_window(labels: Iterable[Mapping[str, Any]]) -> tuple[RateStats, tuple[int, int] | None]:
+    """The heuristic's accept rate over **its** last :data:`BASELINE_WINDOW_DAYS` of label rows.
+
+    The window ends at the newest label row the heuristic served (after a flip
+    the heuristic may stop producing rows, so "now" would slide its window
+    empty) and spans ``BASELINE_WINDOW_DAYS`` back — all-time when its rows are
+    younger than that. ``(empty stats, None)`` when the heuristic served none.
+    """
+    served = [label for label in labels if served_by_heuristic(label) and "ts" in label]
+    if not served:
+        return RateStats(), None
+    end = max(int(label["ts"]) for label in served)
+    start = end - BASELINE_WINDOW_DAYS * DAY_MS
+    return heuristic_baseline(served, start, end), (start, end)
+
+
+def evaluate_post_flip(
+    kind: str,
+    *,
+    now_ms: int,
+    manifest: Any = None,
+    models_dir: Path | str | None = None,
+    retained_dir: Path | str | None = None,
+    latency_p95_ms: float | None = None,
+    latency_samples: int = 0,
+) -> FlipbackResult:
+    """Compare the flipped model's live accept rate with the heuristic baseline (FR-015). Never raises.
+
+    Reads ``user_action`` from the kind's label log (highest ``revision`` per
+    key) at evaluation time; the post-flip window runs from
+    ``metrics["flipped_at_ms"]`` to ``now_ms``.
+    """
+    try:
+        if manifest is None:
+            from kenaz_ml.advice.training import previous_manifest
+
+            manifest = previous_manifest(kind, models_dir)
+        if manifest is None:
+            return FlipbackResult(kind, FLIPBACK_PENDING, "no trained model", now_ms, None, None)
+        labels = read_shadow_log(kind, directory=retained_dir).labels
+        return _evaluate_post_flip(
+            kind, labels, manifest.metrics or {}, str(manifest.version), now_ms, latency_p95_ms, latency_samples
+        )
+    except Exception as exc:
+        logger.exception("flip-back: evaluation of %r failed", kind)
+        return FlipbackResult(kind, FLIPBACK_PENDING, f"evaluation failed: {type(exc).__name__}", now_ms, None, None)
+
+
+def _evaluate_post_flip(
+    kind: str,
+    labels: list[dict[str, Any]],
+    metrics: Mapping[str, Any],
+    generation: str | None,
+    now_ms: int,
+    latency_p95_ms: float | None,
+    latency_samples: int,
+) -> FlipbackResult:
+    flipped_at = metrics.get("flipped_at_ms")
+    start = int(flipped_at) if flipped_at is not None else trailing_window(now_ms)[0]
+    flipped = classic_live_rate(labels, kind, start, now_ms)
+    baseline, baseline_window = heuristic_baseline_window(labels)
+    result = FlipbackResult(
+        kind=kind,
+        verdict=FLIPBACK_PENDING,
+        reason="",
+        evaluated_at_ms=now_ms,
+        generation=generation,
+        flipped_at_ms=int(flipped_at) if flipped_at is not None else None,
+        flipped=flipped,
+        flipped_window=(start, now_ms),
+        baseline=baseline,
+        baseline_window=baseline_window,
+        delta_pp=delta_pp(flipped.rate, baseline.rate),
+        latency_p95_ms=latency_p95_ms,
+        latency_samples=latency_samples,
+    )
     if _latency_over_budget(latency_p95_ms, latency_samples):
-        result.verdict = VERDICT_DEMOTE
-        result.reason = f"sustained p95 {latency_p95_ms:.1f} ms > budget {LATENCY_BUDGET_MS:.0f} ms"
+        result.verdict = FLIPBACK_DEMOTED
+        result.reason = (
+            f"sustained p95 {latency_p95_ms:.1f} ms over the {LATENCY_BUDGET_MS:.0f} ms budget "
+            f"({latency_samples} samples)"
+        )
         return result
-    if live.rate is not None and result.heuristic_precision is not None and live.rate < result.heuristic_precision:
-        result.verdict = VERDICT_DEMOTE
-        result.reason = f"live precision {live.rate:.3f} < heuristic {result.heuristic_precision:.3f}"
+
+    window_elapsed = now_ms - start >= MAX_EVAL_WINDOW_DAYS * DAY_MS
+    if flipped.decided < FLIPBACK_MIN_SHOWN or baseline.rate is None:
+        missing = (
+            f"{flipped.decided} post-flip shown decisions < {FLIPBACK_MIN_SHOWN}"
+            if flipped.decided < FLIPBACK_MIN_SHOWN
+            else "no heuristic baseline rows"
+        )
+        if window_elapsed:
+            result.verdict = FLIPBACK_INSUFFICIENT_DATA
+            result.reason = f"{missing} after the {MAX_EVAL_WINDOW_DAYS}-day window; the kind stays flipped"
+        else:
+            result.reason = f"{missing}; window open"
         return result
-    result.verdict = VERDICT_ELIGIBLE
-    result.reason = "promoted; no demotion criterion met"
+
+    if result.delta_pp is not None and result.delta_pp < -DEMOTION_MARGIN_PP:
+        result.verdict = FLIPBACK_DEMOTED
+        result.reason = (
+            f"flipped accept rate {flipped.rate:.3f} < baseline {baseline.rate:.3f} - {DEMOTION_MARGIN_PP} pp "
+            f"(delta {result.delta_pp} pp)"
+        )
+    else:
+        result.verdict = FLIPBACK_HOLDING
+        result.reason = (
+            f"flipped accept rate within {DEMOTION_MARGIN_PP} pp of baseline or better (delta {result.delta_pp} pp)"
+        )
     return result
 
 

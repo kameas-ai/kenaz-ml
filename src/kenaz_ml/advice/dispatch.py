@@ -734,6 +734,7 @@ AUDIT_INSUFFICIENT_DATA = "advice_insufficient_data"
 FLIPPED_AT_METRIC_KEY = "flipped_at_ms"
 FLIPPED_GENERATION_METRIC_KEY = "flipped_generation"
 DEMOTED_GENERATION_METRIC_KEY = "demoted_generation"
+DEMOTED_AT_METRIC_KEY = "demoted_at_ms"
 RUNG_LIVE = "R3"
 
 
@@ -844,9 +845,16 @@ def apply_flip(
         FLIPPED_AT_METRIC_KEY: int(now_ms),
         FLIPPED_GENERATION_METRIC_KEY: int(generation),
     }
-    previous = {k: manifest.metrics[k] for k in serving if k in manifest.metrics}
+    # A later generation's flip clears the demotion marker (WP05); the rollback
+    # below restores it along with the serving keys.
+    touched = (*serving, DEMOTED_GENERATION_METRIC_KEY, DEMOTED_AT_METRIC_KEY)
+    previous = {k: manifest.metrics[k] for k in touched if k in manifest.metrics}
     written = update_manifest_metrics(
-        kind_id, {**result.to_metrics(), **serving}, models_dir=local_dir, expected_version=generation
+        kind_id,
+        {**result.to_metrics(), **serving},
+        models_dir=local_dir,
+        expected_version=generation,
+        remove=(DEMOTED_GENERATION_METRIC_KEY, DEMOTED_AT_METRIC_KEY),
     )
     if not written.ok:
         logger.warning("dispatch: flip of %r aborted — manifest write failed (%s)", kind_id, written.reason)
@@ -859,7 +867,7 @@ def apply_flip(
             kind_id,
             {**previous, "verdict_reason": f"flip rolled back: {reloaded.reason}"},
             models_dir=local_dir,
-            remove=[k for k in serving if k not in previous],
+            remove=[k for k in touched if k not in previous],
         )
         logger.error(
             "dispatch: flip of %r generation %s wrote the manifest but could not serve it (%s); manifest rollback %s",
@@ -925,7 +933,15 @@ def after_retrain(
             latency_samples=len(table.latency_samples(kind_id)),
         )
         report["graduation"] = result
-        if flip and result.verdict == VERDICT_ELIGIBLE and not result.promoted:
+        if result.promoted:
+            # Already served by classic: record the verdict, then let the one
+            # flip-back evaluator decide (and act on) any demotion (WP05).
+            update_manifest_metrics(kind_id, result.to_metrics(), models_dir=local_dir, expected_version=generation)
+            report["flipback"] = evaluate_flipped_kind(
+                table, kind_id, now_ms=now_ms, store=store, local_dir=local_dir, base_dir=base_dir
+            )
+            return report
+        if flip and result.verdict == VERDICT_ELIGIBLE:
             report["flip"] = apply_flip(
                 table, kind_id, result, now_ms=now_ms, store=store, local_dir=local_dir, base_dir=base_dir
             )
@@ -950,3 +966,178 @@ def retrain_hook(table: DispatchTable, store: Any = None, clock: Any = None) -> 
         after_retrain(table, kind_id, outcome, now_ms=now(), store=store)
 
     return _hook
+
+
+# ---------------------------------------------------------------------------
+# Flip-back and demotion (harness-recommendation-models-01MSK2RM WP05, D-B5)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DemotionOutcome:
+    kind_id: str
+    demoted: bool
+    reason: str
+    generation: str | None = None
+
+
+def apply_demotion(
+    table: DispatchTable,
+    kind_id: str,
+    result: Any,
+    *,
+    now_ms: int,
+    store: Any = None,
+    local_dir: Path | None = None,
+    base_dir: Path | None = None,
+) -> DemotionOutcome:
+    """FR-016: revert ``kind_id`` to the not-served (``heuristic``) state on a ``demoted`` flip-back verdict.
+
+    Manifest first, pinned to the generation evaluated: the ``demoted``
+    verdict with both windows' numbers, ``serving_backend = "heuristic"`` (so a
+    restart agrees) and ``demoted_generation`` (so this generation can never
+    re-flip — :func:`apply_flip` refuses it). Then the dispatch entry is
+    swapped. If the manifest write fails nothing is reverted and nothing is
+    claimed: the failure is logged at ERROR and the next tick retries — the
+    table and the manifest never disagree silently.
+    """
+    from kenaz_ml.advice.contracts import contract_for
+    from kenaz_ml.advice.shadow import FLIPBACK_DEMOTED, VERDICT_DEMOTED, update_manifest_metrics
+
+    generation = result.generation
+    if result.verdict != FLIPBACK_DEMOTED or generation is None:
+        return DemotionOutcome(kind_id, False, f"flip-back verdict {result.verdict}", generation)
+    written = update_manifest_metrics(
+        kind_id,
+        {
+            **result.to_metrics(),
+            "verdict": VERDICT_DEMOTED,
+            "verdict_reason": result.reason,
+            "verdict_at_ms": int(now_ms),
+            BACKEND_METRIC_KEY: BACKEND_HEURISTIC,
+            RUNG_METRIC_KEY: "R2",
+            DEMOTED_GENERATION_METRIC_KEY: int(generation),
+            DEMOTED_AT_METRIC_KEY: int(now_ms),
+        },
+        models_dir=local_dir,
+        expected_version=generation,
+        remove=(FLIPPED_AT_METRIC_KEY, FLIPPED_GENERATION_METRIC_KEY),
+    )
+    if not written.ok:
+        logger.error(
+            "dispatch: DEMOTION of %r generation %s NOT applied — manifest write failed (%s); "
+            "classic keeps serving and the next evaluation retries",
+            kind_id,
+            generation,
+            written.reason,
+        )
+        return DemotionOutcome(kind_id, False, f"manifest write failed: {written.reason}", generation)
+
+    reloaded = reload_kind(table, kind_id, expected_generation=generation, local_dir=local_dir, base_dir=base_dir)
+    entry = table.snapshot().get(kind_id)
+    if not reloaded.reloaded or entry is None or entry.server is not None:
+        # The manifest already says heuristic; the table must agree even if the
+        # model cannot be re-read for shadow scoring.
+        table.replace_entry(
+            not_served(kind_id, contract_for(kind_id), f"kind unavailable: {kind_id!r} demoted ({result.reason})")
+        )
+    audit_event(store, AUDIT_DEMOTE, kind_id, generation)
+    logger.warning(
+        "dispatch: DEMOTED %r generation %s back to the client's heuristic: %s "
+        "(flipped %s over %d shown decisions vs baseline %s over %d)",
+        kind_id,
+        generation,
+        result.reason,
+        result.flipped.rate,
+        result.flipped.decided,
+        result.baseline.rate,
+        result.baseline.decided,
+    )
+    return DemotionOutcome(kind_id, True, result.reason, generation)
+
+
+def evaluate_flipped_kind(
+    table: DispatchTable,
+    kind_id: str,
+    *,
+    now_ms: int,
+    store: Any = None,
+    local_dir: Path | None = None,
+    base_dir: Path | None = None,
+) -> Any:
+    """Evaluate one flipped kind (FR-015..FR-017) and act on the verdict. Never raises.
+
+    ``demoted`` reverts (:func:`apply_demotion`); ``holding``/``pending``
+    record the measured numbers for the next comparison; ``insufficient_data``
+    records itself, leaves the kind flipped, and emits an audit row and a
+    WARNING the first time it is reached (not on every tick).
+    """
+    from kenaz_ml.advice.shadow import (
+        FLIPBACK_DEMOTED,
+        FLIPBACK_INSUFFICIENT_DATA,
+        evaluate_post_flip,
+        update_manifest_metrics,
+    )
+    from kenaz_ml.advice.training import kind_lock
+
+    with kind_lock(kind_id):
+        manifest = _current_manifest(kind_id, local_dir)
+        if manifest is None or manifest.metrics.get(BACKEND_METRIC_KEY) != BACKEND_CLASSIC:
+            return None
+        result = evaluate_post_flip(
+            kind_id,
+            now_ms=now_ms,
+            manifest=manifest,
+            latency_p95_ms=table.latency_p95_ms(kind_id),
+            latency_samples=len(table.latency_samples(kind_id)),
+        )
+        if result.verdict == FLIPBACK_DEMOTED:
+            apply_demotion(table, kind_id, result, now_ms=now_ms, store=store, local_dir=local_dir, base_dir=base_dir)
+            return result
+        previous = manifest.metrics.get("flipback_verdict")
+        written = update_manifest_metrics(
+            kind_id, result.to_metrics(), models_dir=local_dir, expected_version=result.generation
+        )
+        if not written.ok:
+            logger.warning("dispatch: could not record %r's flip-back numbers (%s)", kind_id, written.reason)
+        if result.verdict == FLIPBACK_INSUFFICIENT_DATA and previous != FLIPBACK_INSUFFICIENT_DATA:
+            audit_event(store, AUDIT_INSUFFICIENT_DATA, kind_id, result.generation)
+            logger.warning(
+                "dispatch: %r flip-back evaluation has insufficient data (%s); the kind stays flipped",
+                kind_id,
+                result.reason,
+            )
+        return result
+
+
+def evaluate_flipped_kinds(
+    table: DispatchTable,
+    *,
+    now_ms: int,
+    store: Any = None,
+    kinds: Any = None,
+    local_dir: Path | None = None,
+    base_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Evaluate every currently flipped kind (the scheduler-tick job)."""
+    out: dict[str, Any] = {}
+    for kind_id in kinds if kinds is not None else KIND_IDS:
+        try:
+            result = evaluate_flipped_kind(
+                table, kind_id, now_ms=now_ms, store=store, local_dir=local_dir, base_dir=base_dir
+            )
+        except Exception:
+            logger.exception("dispatch: flip-back evaluation of %r failed", kind_id)
+            continue
+        if result is not None:
+            out[kind_id] = result
+    return out
+
+
+def evaluation_hook(table: DispatchTable, store: Any = None) -> Any:
+    """Bind :func:`evaluate_flipped_kinds` as ``AdviceTrainingScheduler(on_tick=...)``."""
+
+    def _tick(now_ms: int) -> None:
+        evaluate_flipped_kinds(table, now_ms=now_ms, store=store)
+
+    return _tick

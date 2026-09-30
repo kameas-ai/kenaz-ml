@@ -324,4 +324,8 @@ def test_tunables_are_the_documented_initial_values() -> None:
         "latency_budget_ms": 50.0,
         "latency_min_samples": 100,
         "shadow_join_tolerance_ms": 120_000,
+        "flipback_min_shown": 30,
+        "demotion_margin_pp": 5.0,
+        "max_eval_window_days": 21,
+        "baseline_window_days": 90,
     }
