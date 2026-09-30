@@ -14,7 +14,9 @@ if TYPE_CHECKING:
 from fastapi import FastAPI
 
 from kenaz_ml import __version__
-from kenaz_ml.advice.dispatch import DispatchTable, build_table
+from kenaz_ml.advice.dispatch import DispatchTable, build_table, evaluation_hook, retrain_hook
+from kenaz_ml.advice.training import TICK_SEC as ADVICE_TICK_SEC
+from kenaz_ml.advice.training import AdviceTrainingScheduler
 from kenaz_ml.config import ServingMode, resolve_mode
 from kenaz_ml.datastore import DataStore, create_store
 from kenaz_ml.lifecycle.leases import LeaseTable, is_managed
@@ -118,6 +120,8 @@ class AppState:
         self.features_push: Any = None
         # sha256 of the engine executable, computed once by register_routes.
         self.engine_sha256: str | None = None
+        # Per-kind advice retrain trigger (harness-recommendation-models WP01).
+        self.advice_scheduler: AdviceTrainingScheduler | None = None
 
     def load_models(self, model_store: ModelStore | None = None) -> None:
         """Load or reload all model instances."""
@@ -243,6 +247,18 @@ async def lifecycle_loop(state: AppState) -> None:
             logger.warning("lifecycle: sweep failed; will retry", exc_info=True)
 
 
+async def advice_schedule_loop(scheduler: AdviceTrainingScheduler) -> None:
+    """Drive the advice scheduler off the event loop, every ``TICK_SEC`` (FR-005)."""
+    while True:
+        try:
+            await asyncio.get_running_loop().run_in_executor(None, scheduler.check_and_retrain)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("advice scheduler: tick failed; will retry", exc_info=True)
+        await asyncio.sleep(ADVICE_TICK_SEC)
+
+
 def create_app(mode: ServingMode | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     if mode is None:
@@ -327,6 +343,17 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
                     await asyncio.sleep(600)
 
             asyncio.create_task(_schedule_loop())
+
+            # harness-recommendation-models-01MSK2RM WP01 (FR-005, R5): the
+            # per-kind advice retrain trigger, a sibling of the workbench
+            # scheduler above. Stopped on shutdown with the other state tasks.
+            # WP04 binds the post-retrain sequence: audit row, hot reload, verdict, flip.
+            # WP05 binds the per-tick flip-back evaluation of every flipped kind.
+            state.advice_scheduler = AdviceTrainingScheduler(
+                on_trained=retrain_hook(state.dispatch_table, store),
+                on_tick=evaluation_hook(state.dispatch_table, store),
+            )
+            state_tasks.append(asyncio.create_task(advice_schedule_loop(state.advice_scheduler)))
 
             lifecycle_task = asyncio.create_task(lifecycle_loop(state))
             state_tasks.append(lifecycle_task)

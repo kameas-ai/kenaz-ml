@@ -828,6 +828,32 @@ def refresh_model(
             now_ms=stamp,
         )
 
+    # --- The advice kinds never take the generic rebuild (guard 2026-09-30). ---
+    # harness-recommendation-models-01MSK2RM trains them through
+    # ``advice.training.train_kind``: complete rows only, a dirty-mirror
+    # decline, a D-B4 calibration method chosen from the fit-time label count,
+    # and serving-state ``metrics`` (the flip, the demotion markers) carried
+    # forward. ``_full_retrain`` + ``_rebuilt_manifest`` would do none of that:
+    # it clones whatever estimator the base shipped (uncalibrated if the base
+    # is) and writes a manifest with empty ``metrics`` -- silently un-flipping a
+    # flipped kind. The kinds are not on ``app.REGISTRY_ROSTER`` today, so this
+    # is unreachable in production; it declines rather than trusting that.
+    # Blocker/owner: the first shipped advice base pack (laya-serving-and-
+    # packs-01MSK2SP) must route this rebuild through ``train_kind``.
+    from kenaz_ml.advice.contracts import KIND_IDS as ADVICE_KIND_IDS
+
+    if name in ADVICE_KIND_IDS:
+        return _refused(
+            name,
+            change,
+            Refusal(
+                CHECK_REFRESH,
+                "advice_kind_rebuild_refused",
+                f"{name}: advice kinds retrain via AdviceTrainingScheduler, never the generic base rebuild; "
+                "the previous local model is unchanged",
+            ),
+        )
+
     # --- T015: the contract held. Replay the retained set onto the new base. ---
     return _rebuild(
         name=name,
