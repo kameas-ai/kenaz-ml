@@ -72,7 +72,12 @@ dependencies = [
     # requires torch>=2.0.0 and transformers>=4.48.0 unconditionally (C-004
     # forbids torch in the base set); `laya-serve` 0.2.1 is deprecated upstream.
     # src/kenaz_ml/laya/ imports laya lazily and refuses truthfully when absent.
-    "onnxruntime==1.30.0",
+    #
+    # 1.30.0 publishes no Python 3.10 wheels. The frozen bundle is built on 3.12
+    # and always gets 1.30.0; a 3.10 source install gets the last release that
+    # supports it, so `pip install kenaz-ml` still resolves there.
+    "onnxruntime==1.30.0; python_version >= '3.11'",
+    "onnxruntime==1.23.2; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
