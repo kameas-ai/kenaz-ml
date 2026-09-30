@@ -36,8 +36,8 @@ refuse the old artifact at load and then stall retention forever, because
 reset it. :func:`reset_on_local_contract_change` is that decision: it compares
 the retained header's contract version with the **current local contract** and,
 on a difference, calls the same :func:`~retained.reset_retained`. It is called
-from :func:`refresh_all`, only for a model the base path left alone (so a model
-the base path already reset is never reset twice), and it does not alter any
+from :func:`refresh_all`, only for a model the base path did not write -- nothing due, or due but
+refused (so a model the base path already reset is never reset twice), and it does not alter any
 behaviour described above.
 
 Detection carries no timestamps
@@ -1192,9 +1192,10 @@ def refresh_all(
     ``stuck`` is no reason to leave ``duration`` descended from a base that is
     no longer shipped.
 
-    After the base-refresh policy, a model the base path left alone (nothing
-    due, and no failure) is checked by :func:`reset_on_local_contract_change`;
-    a model the base path already acted on is never reset a second time.
+    After the base-refresh policy, a model the base path did not write
+    (nothing due, or due but refused) is checked by
+    :func:`reset_on_local_contract_change`; a model the base path already
+    acted on is never reset a second time.
     """
     results: list[RefreshResult] = []
     for name in names:
@@ -1206,11 +1207,16 @@ def refresh_all(
             train=train,
             now_ms=now_ms,
         )
-        if result.ok and result.action == ACTION_NONE and not result.change.due:
+        if not result.changed:
+            # The base path wrote nothing: either it had nothing to do, or it was due and REFUSED (unusable
+            # base, failed rebuild). The refusal case must not skip this check -- a retained set that no longer
+            # matches the local contract is unreplayable either way and would otherwise keep refusing appends
+            # until the base recovers. A refusal stays the reported result (it is the failure an operator must
+            # see); the reset is still recorded in the retained header, the manifest and the log.
             local_reset = reset_on_local_contract_change(
                 name, local_dir=local_dir, retained_dir=retained_dir, now_ms=now_ms
             )
-            if local_reset is not None:
+            if local_reset is not None and result.ok:
                 result = local_reset
         results.append(result)
     return tuple(results)

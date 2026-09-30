@@ -179,10 +179,17 @@ class ActivityClassifier:
         resolution = resolve_for_serving(self._store, "activity") if registry else None
         if resolution is not None:
             self.resolution = resolution
-            if resolution.served and self._accept_width(resolution.model):
-                self._ml_model = resolution.model
-                self._trained = True
-                logger.info("Loaded activity classifier from %s (%s slot)", type(self._store).__name__, resolution.slot)
+            if resolution.served:
+                if self._accept_width(resolution.model):
+                    self._ml_model = resolution.model
+                    self._trained = True
+                    logger.info(
+                        "Loaded activity classifier from %s (%s slot)", type(self._store).__name__, resolution.slot
+                    )
+                else:
+                    # The guard refused what the registry served. Do not let /introspect keep claiming a
+                    # local/base slot while the classifier answers from rules: report cold start + the refusal.
+                    self.resolution = self._as_width_refused(resolution)
             return
 
         data = self._store.load("activity")
@@ -196,6 +203,34 @@ class ActivityClassifier:
             except Exception:
                 logger.warning("Failed to load activity classifier, using rules")
                 self._ml_model = None
+
+    @staticmethod
+    def _as_width_refused(resolution: Resolution) -> Resolution:
+        """The resolution to report after the width guard refused a served artifact (cold start + why)."""
+        from dataclasses import replace
+
+        from kenaz_ml.modelstore.registry import SLOT_COLD_START, Refusal, SlotRefusal
+        from kenaz_ml.modelstore.registry.slots import CHECK_SLOT
+
+        width = getattr(resolution.model, "n_features_in_", None)
+        refusal = SlotRefusal(
+            resolution.slot,
+            resolution.name,
+            Refusal(
+                CHECK_SLOT,
+                "feature_width_mismatch",
+                f"{resolution.name}: artifact was fitted on {width} input features but the current contract has "
+                f"{len(ACTIVITY_FEATURE_NAMES)}; serving rules until retrained",
+            ),
+        )
+        return replace(
+            resolution,
+            slot=SLOT_COLD_START,
+            model=None,
+            manifest=None,
+            artifact=None,
+            refusals=(*resolution.refusals, refusal),
+        )
 
     @staticmethod
     def _accept_width(model: object) -> bool:

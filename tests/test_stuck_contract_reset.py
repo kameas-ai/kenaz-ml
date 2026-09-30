@@ -238,6 +238,32 @@ class TestWithShippedBase:
         assert after.contract_version == current.service_version
 
 
+class TestBasePathRefused:
+    def test_a_refused_base_refresh_does_not_leave_the_stale_retained_set_stranded(
+        self, world: dict[str, Path]
+    ) -> None:
+        """Review fix: base refresh due but REFUSED (base carries the old contract) must still reset retained data."""
+        old = _pre_salt_stuck_contract()
+        current = local_feature_contract("stuck")
+        _install(world["local"], "stuck", _stuck_model(), old, version="3", base_version="0", base_sha256="0" * 64)
+        _retain(world["retained"], "stuck", old, n=4)
+        _install(world["base"], "stuck", _stuck_model(), old, version="1", source="base")  # stale base, old contract
+
+        (result,) = refresh_all(
+            ["stuck"], local_dir=world["local"], base_dir=world["base"], retained_dir=world["retained"]
+        )
+
+        assert not result.ok and result.refusal is not None, "the refusal stays the reported result"
+        after = read_retained("stuck", directory=world["retained"])
+        assert after.examples == () and after.contract_version == current.service_version
+        appended = append_examples(
+            "stuck", [Example(x=tuple(0.5 for _ in current.names), y=1.0)], current, directory=world["retained"]
+        )
+        assert appended.ok, "retention is not stuck refusing appends"
+        raw = json.loads((world["local"] / "stuck.json").read_text(encoding="utf-8"))
+        assert raw["provenance"]["reset_reason"] == "contract_version_changed"
+
+
 # ---------------------------------------------------------------------------
 # The activity classifier
 # ---------------------------------------------------------------------------
@@ -270,6 +296,15 @@ class TestActivity:
 
         assert not clf.is_trained
         assert clf.classify(self.EVENT)["method"] == "rules"  # never raises
+        # Honesty (review fix): /introspect must not claim a local/base slot for a model rules are answering for.
+        assert clf.resolution is not None and not clf.resolution.served
+        assert clf.resolution.slot == "cold_start" and clf.resolution.model is None
+        assert any(r.reason == "feature_width_mismatch" for r in clf.resolution.refusals)
+        from kenaz_ml.routes import _resolution_provenance
+
+        prov = _resolution_provenance(clf.resolution)
+        assert prov["serving_slot"] == "cold_start" and prov["training_source"] is None
+        assert prov["refusal"] and "feature" in prov["refusal"]
 
     def test_a_current_width_artifact_is_served(self, world: dict[str, Path]) -> None:
         rng = np.random.default_rng(1)
