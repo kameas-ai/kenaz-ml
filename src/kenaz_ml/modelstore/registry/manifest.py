@@ -33,8 +33,10 @@ A laya checkpoint is a *directory*, not a joblib file. The manifest therefore
 carries an optional ``artifact_kind`` (``"file"`` -- the default, absent from
 every existing manifest -- or ``"directory"``) and, for a directory, an optional
 ``artifact_members`` map of relative path -> sha256 that makes refusals
-specific. For a directory, ``artifact_sha256`` is the sha256 over a **sorted
-manifest of member relative paths and per-member sha256** (:func:`directory_digest`),
+specific. For a directory, ``artifact_sha256`` is the **canonical tree digest**
+(:func:`tree_digest`: ``"sha256:"`` + sha256 over sha256sum-format
+``"<member hash>  <path>\\n"`` lines sorted bytewise by path) -- the same recipe,
+byte for byte, as the Go clients' ``tree.go`` (design doc A5 addendum (b)),
 deterministic and independent of filesystem listing order. The loader hands back
 the **verified directory path** (:class:`VerifiedDirectory`), never a
 deserialized object: laya loads its own checkpoint, and is given the per-member
@@ -84,7 +86,9 @@ __all__ = [
     "TRAINING_SOURCE_ORG",
     "DirectoryDigest",
     "VerifiedDirectory",
+    "TREE_DIGEST_PREFIX",
     "directory_digest",
+    "tree_digest",
     "validate_artifact_directory",
     "verify_artifact_directory",
     "FeatureContract",
@@ -1074,43 +1078,88 @@ def _hash_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def directory_digest(root: Path | str) -> DirectoryDigest:
-    """sha256 over a sorted manifest of member relative paths + per-member sha256.
+#: Prefix of a tree digest. Part of the canonical recipe, not decoration: the
+#: Go clients write and compare the prefixed string.
+TREE_DIGEST_PREFIX = "sha256:"
 
-    Members are regular files only, addressed by POSIX relative path, sorted by
-    that path (never by filesystem listing order). The digested text is one
-    ``"<relpath>\\0<member sha256>\\n"`` line per member. Empty directories carry
-    no bytes and do not participate. **Any symlink member is refused** (a
-    superset of "symlinks escaping the directory"): a checkpoint pack is a plain
-    tree, and following a link is how a verified directory stops being the thing
-    that gets read. Raises :class:`DirectoryWalkError`; callers wrapping it
+
+def _path_bytes(rel: str) -> bytes:
+    # surrogateescape round-trips a non-UTF-8 POSIX name to its original bytes,
+    # so the sort below is the Go side's bytewise sort and encoding never raises.
+    return rel.encode("utf-8", "surrogateescape")
+
+
+def tree_digest(members: dict[str, str]) -> str:
+    """The canonical tree digest of ``{relative posix path: member hash}``.
+
+    **Byte-for-byte the cross-repo recipe** ruled canonical in design-doc
+    Amendment A5 addendum (b) -- Kenaz ``internal/ml/tree.go`` and the harness's
+    ``core/mlsidecar/tree.go`` compute the same value, and
+    ``tests/test_org_slot_shape.py`` pins their shared vector::
+
+        manifest = concat over members sorted BYTEWISE by path of
+                   "<member hash>  <path>\\n"      (sha256sum format, two spaces)
+        digest   = "sha256:" + hex(sha256(manifest))
+
+    One recipe, three implementations: a pack digest the client's Go updater
+    records must be the value this registry recomputes, or every real pack is
+    refused as a digest mismatch.
+    """
+    ordered = sorted(members, key=_path_bytes)
+    text = b"".join(members[rel].encode("ascii") + b"  " + _path_bytes(rel) + b"\n" for rel in ordered)
+    return TREE_DIGEST_PREFIX + hashlib.sha256(text).hexdigest()
+
+
+def directory_digest(root: Path | str, *, allow_symlinks: bool = False) -> DirectoryDigest:
+    """The canonical tree digest of a directory (:func:`tree_digest`) and its per-member hashes.
+
+    Members are every non-directory entry, addressed by POSIX path relative to
+    ``root``; directories themselves (so empty ones) do not participate. A
+    regular file's member hash is ``hex(sha256(bytes))``; anything that is
+    neither a file, a directory nor a symlink is refused.
+
+    **Symlinks.** The canonical recipe hashes a symlink member as
+    ``hex(sha256("symlink:" + link target))`` -- the engine onedir the Go
+    clients digest legitimately contains them. A **directory artifact** (a laya
+    checkpoint pack) is held to a stricter *policy* on top of the same recipe:
+    with ``allow_symlinks=False`` -- the default, and the only mode the registry
+    uses -- **any symlink member is refused** (``symlink_member``), because the
+    registry hands laya a path, and following a link is how a verified
+    directory stops being the thing that gets read. For a symlink-free tree the
+    two modes produce the identical digest, so the policy never forks the recipe.
+
+    Raises :class:`DirectoryWalkError`; callers wrapping it
     (:func:`verify_artifact_directory`) turn that into a :class:`Refusal`.
     """
     root = Path(root)
     members: dict[str, str] = {}
     try:
-        for path in sorted(root.rglob("*")):
+        for path in root.rglob("*"):
+            rel = path.relative_to(root).as_posix()
             if path.is_symlink():
-                raise DirectoryWalkError(
-                    Refusal(
-                        CHECK_INTEGRITY,
-                        "symlink_member",
-                        f"{path}: symlinks are not allowed inside a directory artifact",
+                if not allow_symlinks:
+                    raise DirectoryWalkError(
+                        Refusal(
+                            CHECK_INTEGRITY,
+                            "symlink_member",
+                            f"{path}: symlinks are not allowed inside a directory artifact",
+                        )
                     )
-                )
+                target = os.readlink(path).encode("utf-8", "surrogateescape")
+                members[rel] = hashlib.sha256(b"symlink:" + target).hexdigest()
+                continue
             if path.is_dir():
                 continue
             if not path.is_file():
                 raise DirectoryWalkError(
                     Refusal(CHECK_INTEGRITY, "not_a_regular_file", f"{path}: not a regular file or directory")
                 )
-            members[path.relative_to(root).as_posix()] = _hash_file(path)
+            members[rel] = _hash_file(path)
     except OSError as exc:
         raise DirectoryWalkError(
             Refusal(CHECK_INTEGRITY, "unreadable", f"{root}: directory artifact cannot be read — {exc}")
         ) from exc
-    text = "".join(f"{rel}\0{members[rel]}\n" for rel in sorted(members))
-    return DirectoryDigest(hashlib.sha256(text.encode("utf-8")).hexdigest(), members)
+    return DirectoryDigest(tree_digest(members), members)
 
 
 class VerifiedDirectory:
@@ -1183,7 +1232,9 @@ def verify_artifact_directory(path: Path | str, manifest: Manifest) -> tuple[Ver
                 f"{manifest.name}: directory does not match the manifest's members — {diagnostic}; "
                 "the checkpoint was not handed to laya",
             )
-    if computed.digest != expected:
+    # Compared the way the Go clients compare (``digestsEqual``): case-insensitive,
+    # the "sha256:" prefix optional on the recorded side.
+    if computed.digest.removeprefix(TREE_DIGEST_PREFIX) != expected.removeprefix(TREE_DIGEST_PREFIX):
         return None, Refusal(
             CHECK_INTEGRITY,
             "digest_mismatch",

@@ -249,14 +249,79 @@ def test_directory_digest_is_a_sorted_manifest_of_paths_and_hashes(tmp_path: Pat
             (root / rel).write_bytes(MEMBERS[rel])
     da, db = directory_digest(a), directory_digest(b)
     assert da.digest == db.digest and da.members == db.members
-    expected = "".join(f"{rel}\0{hashlib.sha256(MEMBERS[rel]).hexdigest()}\n" for rel in sorted(MEMBERS))
-    assert da.digest == hashlib.sha256(expected.encode()).hexdigest()
+    # The canonical cross-repo recipe (design doc A5 addendum (b)): sha256sum-format lines, bytewise path order.
+    expected = "".join(f"{hashlib.sha256(MEMBERS[rel]).hexdigest()}  {rel}\n" for rel in sorted(MEMBERS))
+    assert da.digest == "sha256:" + hashlib.sha256(expected.encode()).hexdigest()
     (b / "extra.txt").write_bytes(b"x")
     assert directory_digest(b).digest != da.digest
     # A rename changes the digest: paths are part of the identity, not just contents.
     (b / "extra.txt").unlink()
     (b / "laya.onnx").rename(b / "laya2.onnx")
     assert directory_digest(b).digest != da.digest
+
+
+def _write_tree(root: Path, files: dict[str, bytes]) -> None:
+    for rel, data in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_bytes(data)
+
+
+def test_directory_digest_reproduces_the_go_clients_canonical_vectors(tmp_path: Path) -> None:
+    """Review fix: ONE recipe across kenaz-ml, the harness and Kenaz, pinned to vectors the Go code computes.
+
+    ``sha256:71c475...`` is the harness's ``TestTreeDigest_CanonicalVector`` (core/mlsidecar/tree_test.go),
+    itself cross-checked against Kenaz's internal/ml/tree.go. The checkpoint-shaped vector was computed by
+    running that same Go ``TreeDigest`` over the tree below (2026-09-30 review). A drift here means the
+    client's recorded pack digest and this registry's recomputation disagree, and every real pack is refused.
+    """
+    from tests.test_rebrand import ARTIFACT_NAME  # the frozen launcher's name: a cross-repo interface
+
+    onedir = tmp_path / ARTIFACT_NAME
+    _write_tree(
+        onedir,
+        {
+            ARTIFACT_NAME: b"launcher bytes",
+            "_internal/lib/python.dylib": b"interpreter",
+            "_internal/base_library.zip": b"zip",
+            "a b.txt": b"space name",
+        },
+    )
+    (onedir / "_internal" / "Python").symlink_to("lib/python.dylib")
+    canonical = "sha256:71c475c52113b8077e24afbefa21d0c4cb0938e75fcefc0a089130f7843622ec"
+    assert directory_digest(onedir, allow_symlinks=True).digest == canonical
+    # The checkpoint POLICY is stricter than the recipe: a symlink member is refused, never hashed.
+    with pytest.raises(Exception, match="symlink"):
+        directory_digest(onedir)
+
+    ckpt = tmp_path / "ckpt"
+    _write_tree(
+        ckpt,
+        {
+            "laya.onnx": b"x",
+            "rl_agent_config.json": b"{}",
+            "tokenizer/vocab.txt": b"v",
+            "B.txt": b"B",  # uppercase sorts before lowercase bytewise
+            "a-b.txt": b"a",
+        },
+    )
+    go_vector = "sha256:92566b9174e903c101fdca6f7fa60db29cf0751b9c4965ee9f8f317af144030d"
+    assert directory_digest(ckpt).digest == go_vector
+    assert directory_digest(ckpt, allow_symlinks=True).digest == go_vector  # symlink-free: the modes agree
+
+
+def test_a_recorded_digest_compares_like_the_go_clients(dirs: dict[str, Path]) -> None:
+    """Case-insensitive, "sha256:" prefix optional on the recorded side (the harness's ``digestsEqual``)."""
+    root = _checkpoint(dirs["local"])
+    manifest = read_manifest(dirs["local"] / "compact_now.json").manifest
+    assert manifest.artifact_sha256.startswith("sha256:")
+    bare = manifest.artifact_sha256.removeprefix("sha256:").upper()
+    write_manifest(
+        dirs["local"] / "compact_now.json",
+        Manifest(**{**manifest.__dict__, "artifact_members": {}, "artifact_sha256": bare}),
+    )
+    assert _resolve_kind(dirs).served
+    (root / "laya.onnx").write_bytes(b"evil")
+    assert _resolve_kind(dirs).refusals[0].reason == "digest_mismatch"
 
 
 def test_a_directory_pair_verifies_and_resolves_to_its_path(dirs: dict[str, Path]) -> None:
@@ -414,7 +479,7 @@ def test_a_verified_checkpoint_directory_serves_through_dispatch(
     response = dispatch(table.snapshot(), "compact_now", _request())
     assert response.backend == "laya" and response.confidence == 75
     assert response.checkpoint_provenance == "base" and response.generation == "9"
-    assert response.model_id_sha8 == directory_digest(root).digest[:8]
+    assert response.model_id_sha8 == directory_digest(root).digest.removeprefix("sha256:")[:8]
     assert loaded[0].path == root and loaded[0].expected_sha256 == directory_digest(root).members
 
 

@@ -471,3 +471,12 @@ def test_thread_pinning_rebuilds_a_real_session(tmp_path: Path, monkeypatch: pyt
     (probs,) = agent.session.run(None, {"x": np.zeros((1, 64), dtype=np.float32)})
     assert probs.shape == (1, 2)
     assert agent_mod.pin_agent_threads(Agent(), tmp_path / "missing.onnx") is False  # failure is not an exception
+    # Review fix: the rebuild reads the graph once and checks the manifest's member digest first --
+    # re-reading a file laya already verified must not reopen the verify-then-load window.
+    import hashlib
+
+    good = hashlib.sha256(onnx.read_bytes()).hexdigest()
+    assert agent_mod.pin_agent_threads(Agent(), onnx, good) is True
+    swapped = Agent()
+    assert agent_mod.pin_agent_threads(swapped, onnx, "0" * 64) is False
+    assert swapped.session == "original"  # laya's own verified session keeps serving

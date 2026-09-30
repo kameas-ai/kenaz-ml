@@ -203,7 +203,7 @@ def session_options() -> Any:
     return options
 
 
-def pin_agent_threads(agent: Any, onnx_path: str | os.PathLike[str]) -> bool:
+def pin_agent_threads(agent: Any, onnx_path: str | os.PathLike[str], expected_sha256: str | None = None) -> bool:
     """Rebuild a loaded ``ONNXAgent``'s session with pinned threads. True when applied.
 
     laya 0.3.22's ``ONNXAgent`` builds its own ``SessionOptions`` and exposes no
@@ -211,14 +211,28 @@ def pin_agent_threads(agent: Any, onnx_path: str | os.PathLike[str]) -> bool:
     attribute. CPU provider only: an explicit provider list also keeps
     ``AzureExecutionProvider`` (present in the stock wheel) out of the process.
     Never raises; an agent with no ``session`` is left alone.
+
+    The graph is read **once, as bytes**, and -- when the manifest declared the
+    member's digest -- verified before the session is built from those same
+    bytes. Rebuilding from the path would re-read a file laya already verified,
+    reopening exactly the verify-then-load window ``expected_sha256`` exists to
+    close. A mismatch leaves laya's own (verified) session serving; so does a
+    graph whose weights live in an ONNX external-data file (not loadable from
+    bytes) -- unpinned, never unverified.
     """
     if not hasattr(agent, "session"):
         return False
     try:
+        import hashlib
+
         import onnxruntime as ort
 
+        payload = Path(onnx_path).read_bytes()
+        if expected_sha256 and hashlib.sha256(payload).hexdigest() != expected_sha256.lower():
+            logger.warning("laya: %s changed after verification; not re-reading it to pin threads", onnx_path)
+            return False
         agent.session = ort.InferenceSession(
-            str(onnx_path), sess_options=session_options(), providers=["CPUExecutionProvider"]
+            payload, sess_options=session_options(), providers=["CPUExecutionProvider"]
         )
         return True
     except Exception:
@@ -245,7 +259,9 @@ class CheckpointRef:
 
     @property
     def sha8(self) -> str | None:
-        return (getattr(self.manifest, "artifact_sha256", "") or "")[:8] or None
+        # A directory digest carries the canonical "sha256:" prefix (tree_digest); the id is the hex.
+        digest = (getattr(self.manifest, "artifact_sha256", "") or "").removeprefix("sha256:")
+        return digest[:8] or None
 
 
 def ref_from_resolution(kind_id: str, resolution: Any) -> CheckpointRef | None:
@@ -325,7 +341,7 @@ def default_agent_factory(ref: CheckpointRef) -> OnnxAgentLike:
         raise LayaNotInstalledError(f"laya is not importable in this build: {exc}") from exc
     onnx_path = ref.path / ONNX_FILENAME
     agent = ONNXAgent(str(ref.path), onnx_path=str(onnx_path), expected_sha256=ref.expected_sha256)
-    pin_agent_threads(agent, onnx_path)
+    pin_agent_threads(agent, onnx_path, (ref.expected_sha256 or {}).get(ONNX_FILENAME))
     return agent
 
 
