@@ -24,6 +24,104 @@
         }
       }
     },
+    "/v1/clients/lease": {
+      "post": {
+        "summary": "Client Lease",
+        "description": "Register or renew a client lease (FR-011). Local mode only.",
+        "operationId": "client_lease_v1_clients_lease_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaseResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cloud mode"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/shutdown": {
+      "post": {
+        "summary": "Admin Shutdown",
+        "description": "Graceful shutdown, authorized by ``Authorization: Bearer <token>`` (FR-015).\n\nThe token is read on every request from the client-owned\n``<install_root>/lease/shutdown.token``. Fails closed: a missing lease\ndirectory or token file, an empty or unreadable file, no token or a\nwrong one all refuse and the engine keeps running. On success the\nresponse is sent first; then in-flight training drains (bounded), the\npoller stops, and the process exits through the graceful path.",
+        "operationId": "admin_shutdown_v1_admin_shutdown_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShutdownResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer token"
+          },
+          "403": {
+            "description": "Token refused"
+          },
+          "404": {
+            "description": "Cloud mode"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/status": {
       "get": {
         "summary": "Status",
@@ -273,6 +371,194 @@
         }
       }
     },
+    "/v1/recommend/{kind}": {
+      "post": {
+        "summary": "Recommend",
+        "description": "Dispatch one recommendation to the kind's single registered backend.\n\nEvery refusal (kind_not_served, laya_backend_not_installed,\ncontract_mismatch, unknown_kind, ...) is HTTP 422 with a\n``{\"refusal\": {kind_id, reason, detail}}`` body. Never substitutes a\ndifferent backend; never clamps confidence.",
+        "operationId": "recommend_v1_recommend__kind__post",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kind"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Typed refusal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendRefusal"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/contracts": {
+      "get": {
+        "summary": "Contracts",
+        "description": "Every registered kind's ordered feature contract and serving availability.",
+        "operationId": "contracts_v1_contracts_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/labels/{kind}": {
+      "post": {
+        "summary": "Labels",
+        "description": "Cursor-acked, revision-upserted label ingest (FR-007..009). Loopback only; no outbound call.",
+        "operationId": "labels_v1_labels__kind__post",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kind"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabelBatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelBatchResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown kind",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendRefusal"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Contract / names / retained-header mismatch; nothing written",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendRefusal"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Label log I/O failure; nothing acked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendRefusal"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/features": {
+      "post": {
+        "summary": "Push Features",
+        "description": "Stateless feature-event push (FR-023): validated against a closed class\nregistry, held in a bounded in-process store. No table, no file, no outbound call.\nLocal mode only: in cloud mode the route answers ``lane_unavailable``.",
+        "operationId": "push_features_v1_features_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeaturesPushRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeaturesPushResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Batch too large, or the lane is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LaneRefusal"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/": {
       "get": {
         "summary": "Root",
@@ -416,6 +702,103 @@
   },
   "components": {
     "schemas": {
+      "ContractEntry": {
+        "properties": {
+          "kind_id": {
+            "type": "string",
+            "title": "Kind Id"
+          },
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Names"
+          },
+          "dtypes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Dtypes"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "supported_versions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Supported Versions",
+            "description": "Versions accepted by /v1/recommend. Only the current one today (no N-1 defined)."
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "backend": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backend"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind_id",
+          "names",
+          "dtypes",
+          "version",
+          "supported_versions",
+          "available"
+        ],
+        "title": "ContractEntry"
+      },
+      "ContractsResponse": {
+        "properties": {
+          "kinds": {
+            "items": {
+              "$ref": "#/components/schemas/ContractEntry"
+            },
+            "type": "array",
+            "title": "Kinds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kinds"
+        ],
+        "title": "ContractsResponse"
+      },
       "DurationRequest": {
         "properties": {
           "task_id": {
@@ -467,6 +850,103 @@
           "confidence_interval"
         ],
         "title": "DurationResponse"
+      },
+      "FeatureEvent": {
+        "properties": {
+          "event_class": {
+            "title": "Event Class",
+            "description": "Closed registry: \"commit\" (specified); egress_deny, run_outcome, budget_pressure, lifecycle (schema-deferred, refused)."
+          },
+          "ts_ms": {
+            "title": "Ts Ms",
+            "description": "Event time, positive integer milliseconds (for commit: the commit time)."
+          },
+          "session_id": {
+            "title": "Session Id",
+            "description": "Scopes the event; omitted = global."
+          },
+          "fields": {
+            "title": "Fields",
+            "description": "Class-specific fields; must be empty for commit."
+          }
+        },
+        "type": "object",
+        "required": [
+          "event_class",
+          "ts_ms"
+        ],
+        "title": "FeatureEvent",
+        "description": "One pushed feature event. Validated per event by ``features_push`` so a bad\nevent never fails its batch; the loose types here are deliberate."
+      },
+      "FeatureEventRefusal": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "reason",
+          "detail"
+        ],
+        "title": "FeatureEventRefusal"
+      },
+      "FeaturesPushRequest": {
+        "properties": {
+          "client": {
+            "type": "string",
+            "title": "Client"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/FeatureEvent"
+            },
+            "type": "array",
+            "title": "Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client",
+          "events"
+        ],
+        "title": "FeaturesPushRequest"
+      },
+      "FeaturesPushResponse": {
+        "properties": {
+          "accepted": {
+            "type": "integer",
+            "title": "Accepted"
+          },
+          "refused": {
+            "type": "integer",
+            "title": "Refused"
+          },
+          "refusals": {
+            "items": {
+              "$ref": "#/components/schemas/FeatureEventRefusal"
+            },
+            "type": "array",
+            "title": "Refusals"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accepted",
+          "refused",
+          "refusals"
+        ],
+        "title": "FeaturesPushResponse"
       },
       "FleetPredictResponse": {
         "properties": {
@@ -601,15 +1081,66 @@
           "uptime_sec": {
             "type": "number",
             "title": "Uptime Sec"
+          },
+          "product": {
+            "type": "string",
+            "title": "Product",
+            "description": "Always \"kenaz-ml\" (the product name; the frozen artifact keeps its own frozen name)."
+          },
+          "sidecar_version": {
+            "type": "string",
+            "title": "Sidecar Version"
+          },
+          "contract_versions": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Contract Versions",
+            "description": "Per recommend kind, the feature_contract_version values /v1/recommend accepts."
+          },
+          "exe_path": {
+            "type": "string",
+            "title": "Exe Path",
+            "description": "This process's own resolved executable path; not self-verified."
+          },
+          "model_details": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ModelHealth"
+            },
+            "type": "object",
+            "title": "Model Details",
+            "description": "Per-model status with registry refusal text."
+          },
+          "device": {
+            "type": "string",
+            "title": "Device",
+            "description": "Compute device; \"cpu\" for the scikit-learn engine."
+          },
+          "lifecycle_protocol": {
+            "type": "string",
+            "title": "Lifecycle Protocol",
+            "description": "Lifecycle protocol marker: \"kenaz-ml-lease/1\" (speaks /v1/clients/lease), \"none\" in cloud mode."
           }
         },
         "type": "object",
         "required": [
           "status",
           "models",
-          "uptime_sec"
+          "uptime_sec",
+          "product",
+          "sidecar_version",
+          "contract_versions",
+          "exe_path",
+          "model_details",
+          "device",
+          "lifecycle_protocol"
         ],
-        "title": "HealthResponse"
+        "title": "HealthResponse",
+        "description": "``/health`` \u2014 honest enough for a client to verify (FR-016, Amendment A1).\n\nThe pre-existing fields are unchanged (C-008; ``models`` stays name ->\nstatus string). Every field added by two-client-engine-01MSK2EN is\n**required**: the model cannot be built from ``{}`` or a partial payload, so\na bare or legacy response is structurally distinguishable from this one.\n``exe_path`` is reported truthfully and never verified here \u2014 verification\nis the client's job (FR-017, C-001)."
       },
       "IntrospectResponse": {
         "properties": {
@@ -654,6 +1185,493 @@
           "capabilities"
         ],
         "title": "IntrospectResponse"
+      },
+      "LabelBatchRequest": {
+        "properties": {
+          "client": {
+            "type": "string",
+            "title": "Client"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LabelCursor"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The client's current ack cursor (informational)."
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/LabelRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client",
+          "rows"
+        ],
+        "title": "LabelBatchRequest"
+      },
+      "LabelBatchResponse": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "ack": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LabelCursor"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Advanced through the contiguous (ts, revision)-ordered prefix of non-refused rows."
+          },
+          "accepted": {
+            "type": "integer",
+            "title": "Accepted"
+          },
+          "superseded": {
+            "type": "integer",
+            "title": "Superseded"
+          },
+          "duplicate": {
+            "type": "integer",
+            "title": "Duplicate"
+          },
+          "refused": {
+            "type": "integer",
+            "title": "Refused"
+          },
+          "refusals": {
+            "items": {
+              "$ref": "#/components/schemas/LabelRowRefusal"
+            },
+            "type": "array",
+            "title": "Refusals"
+          },
+          "retained_appended": {
+            "type": "integer",
+            "title": "Retained Appended"
+          },
+          "retained_rebuilt": {
+            "type": "boolean",
+            "title": "Retained Rebuilt"
+          },
+          "retained_generation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retained Generation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "accepted",
+          "superseded",
+          "duplicate",
+          "refused",
+          "refusals",
+          "retained_appended",
+          "retained_rebuilt"
+        ],
+        "title": "LabelBatchResponse"
+      },
+      "LabelCursor": {
+        "properties": {
+          "ts": {
+            "type": "integer",
+            "title": "Ts"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts",
+          "revision"
+        ],
+        "title": "LabelCursor",
+        "description": "The ack cursor: a position over ``(ts, revision)``."
+      },
+      "LabelRow": {
+        "properties": {
+          "client": {
+            "type": "string",
+            "title": "Client"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "features_hash": {
+            "type": "string",
+            "title": "Features Hash"
+          },
+          "ts": {
+            "type": "integer",
+            "title": "Ts",
+            "description": "Decision time (ms since epoch); part of the idempotency key."
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision",
+            "description": "Monotonic per key; a higher revision replaces the stored row."
+          },
+          "feature_contract_version": {
+            "type": "string",
+            "title": "Feature Contract Version"
+          },
+          "features": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Features"
+          },
+          "features_complete": {
+            "type": "boolean",
+            "title": "Features Complete"
+          },
+          "shown": {
+            "type": "boolean",
+            "title": "Shown"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence",
+            "description": "Confidence at decision time (0-100), as the harness saw it."
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "rung": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rung"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "user_action": {
+            "type": "string",
+            "title": "User Action",
+            "description": "accepted | dismissed | ignored | auto_acted"
+          },
+          "recommendation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommendation",
+            "description": "The recommendation as served (decision/score/...)."
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "snapshot_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot Ms",
+            "description": "Feature snapshot time (ms); ts is used when absent. Carried, never recomputed."
+          }
+        },
+        "type": "object",
+        "required": [
+          "client",
+          "kind",
+          "features_hash",
+          "ts",
+          "revision",
+          "feature_contract_version",
+          "features_complete",
+          "shown",
+          "user_action"
+        ],
+        "title": "LabelRow",
+        "description": "One ``advice_labels`` row as the harness pushes it (frozen contract, A3.3).\n\nIdempotency key ``(client, kind, features_hash, ts)``; a higher ``revision``\nreplaces the stored row, an equal or lower one is a duplicate. Propensity\nfields are kept verbatim in the kind's label log; only ``accepted`` /\n``auto_acted`` (y=1) and ``dismissed`` (y=0) rows with\n``features_complete=true`` reach the retained training set."
+      },
+      "LabelRowRefusal": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "features_hash": {
+            "type": "string",
+            "title": "Features Hash"
+          },
+          "ts": {
+            "type": "integer",
+            "title": "Ts"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "features_hash",
+          "ts",
+          "revision",
+          "reason"
+        ],
+        "title": "LabelRowRefusal"
+      },
+      "LaneRefusal": {
+        "properties": {
+          "refusal": {
+            "$ref": "#/components/schemas/LaneRefusalBody"
+          }
+        },
+        "type": "object",
+        "required": [
+          "refusal"
+        ],
+        "title": "LaneRefusal"
+      },
+      "LaneRefusalBody": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "detail"
+        ],
+        "title": "LaneRefusalBody"
+      },
+      "LeaseRequest": {
+        "properties": {
+          "client": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Client"
+          },
+          "pid": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Pid"
+          },
+          "client_version": {
+            "type": "string",
+            "title": "Client Version"
+          },
+          "min_contracts": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Min Contracts",
+            "description": "Per kind, the feature_contract_version this client requires. Only reported back (incompatible_kinds); never stops the engine serving other clients."
+          }
+        },
+        "type": "object",
+        "required": [
+          "client",
+          "pid",
+          "client_version"
+        ],
+        "title": "LeaseRequest"
+      },
+      "LeaseResponse": {
+        "properties": {
+          "lifecycle_protocol": {
+            "type": "string",
+            "title": "Lifecycle Protocol"
+          },
+          "sidecar_version": {
+            "type": "string",
+            "title": "Sidecar Version"
+          },
+          "contract_versions": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Contract Versions"
+          },
+          "incompatible_kinds": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Incompatible Kinds",
+            "description": "kind -> why this client's min_contracts is unmet."
+          },
+          "client": {
+            "type": "string",
+            "title": "Client"
+          },
+          "pid": {
+            "type": "integer",
+            "title": "Pid"
+          },
+          "live_leases": {
+            "type": "integer",
+            "title": "Live Leases"
+          },
+          "implicit_lease_sec": {
+            "type": "number",
+            "title": "Implicit Lease Sec"
+          },
+          "idle_exit_sec": {
+            "type": "number",
+            "title": "Idle Exit Sec"
+          },
+          "managed": {
+            "type": "boolean",
+            "title": "Managed",
+            "description": "True when the install root's lease/ directory exists."
+          }
+        },
+        "type": "object",
+        "required": [
+          "lifecycle_protocol",
+          "sidecar_version",
+          "contract_versions",
+          "incompatible_kinds",
+          "client",
+          "pid",
+          "live_leases",
+          "implicit_lease_sec",
+          "idle_exit_sec",
+          "managed"
+        ],
+        "title": "LeaseResponse"
+      },
+      "ModelHealth": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Same value as HealthResponse.models[name]."
+          },
+          "slot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot",
+            "description": "Registry slot serving it: \"local\" | \"base\" | \"cold_start\" | null."
+          },
+          "refusal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refusal",
+            "description": "Registry refusal reason text (integrity/contract/runtime), or null."
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "slot",
+          "refusal"
+        ],
+        "title": "ModelHealth",
+        "description": "Per-model health detail (WP05). ``refusal`` carries the registry's refusal text."
       },
       "ModelIntrospection": {
         "properties": {
@@ -725,6 +1743,50 @@
           "enabled": {
             "type": "boolean",
             "title": "Enabled"
+          },
+          "serving_slot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serving Slot"
+          },
+          "training_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Training Source"
+          },
+          "manifest_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Version"
+          },
+          "refusal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refusal"
           }
         },
         "type": "object",
@@ -779,6 +1841,206 @@
           "status"
         ],
         "title": "QualityResponse"
+      },
+      "RecommendRefusal": {
+        "properties": {
+          "refusal": {
+            "$ref": "#/components/schemas/RefusalBody"
+          }
+        },
+        "type": "object",
+        "required": [
+          "refusal"
+        ],
+        "title": "RecommendRefusal",
+        "description": "Every typed refusal: HTTP :data:`REFUSAL_STATUS_CODE`, this body."
+      },
+      "RecommendRequest": {
+        "properties": {
+          "features": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Features",
+            "description": "Feature values keyed by name; must match the kind's contract."
+          },
+          "feature_contract_version": {
+            "type": "string",
+            "title": "Feature Contract Version",
+            "description": "The contract version the client computed features under."
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id",
+            "description": "Opaque client session id; not interpreted by the engine."
+          },
+          "kind_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind Id",
+            "description": "Optional; when present it must equal the path's kind."
+          }
+        },
+        "type": "object",
+        "required": [
+          "features",
+          "feature_contract_version"
+        ],
+        "title": "RecommendRequest",
+        "description": "``POST /v1/recommend/{kind}`` body (design doc \u00a73.2)."
+      },
+      "RecommendResponse": {
+        "properties": {
+          "decision": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "confidence": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "description": "0-100, validated, never clamped."
+          },
+          "kind_id": {
+            "type": "string",
+            "title": "Kind Id"
+          },
+          "feature_contract_version": {
+            "type": "string",
+            "title": "Feature Contract Version"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "rung": {
+            "type": "string",
+            "title": "Rung"
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "heuristic",
+              "classic",
+              "laya"
+            ],
+            "title": "Backend"
+          },
+          "model_id_sha8": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id Sha8"
+          },
+          "checkpoint_provenance": {
+            "type": "string",
+            "enum": [
+              "local",
+              "org",
+              "base"
+            ],
+            "title": "Checkpoint Provenance"
+          },
+          "generation": {
+            "type": "string",
+            "title": "Generation"
+          },
+          "unbenchmarked": {
+            "type": "boolean",
+            "title": "Unbenchmarked"
+          }
+        },
+        "type": "object",
+        "required": [
+          "confidence",
+          "kind_id",
+          "feature_contract_version",
+          "model",
+          "rung",
+          "backend",
+          "model_id_sha8",
+          "checkpoint_provenance",
+          "generation",
+          "unbenchmarked"
+        ],
+        "title": "RecommendResponse",
+        "description": "A served recommendation (FR-004). Exactly one of ``decision``/``score``.\n\nField semantics for values the specs leave open:\n\n* ``rung`` \u2014 the serving manifest's ``metrics[\"rung\"]`` when present,\n  otherwise the backend name (a test fixture reports ``\"heuristic\"``).\n* ``checkpoint_provenance`` \u2014 the registry slot that served the artifact\n  (``local`` / ``base``); ``org`` is reserved for an org-distributed pack.\n  A test fixture has no checkpoint and reports ``local`` (in-process).\n* ``model_id_sha8`` \u2014 first eight hex characters of the serving artifact's\n  ``artifact_sha256``; ``null`` when there is no artifact (a fixture).\n* ``generation`` \u2014 the serving manifest's ``Manifest.version``; ``\"0\"`` when\n  there is no artifact.\n* ``unbenchmarked`` \u2014 ``true`` unless the manifest records\n  ``metrics[\"benchmarked\"] is True``; always ``true`` for a fixture."
+      },
+      "RefusalBody": {
+        "properties": {
+          "kind_id": {
+            "type": "string",
+            "title": "Kind Id"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "Stable machine reason, e.g. kind_not_served, contract_mismatch."
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "description": "Human-readable diagnostic, e.g. 'kind unavailable: contract v3 != v2'."
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind_id",
+          "reason",
+          "detail"
+        ],
+        "title": "RefusalBody"
+      },
+      "ShutdownResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "ShutdownResponse"
       },
       "StuckRequest": {
         "properties": {

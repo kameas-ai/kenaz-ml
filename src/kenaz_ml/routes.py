@@ -486,7 +486,11 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
         "/v1/admin/shutdown",
         response_model=ShutdownResponse,
         status_code=202,
-        responses={401: {"description": "No bearer token"}, 403: {"description": "Token refused"}},
+        responses={
+            401: {"description": "No bearer token"},
+            403: {"description": "Token refused"},
+            404: {"description": "Cloud mode"},
+        },
     )
     async def admin_shutdown(
         background_tasks: BackgroundTasks, authorization: str | None = Header(None)
