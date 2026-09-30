@@ -230,10 +230,12 @@ class TestActivityClassifier:
         assert result["category"] in CATEGORIES_FULL
 
     def test_weights_persist(self) -> None:
-        from kenaz_ml.models.activity import CATEGORIES_FULL, ActivityClassifier
+        from kenaz_ml.models.activity import ACTIVITY_FEATURE_NAMES, CATEGORIES_FULL, ActivityClassifier
 
         rng = np.random.RandomState(42)
-        X = rng.rand(100, 6)
+        # Moved by feature-vocabulary-refresh WP02 (D-D6): the persisted artifact must be fitted on the
+        # registered activity width, or it is (correctly) refused at load and the classifier stays on rules.
+        X = rng.rand(100, len(ACTIVITY_FEATURE_NAMES))
         y = rng.choice(CATEGORIES_FULL, size=100)
 
         clf1 = ActivityClassifier()

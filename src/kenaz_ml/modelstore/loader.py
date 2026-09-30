@@ -158,10 +158,12 @@ class ModelLoader(Protocol):
 def _expected_contract(model_name: str) -> FeatureContract | None:
     """Return the contract ``model_name``'s artifacts are validated against.
 
-    Three outcomes, and the difference between the last two matters:
+    Four outcomes, and the difference between the last two matters:
 
     * A registered Feast feature service — its ordered contract. Identical to
       what `validate_feature_contract` would source itself.
+    * ``activity`` — its hand-registered ordered contract
+      (``kenaz_ml.models.activity.activity_feature_contract``).
     * No registered service — :func:`_unregistered_contract`, so an artifact that
       also records no contract is served rather than refused. See the module
       docstring.
@@ -171,6 +173,13 @@ def _expected_contract(model_name: str) -> FeatureContract | None:
       the fail-closed direction.
     """
     from kenaz_ml.modelstore.registry import local_feature_contract
+
+    if model_name == "activity":
+        # Registered by hand, not Feast-derived (feature-vocabulary-refresh
+        # D-D6): the ordered contract the classifier's vector is built from.
+        from kenaz_ml.models.activity import activity_feature_contract
+
+        return activity_feature_contract()
 
     try:
         contract = local_feature_contract(model_name)

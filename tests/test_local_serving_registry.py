@@ -84,6 +84,11 @@ def _write_pair(slot: Path, name: str, body: Any, *, version: str = "1", source:
     artifact = slot / f"{name}.joblib"
     artifact.write_bytes(_dump(body))
     contract = local_feature_contract(name)
+    if contract is None and name == "activity":
+        # Moved by feature-vocabulary-refresh WP02 (D-D6): activity carries a registered contract now.
+        from kenaz_ml.models.activity import activity_feature_contract
+
+        contract = activity_feature_contract()
     fields: dict[str, Any] = {
         "name": name,
         "version": version,

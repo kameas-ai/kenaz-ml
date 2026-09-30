@@ -23,6 +23,23 @@ Three outcomes, decided in this order:
                         (User Story 3, scenario 3).
 ======================  ===========================================================
 
+A fourth trigger: the LOCAL contract changed (NEW CODE)
+-------------------------------------------------------
+Everything above fires only when :func:`detect_base_change` reports ``due`` --
+a *shipped base* whose version or digest differs from the local model's
+ancestor -- and its ``reset`` compares the retained set with the **base's**
+contract. With no shipped base (every install today) :func:`refresh_model`
+returns ``no_base`` and does nothing, so bumping the *local* contract
+(``feature-vocabulary-refresh`` D-D5: the ``VOCABULARY_VERSION`` salt) would
+refuse the old artifact at load and then stall retention forever, because
+``append_examples`` refuses a header/contract mismatch and nothing decided to
+reset it. :func:`reset_on_local_contract_change` is that decision: it compares
+the retained header's contract version with the **current local contract** and,
+on a difference, calls the same :func:`~retained.reset_retained`. It is called
+from :func:`refresh_all`, only for a model the base path left alone (so a model
+the base path already reset is never reset twice), and it does not alter any
+behaviour described above.
+
 Detection carries no timestamps
 -------------------------------
 FR-012 requires the change be detectable *from manifest provenance alone*.
@@ -121,6 +138,7 @@ __all__ = [
     "REASON_BASE_DIGEST_CHANGED",
     "REASON_BASE_MANIFEST_UNUSABLE",
     "REASON_BASE_VERSION_CHANGED",
+    "REASON_LOCAL_CONTRACT_CHANGED",
     "REASON_LOCAL_MANIFEST_UNUSABLE",
     "REASON_NO_BASE",
     "REASON_NO_LOCAL",
@@ -135,6 +153,7 @@ __all__ = [
     "detect_base_change",
     "refresh_all",
     "refresh_model",
+    "reset_on_local_contract_change",
 ]
 
 
@@ -150,6 +169,7 @@ ACTION_ADOPT_BASE = "adopt_base"
 
 #: Why detection decided as it did — stable codes, safe to branch on.
 REASON_UP_TO_DATE = "up_to_date"
+REASON_LOCAL_CONTRACT_CHANGED = "local_contract_changed"
 REASON_NO_BASE = "no_base"
 REASON_NO_LOCAL = "no_local"
 REASON_BASE_MANIFEST_UNUSABLE = "base_manifest_unusable"
@@ -1062,6 +1082,101 @@ def _dump(model: Any) -> bytes:
     return buf.getvalue()
 
 
+def reset_on_local_contract_change(
+    name: str,
+    *,
+    local_dir: Path | str | None = None,
+    retained_dir: Path | str | None = None,
+    expected_contract: FeatureContract | None = None,
+    now_ms: int | None = None,
+) -> RefreshResult | None:
+    """NEW CODE (D-D5): reset a model's retained set when the LOCAL contract moved.
+
+    The local-change counterpart of the base-diff ``reset`` (see the module
+    docstring): no shipped base is required, and the comparison is against the
+    current local contract, not the base's. Returns ``None`` when there is
+    nothing to do -- no usable retained set, no contract this install can vouch
+    for, or the retained set already speaks the current contract. Otherwise
+    discards the retained examples, bumps the generation, restamps the header
+    under the current contract (existing :func:`reset_retained`), records
+    ``reset_reason=contract_version_changed`` in the local manifest when one
+    exists, and returns an ``ACTION_RESET`` result.
+
+    The old local artifact is left alone: it still carries the old contract, so
+    the loader refuses it on its own (``service_version_mismatch``) and the model
+    serves cold start / rules until a retrain, which is exactly the state this
+    reset keeps consistent. Never raises; a failure is returned as data and
+    leaves the previous state exactly where it was.
+    """
+    try:
+        contract = expected_contract
+        if contract is None:
+            from kenaz_ml.modelstore.loader import _expected_contract
+
+            contract = _expected_contract(name)
+        if contract is None or not contract.service_version:
+            return None  # no contract we can vouch for (unregistered model, or Feast could not answer)
+
+        retained = read_retained(name, directory=retained_dir)
+        if not retained.ok or retained.contract_version == contract.service_version:
+            return None
+
+        stamp = now_ms if now_ms is not None else _now_ms()
+        local_root = Path(local_dir) if local_dir is not None else local_slot_dir()
+        manifest_file = manifest_path(local_root, name)
+        previous = read_manifest(manifest_file).manifest if manifest_file.is_file() else None
+
+        result = reset_retained(name, contract=contract, directory=retained_dir, created_at=stamp)
+
+        manifest: Manifest | None = None
+        if previous is not None:
+            from dataclasses import replace
+
+            manifest = replace(
+                previous, provenance=replace(previous.provenance, reset_reason=RESET_REASON_CONTRACT_CHANGED)
+            )
+            try:
+                write_manifest(manifest_file, manifest)
+            except OSError:
+                logger.warning("registry: could not record the reset reason in %s", manifest_file, exc_info=True)
+                manifest = previous
+
+        logger.warning(
+            "registry: personalization reset for %r -- the local feature contract is now %s but the %d retained "
+            "example(s) were recorded under %s, so they cannot be replayed. They have been discarded "
+            "(generation %s -> %s); the local artifact is refused at load until retrained; reset_reason=%s.",
+            name,
+            contract.service_version,
+            len(retained.examples),
+            retained.contract_version,
+            result.previous_generation or "-",
+            result.next_generation,
+            RESET_REASON_CONTRACT_CHANGED,
+        )
+        change = BaseChange(
+            name=name,
+            due=False,
+            reason=REASON_LOCAL_CONTRACT_CHANGED,
+            detail=(
+                f"retained contract {retained.contract_version} != local contract {contract.service_version}; "
+                "no shipped base involved"
+            ),
+            local_manifest=previous,
+        )
+        return RefreshResult(
+            name=name,
+            action=ACTION_RESET,
+            change=change,
+            manifest=manifest,
+            retained_generation=result.next_generation,
+            previous_generation=result.previous_generation,
+            reset_reason=RESET_REASON_CONTRACT_CHANGED,
+        )
+    except Exception:  # noqa: BLE001 -- the module's guarantee: nothing here raises
+        logger.warning("registry: local-contract-change check for %r failed", name, exc_info=True)
+        return None
+
+
 def refresh_all(
     names: Sequence[str],
     *,
@@ -1076,9 +1191,14 @@ def refresh_all(
     One model's refusal never stops another's refresh: a broken artifact for
     ``stuck`` is no reason to leave ``duration`` descended from a base that is
     no longer shipped.
+
+    After the base-refresh policy, a model the base path left alone (nothing
+    due, and no failure) is checked by :func:`reset_on_local_contract_change`;
+    a model the base path already acted on is never reset a second time.
     """
-    return tuple(
-        refresh_model(
+    results: list[RefreshResult] = []
+    for name in names:
+        result = refresh_model(
             name,
             local_dir=local_dir,
             base_dir=base_dir,
@@ -1086,8 +1206,14 @@ def refresh_all(
             train=train,
             now_ms=now_ms,
         )
-        for name in names
-    )
+        if result.ok and result.action == ACTION_NONE and not result.change.due:
+            local_reset = reset_on_local_contract_change(
+                name, local_dir=local_dir, retained_dir=retained_dir, now_ms=now_ms
+            )
+            if local_reset is not None:
+                result = local_reset
+        results.append(result)
+    return tuple(results)
 
 
 def describe(result: RefreshResult) -> dict[str, Any]:

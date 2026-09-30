@@ -82,7 +82,10 @@ TENANT = "default"
 #: feature service; three do not, and neither does the `fleet_*` family.
 PRE_REGISTRY_MODELS = ("stuck", "duration", "activity", "workflow", "quality")
 REGISTERED_MODELS = ("stuck", "duration")
-UNREGISTERED_MODELS = ("activity", "workflow", "quality", "fleet_throughput")
+# Moved by feature-vocabulary-refresh WP02 (D-D6): `activity` now has a registered
+# (hand-authored, ordered) contract, so it is no longer "unregistered" -- see
+# tests/test_stuck_contract_reset.py for its registered-contract coverage.
+UNREGISTERED_MODELS = ("workflow", "quality", "fleet_throughput")
 
 
 # ---------------------------------------------------------------------------
