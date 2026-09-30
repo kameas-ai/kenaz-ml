@@ -5,7 +5,7 @@ could not label its ``versions/<semver>/`` directories honestly. Now:
 
 1. **Frozen** (PyInstaller onedir): the ``VERSION`` file the freeze spec writes
    from ``pyproject.toml`` at build time — ``<_MEIPASS>/kenaz_ml/VERSION``, with
-   the onedir-root ``VERSION`` (beside the ``kameas-ml`` launcher) as a second
+   the onedir-root ``VERSION`` (beside the launcher binary) as a second
    carrier a client can read without executing anything.
 2. **Source checkout / editable install**: ``pyproject.toml`` read directly, so a
    bumped version is reported without a reinstall.
