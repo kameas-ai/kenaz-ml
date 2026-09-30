@@ -1918,6 +1918,32 @@
             ],
             "title": "Kind Id",
             "description": "Optional; when present it must equal the path's kind."
+          },
+          "features_hash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Features Hash",
+            "description": "Optional: the label row's features_hash for this decision (exact shadow join)."
+          },
+          "ts": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ts",
+            "description": "Optional: the label row's ts (decision time, epoch ms) for this decision."
           }
         },
         "type": "object",

@@ -130,6 +130,17 @@ class RecommendRequest(BaseModel):
     feature_contract_version: str = Field(..., description="The contract version the client computed features under.")
     session_id: str | None = Field(None, description="Opaque client session id; not interpreted by the engine.")
     kind_id: str | None = Field(None, description="Optional; when present it must equal the path's kind.")
+    # Exact shadow-join key (ruled 2026-09-30 from Mission B's contradiction):
+    # the same (features_hash, ts) the harness later pushes on the label row.
+    # Optional and absent-tolerated; the engine never interprets them for
+    # serving -- they are carried on the parsed request for the shadow write
+    # site (harness-recommendation-models-01MSK2RM owns the join).
+    features_hash: str | None = Field(
+        None, min_length=1, description="Optional: the label row's features_hash for this decision (exact shadow join)."
+    )
+    ts: int | None = Field(
+        None, gt=0, description="Optional: the label row's ts (decision time, epoch ms) for this decision."
+    )
 
 
 class RecommendResponse(BaseModel):

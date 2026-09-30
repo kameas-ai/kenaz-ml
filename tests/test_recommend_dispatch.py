@@ -466,3 +466,32 @@ def test_unknown_kinds_never_grow_the_latency_rings(table: DispatchTable) -> Non
         assert _post(client, f"junk_{i}", {}, "x").status_code == 422
     assert all(state.dispatch_table.latency_p95_ms(f"junk_{i}") is None for i in range(20))
     assert not state.dispatch_table._latency
+
+
+# ---------------------------------------------------------------------------
+# Optional exact shadow-join key on the request (ruled 2026-09-30)
+# ---------------------------------------------------------------------------
+
+
+def test_join_key_fields_are_optional_and_carried_on_the_request(table: DispatchTable) -> None:
+    register_fixtures(table)
+    client, _ = _app(table)
+    version = fixture_contract().service_version
+    base = {"features": fixture_features(), "feature_contract_version": version}
+
+    assert client.post(f"/v1/recommend/{FIXTURE_KIND}", json=base).status_code == 200  # absent-tolerated
+    keyed = {**base, "features_hash": "h-abc", "ts": 1_700_000_000_000}
+    assert client.post(f"/v1/recommend/{FIXTURE_KIND}", json=keyed).status_code == 200
+
+    parsed = dispatch_mod.RecommendRequest.model_validate(keyed)
+    assert (parsed.features_hash, parsed.ts) == ("h-abc", 1_700_000_000_000)
+    bare = dispatch_mod.RecommendRequest.model_validate(base)
+    assert (bare.features_hash, bare.ts) == (None, None)
+
+
+@pytest.mark.parametrize("bad", [{"ts": 0}, {"ts": -5}, {"features_hash": ""}])
+def test_malformed_join_key_is_rejected(table: DispatchTable, bad: dict) -> None:
+    register_fixtures(table)
+    client, _ = _app(table)
+    body = {"features": fixture_features(), "feature_contract_version": fixture_contract().service_version, **bad}
+    assert client.post(f"/v1/recommend/{FIXTURE_KIND}", json=body).status_code == 422
