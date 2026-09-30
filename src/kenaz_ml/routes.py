@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
@@ -290,6 +290,49 @@ class LabelBatchResponse(BaseModel):
     retained_appended: int
     retained_rebuilt: bool
     retained_generation: str | None = None
+
+
+# ---------- /v1/features — stateless push lane (WP09, FR-023) ----------
+
+
+class FeatureEvent(BaseModel):
+    """One pushed feature event. Validated per event by ``features_push`` so a bad
+    event never fails its batch; the loose types here are deliberate."""
+
+    event_class: Any = Field(
+        ...,
+        description='Closed registry: "commit" (specified); egress_deny, run_outcome, '
+        "budget_pressure, lifecycle (schema-deferred, refused).",
+    )
+    ts_ms: Any = Field(..., description="Event time, positive integer milliseconds (for commit: the commit time).")
+    session_id: Any = Field(None, description="Scopes the event; omitted = global.")
+    fields: Any = Field(default_factory=dict, description="Class-specific fields; must be empty for commit.")
+
+
+class FeaturesPushRequest(BaseModel):
+    client: str
+    events: list[FeatureEvent]
+
+
+class FeatureEventRefusal(BaseModel):
+    index: int
+    reason: str
+    detail: str
+
+
+class FeaturesPushResponse(BaseModel):
+    accepted: int
+    refused: int
+    refusals: list[FeatureEventRefusal]
+
+
+class LaneRefusalBody(BaseModel):
+    reason: str
+    detail: str
+
+
+class LaneRefusal(BaseModel):
+    refusal: LaneRefusalBody
 
 
 # (internal model attr, display name, ml_predictions.model key or None)
@@ -862,6 +905,48 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
             retained_appended=result.retained_appended,
             retained_rebuilt=result.retained_rebuilt,
             retained_generation=result.retained_generation,
+        )
+
+    # ---------- /v1/features (WP09) ----------
+    from kenaz_ml import features_push as _features_push
+
+    push_store = _features_push.install(_features_push.FeaturePushStore())
+    state.features_push = push_store
+
+    @fastapi_app.post(
+        "/v1/features",
+        response_model=FeaturesPushResponse,
+        responses={422: {"model": LaneRefusal, "description": "Batch too large, or the lane is unavailable"}},
+    )
+    async def push_features(req: FeaturesPushRequest) -> FeaturesPushResponse | JSONResponse:
+        """Stateless feature-event push (FR-023): validated against a closed class
+        registry, held in a bounded in-process store. No table, no file, no outbound call.
+        Local mode only: in cloud mode the route answers ``lane_unavailable``."""
+        if state.mode == ServingMode.CLOUD:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "refusal": {
+                        "reason": _features_push.REASON_LANE_UNAVAILABLE,
+                        "detail": "the /v1/features lane is a local-mode feature",
+                    }
+                },
+            )
+        if len(req.events) > _features_push.MAX_BATCH:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "refusal": {
+                        "reason": _features_push.REASON_BATCH_TOO_LARGE,
+                        "detail": f"{len(req.events)} events exceeds the batch limit of {_features_push.MAX_BATCH}",
+                    }
+                },
+            )
+        outcome = push_store.push(req.client, [e.model_dump() for e in req.events])
+        return FeaturesPushResponse(
+            accepted=outcome.accepted,
+            refused=len(outcome.refusals),
+            refusals=[FeatureEventRefusal(**r) for r in outcome.refusals],
         )
 
     @fastapi_app.get("/")
