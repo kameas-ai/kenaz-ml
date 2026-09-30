@@ -135,6 +135,12 @@ REASON_BELOW_MINIMUM = "below_minimum_rows"
 REASON_FIT_FAILED = "fit_failed"
 REASON_WRITE_FAILED = "write_failed"
 REASON_BASE_SLOT = "base_slot_refused"
+#: The local slot's ``{kind}.json`` describes a laya checkpoint directory (FR-011,
+#: laya-serving-and-packs-01MSK2SP review). A classic retrain would overwrite that
+#: manifest with a joblib one -- orphaning the checkpoint and carrying
+#: ``serving_backend=laya`` onto a model laya cannot load, so the kind would then
+#: report "laya backend not installed" about a checkpoint that IS installed.
+REASON_LAYA_CHECKPOINT_PRESENT = "laya_checkpoint_present"
 
 STATUS_TRAINED = "trained"
 STATUS_DECLINED = "declined"
@@ -420,6 +426,16 @@ def _train_kind(
     from kenaz_ml import config
     from kenaz_ml.modelstore.registry import Manifest, Runtime, Training, running_sklearn_version, write_manifest
     from kenaz_ml.training.trainer import _is_base_slot, _next_provenance
+
+    existing = previous_manifest(kind, models_dir)
+    if existing is not None and getattr(existing, "artifact_kind", "file") == "directory":
+        return TrainOutcome(
+            kind,
+            STATUS_DECLINED,
+            REASON_LAYA_CHECKPOINT_PRESENT,
+            f"{kind}: the local slot holds a laya checkpoint (a directory artifact); a classic retrain "
+            "would overwrite its manifest, so the checkpoint is left in place",
+        )
 
     loaded = load_training_set(kind, retained_dir=retained_dir)
     if isinstance(loaded, Decline):

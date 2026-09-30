@@ -32,6 +32,7 @@ from kenaz_ml.advice.dispatch import (
     ClassicBackend,
     DispatchEntry,
     DispatchTable,
+    LayaBackend,
     build_table,
 )
 from kenaz_ml.modelstore.registry import Manifest, Provenance, Runtime, running_sklearn_version, write_manifest
@@ -309,8 +310,10 @@ def test_startup_scan_never_registers_a_workbench_name(slots: dict[str, Path]) -
 # ---------------------------------------------------------------------------
 
 
-def test_only_classic_ships_as_a_backend_implementation() -> None:
-    assert {"classic": ClassicBackend} == SHIPPED_BACKENDS
+def test_only_classic_and_laya_ship_as_backend_implementations() -> None:
+    # laya-serving-and-packs-01MSK2SP WP02 landed the in-process laya backend --
+    # the implementation this assertion's comment said was still to come.
+    assert {"classic": ClassicBackend, "laya": LayaBackend} == SHIPPED_BACKENDS
 
 
 def test_no_heuristic_backend_under_src_advice() -> None:

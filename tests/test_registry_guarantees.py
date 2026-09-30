@@ -342,6 +342,8 @@ _ADDITIVE_AFTER_CAPTURE = {
     "model_details",
     "device",
     "lifecycle_protocol",
+    # laya-serving-and-packs-01MSK2SP WP03: the one further additive field.
+    "laya_eligibility",
 }
 
 

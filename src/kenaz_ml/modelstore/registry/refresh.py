@@ -838,8 +838,11 @@ def refresh_model(
     # is) and writes a manifest with empty ``metrics`` -- silently un-flipping a
     # flipped kind. The kinds are not on ``app.REGISTRY_ROSTER`` today, so this
     # is unreachable in production; it declines rather than trusting that.
-    # Blocker/owner: the first shipped advice base pack (laya-serving-and-
-    # packs-01MSK2SP) must route this rebuild through ``train_kind``.
+    # Blocker/owner: the first mission that ships an advice *classic* base pack
+    # must route this rebuild through ``train_kind``. laya-serving-and-packs-
+    # 01MSK2SP ships none (review 2026-09-30: its packs are laya directory
+    # artifacts, which fail ``validate_artifact`` above and never reach here);
+    # the owner is the future pack-channel consumer mission its WP05 specifies.
     from kenaz_ml.advice.contracts import KIND_IDS as ADVICE_KIND_IDS
 
     if name in ADVICE_KIND_IDS:

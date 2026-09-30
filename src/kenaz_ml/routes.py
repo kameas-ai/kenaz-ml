@@ -22,6 +22,7 @@ from kenaz_ml.advice.dispatch import (
 )
 from kenaz_ml.config import ServingMode
 from kenaz_ml.feature_store.resolve import resolve_duration_features, resolve_stuck_features
+from kenaz_ml.laya import eligibility as laya_eligibility
 from kenaz_ml.models.duration import DurationEstimator
 from kenaz_ml.models.quality import QualityEstimator
 from kenaz_ml.models.stuck import StuckPredictor
@@ -103,6 +104,32 @@ class ModelHealth(BaseModel):
     refusal: str | None = Field(..., description="Registry refusal reason text (integrity/contract/runtime), or null.")
 
 
+class LayaEligibility(BaseModel):
+    """The per-host laya eligibility verdict (laya-serving-and-packs-01MSK2SP WP03, FR-005).
+
+    Measured **lazily** at the first dispatch of a laya-configured kind, so a
+    fresh boot reports ``verdict: "not_evaluated"`` with null measurements until
+    then (honest nulls, never invented -- the ``ModelIntrospection`` discipline).
+    ``/health`` never triggers the benchmark. ``measured_against`` is ``"fixture"``
+    when no checkpoint exists to measure (the bundled non-functional
+    random-weights fixture): those timings say little about a real checkpoint.
+    """
+
+    verdict: str = Field(..., description='"eligible" | "ineligible" | "not_evaluated".')
+    reason: str = Field(
+        ..., description="Stable code: eligible, insufficient_memory, memory_unknown, benchmark_failed, ..."
+    )
+    detail: str
+    measured_against: str | None = Field(..., description='"fixture" | "checkpoint" | null when unmeasured.')
+    free_memory_bytes: int | None
+    memory_method: str | None
+    benchmark_calls: int | None
+    p50_ms: float | None
+    p95_ms: float | None
+    max_ms: float | None
+    evaluated_at_ms: int | None
+
+
 class HealthResponse(BaseModel):
     """``/health`` — honest enough for a client to verify (FR-016, Amendment A1).
 
@@ -137,6 +164,11 @@ class HealthResponse(BaseModel):
     lifecycle_protocol: int = Field(
         ...,
         description="Lifecycle protocol version: 1 = speaks /v1/clients/lease; 0 = none (cloud mode, legacy).",
+    )
+    laya_eligibility: LayaEligibility = Field(
+        ...,
+        description="The per-host laya eligibility verdict (laya-serving-and-packs-01MSK2SP WP03): the one field "
+        "that mission adds to this schema. An ineligible host refuses laya-bearing kinds; the client falls back.",
     )
 
 
@@ -432,6 +464,7 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
                     name: ModelHealth(status=value, slot=None, refusal=None) for name, value in models_status.items()
                 },
                 lifecycle_protocol=0,
+                laya_eligibility=LayaEligibility(**laya_eligibility.describe()),
             )
 
         # Local mode: existing behavior with mode field added
@@ -470,6 +503,7 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
             **_identity(state),
             model_details=details,
             lifecycle_protocol=LIFECYCLE_PROTOCOL,
+            laya_eligibility=LayaEligibility(**laya_eligibility.describe()),
         )
 
     @fastapi_app.post("/v1/clients/lease", response_model=LeaseResponse, responses={404: {"description": "Cloud mode"}})

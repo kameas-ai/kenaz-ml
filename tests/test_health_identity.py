@@ -70,6 +70,20 @@ def _valid_payload() -> dict[str, Any]:
         "model_details": {"stuck": {"status": "untrained", "slot": "cold_start", "refusal": None}},
         "device": "cpu",
         "lifecycle_protocol": LIFECYCLE_PROTOCOL,
+        # laya-serving-and-packs-01MSK2SP WP03: the one further required field.
+        "laya_eligibility": {
+            "verdict": "not_evaluated",
+            "reason": "not_evaluated",
+            "detail": "x",
+            "measured_against": None,
+            "free_memory_bytes": None,
+            "memory_method": None,
+            "benchmark_calls": None,
+            "p50_ms": None,
+            "p95_ms": None,
+            "max_ms": None,
+            "evaluated_at_ms": None,
+        },
     }
 
 

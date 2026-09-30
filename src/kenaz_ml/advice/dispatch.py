@@ -2,7 +2,8 @@
 
 One in-process **dispatch table** maps each recommendation kind to the single
 backend that serves it — ``classic`` (a registry-validated scikit-learn
-artifact) or ``laya`` (dormant: always refuses in this mission) — or to *no*
+artifact) or ``laya`` (an in-process ONNXAgent; refuses unless a checkpoint is
+installed and the host eligible) — or to *no*
 backend, in which case the kind refuses with a typed ``kind_not_served``.
 
 The engine ships **no heuristic backend** (Amendment A3.2, plan D-A5). The
@@ -33,8 +34,11 @@ Where a manifest names its backend
 persisted flip into (its WP04 T019). Values:
 
 * ``"classic"`` — served by the validated artifact (:class:`ClassicBackend`).
-* ``"laya"`` — refuses ``laya_backend_not_installed`` (no laya runtime ships
-  in this mission; never substituted).
+* ``"laya"`` — served by :class:`LayaBackend` **in-process** (never over HTTP to
+  ``/v1/systemone``; C-002) when a verified checkpoint directory is installed and
+  the host is eligible; otherwise refuses ``laya_backend_not_installed`` (no
+  checkpoint, or laya itself absent from the build) or ``host_ineligible`` --
+  never substituted (A3.2).
 * absent or ``"heuristic"`` — the kind is *not flipped*: the client's heuristic
   answers, so the engine refuses ``kind_not_served``.
 * anything else — refuses ``backend_unknown`` rather than defaulting.
@@ -108,6 +112,9 @@ REASON_BACKEND_UNKNOWN = "backend_unknown"
 REASON_NO_CONTRACT = "no_contract"
 REASON_CONFIDENCE_OUT_OF_RANGE = "confidence_out_of_range"
 REASON_BACKEND_ERROR = "backend_error"
+REASON_HOST_INELIGIBLE = "host_ineligible"
+REASON_CHECKPOINT_REFUSED = "checkpoint_refused"
+LAYA_NOT_INSTALLED_DETAIL = "kind unavailable: laya backend not installed"
 
 #: The one HTTP status every typed refusal uses. 422 is in the harness's
 #: ``ErrNoAdvice`` mapping (503 / timeout / connect-refused / 422 / refusal);
@@ -304,10 +311,112 @@ class ClassicBackend:
         return BackendAnswer(decision=decision, confidence=confidence)
 
 
+@dataclass
+class LayaBackend:
+    """An installed laya checkpoint, called **in-process** through the ``ONNXAgent`` wrapper.
+
+    Never an HTTP call to this process's own ``/v1/systemone`` (spec C-002;
+    ``tests/test_laya_dispatch_boundary.py`` scans this module for one). The
+    refusal semantics are Amendment A3.2's: :meth:`preflight` refuses on an
+    ineligible host (``host_ineligible``), :meth:`answer` refuses
+    ``laya_backend_not_installed`` when the laya package itself is absent, and
+    neither ever falls back to another backend -- the client does.
+
+    ``confidence`` is ``round(100 * answer_confidence)``, left **unclamped** so
+    :func:`dispatch` refuses an out-of-range value; the entropy ``confidence``
+    field laya also reports is never read (``kenaz_ml.laya.agent.LayaAnswer``
+    cannot carry it).
+    """
+
+    kind_id: str
+    checkpoint: Any  # kenaz_ml.laya.agent.CheckpointRef
+    names: tuple[str, ...]
+    runtime: Any = None  # kenaz_ml.laya.agent.LayaRuntime; the process-wide one when None
+    name: str = BACKEND_LAYA
+
+    @property
+    def manifest(self) -> Any:
+        return self.checkpoint.manifest
+
+    @property
+    def model_label(self) -> str:
+        return f"laya/{self.kind_id}@{self.manifest.version}"
+
+    @property
+    def rung(self) -> str:
+        return str(self.manifest.metrics.get(RUNG_METRIC_KEY) or BACKEND_LAYA)
+
+    @property
+    def checkpoint_provenance(self) -> str:
+        return self.checkpoint.provenance if self.checkpoint.provenance in ("local", "org", "base") else "local"
+
+    @property
+    def model_id_sha8(self) -> str | None:
+        return self.checkpoint.sha8
+
+    @property
+    def generation(self) -> str:
+        return str(self.manifest.version)
+
+    @property
+    def unbenchmarked(self) -> bool:
+        return self.manifest.metrics.get(BENCHMARKED_METRIC_KEY) is not True
+
+    def _runtime(self) -> Any:
+        from kenaz_ml.laya.agent import get_runtime
+
+        return self.runtime or get_runtime()
+
+    def preflight(self) -> None:
+        """Consult the per-host eligibility gate; raise :class:`Refused` if the host is ineligible."""
+        from kenaz_ml.laya import eligibility
+
+        verdict = eligibility.current_verdict()
+        if not verdict.eligible:
+            raise Refused(
+                self.kind_id,
+                REASON_HOST_INELIGIBLE,
+                f"kind unavailable: host ineligible: {verdict.reason} ({verdict.detail})",
+            )
+
+    def standing_refusal(self) -> tuple[str, str] | None:
+        """``(reason, detail)`` for a refusal already knowable without running anything; never measures or imports.
+
+        In :func:`dispatch`'s own order: a host *already known* ineligible this
+        boot, then a build with no laya runtime at all (the shipped state -- a
+        verified checkpoint alone does not make laya servable, and ``/v1/contracts``
+        must not say ``available`` for a kind every request refuses).
+        """
+        from kenaz_ml.laya import eligibility
+
+        verdict = eligibility.cached_verdict()
+        if verdict is not None and not verdict.eligible:
+            return REASON_HOST_INELIGIBLE, f"kind unavailable: host ineligible: {verdict.reason} ({verdict.detail})"
+        runtime_present = getattr(self._runtime(), "runtime_present", None)
+        if callable(runtime_present) and not runtime_present():
+            return REASON_LAYA_NOT_INSTALLED, LAYA_NOT_INSTALLED_DETAIL
+        return None
+
+    def answer(self, vector: tuple[float, ...]) -> BackendAnswer:
+        from kenaz_ml.laya.agent import LayaNotInstalledError
+
+        runtime = self._runtime()
+        try:
+            runtime.ensure_loaded(self.checkpoint)
+        except LayaNotInstalledError as exc:
+            logger.warning("dispatch: laya unavailable for %r: %s", self.kind_id, exc)
+            raise Refused(self.kind_id, REASON_LAYA_NOT_INSTALLED, LAYA_NOT_INSTALLED_DETAIL) from exc
+        laya_answer = runtime.predict(self.kind_id, self.names, vector)
+        # round() of a non-finite value raises -> backend_error; an out-of-range
+        # integer is refused by dispatch() as confidence_out_of_range. Never clamped.
+        confidence = round(100 * laya_answer.answer_confidence)
+        return BackendAnswer(decision=laya_answer.decision, score=laya_answer.score, confidence=confidence)
+
+
 #: The complete set of backend *implementations* shipped in ``src/``. There is
-#: deliberately no heuristic implementation here (A3.2); ``laya`` has none until
-#: ``laya-serving-and-packs-01MSK2SP`` lands one.
-SHIPPED_BACKENDS: dict[str, type] = {BACKEND_CLASSIC: ClassicBackend}
+#: deliberately no heuristic implementation here (A3.2). ``laya`` joined with
+#: ``laya-serving-and-packs-01MSK2SP`` WP02.
+SHIPPED_BACKENDS: dict[str, type] = {BACKEND_CLASSIC: ClassicBackend, BACKEND_LAYA: LayaBackend}
 
 
 # ---------------------------------------------------------------------------
@@ -441,11 +550,22 @@ def _entry_for(kind_id: str, local_dir: Path, base_dir: Path) -> DispatchEntry:
     if resolution.served:
         manifest = resolution.manifest
         backend = _manifest_backend(manifest)
+        if getattr(manifest, "artifact_kind", "file") == "directory" and backend != BACKEND_LAYA:
+            # A directory artifact is a laya checkpoint (FR-011); its "model" is a path,
+            # which no other backend can serve. Refuse rather than hand a Path to sklearn.
+            return DispatchEntry(
+                kind_id=kind_id,
+                contract=contract,
+                manifest=manifest,
+                reason=REASON_BACKEND_UNKNOWN,
+                detail=f"kind unavailable: manifest is a directory artifact (a laya checkpoint) but names "
+                f"backend {backend!r}, not {BACKEND_LAYA!r}",
+            )
         if backend == BACKEND_CLASSIC:
             server = ClassicBackend(model=resolution.model, kind_id=kind_id, manifest=manifest, slot=resolution.slot)
             return DispatchEntry(kind_id=kind_id, contract=contract, backend=backend, server=server, manifest=manifest)
         if backend == BACKEND_LAYA:
-            return _laya_refusal(kind_id, contract, manifest)
+            return _laya_entry(kind_id, contract, manifest, local_dir, base_dir, resolution)
         if backend in (None, BACKEND_HEURISTIC):
             return not_served(
                 kind_id,
@@ -464,7 +584,21 @@ def _entry_for(kind_id: str, local_dir: Path, base_dir: Path) -> DispatchEntry:
         if read.ok and read.manifest is not None:
             backend = _manifest_backend(read.manifest)
             if backend == BACKEND_LAYA:
-                return _laya_refusal(kind_id, contract, read.manifest)
+                entry = _laya_entry(kind_id, contract, read.manifest, local_dir, base_dir)
+                refused = [str(r) for r in resolution.refusals if r.reason != REASON_SLOT_EMPTY]
+                if entry.server is None and refused and getattr(read.manifest, "artifact_kind", "file") == "directory":
+                    # The checkpoint IS installed but the registry refused it (tampered, wrong contract...):
+                    # say so, rather than the misleading "laya backend not installed".
+                    return DispatchEntry(
+                        kind_id=kind_id,
+                        contract=contract,
+                        backend=BACKEND_LAYA,
+                        manifest=read.manifest,
+                        reason=REASON_CHECKPOINT_REFUSED,
+                        detail=f"kind unavailable: {kind_id!r} laya checkpoint refused by the registry — "
+                        + "; ".join(refused),
+                    )
+                return entry
             if backend is not None and backend not in BACKENDS:
                 return _unknown_backend(kind_id, contract, backend, read.manifest)
 
@@ -476,14 +610,56 @@ def _entry_for(kind_id: str, local_dir: Path, base_dir: Path) -> DispatchEntry:
 
 
 def _laya_refusal(kind_id: str, contract: Any, manifest: Any) -> DispatchEntry:
+    _note_checkpoint(kind_id, None)
     return DispatchEntry(
         kind_id=kind_id,
         contract=contract,
         backend=BACKEND_LAYA,
         manifest=manifest,
         reason=REASON_LAYA_NOT_INSTALLED,
-        detail="kind unavailable: laya backend not installed",
+        detail=LAYA_NOT_INSTALLED_DETAIL,
     )
+
+
+def _note_checkpoint(kind_id: str, identity: str | None) -> None:
+    """Keep the eligibility gate's view of the installed-checkpoint set current (a change recomputes the verdict)."""
+    try:
+        from kenaz_ml.laya import eligibility
+
+        if identity is None:
+            eligibility.unregister_checkpoint(kind_id)
+        else:
+            eligibility.register_checkpoint(kind_id, identity)
+    except Exception:  # pragma: no cover - bookkeeping must never break table population
+        logger.debug("dispatch: could not update the eligibility checkpoint set", exc_info=True)
+
+
+def _laya_entry(
+    kind_id: str, contract: Any, manifest: Any, local_dir: Path, base_dir: Path, resolution: Any = None
+) -> DispatchEntry:
+    """A laya-configured kind: served by an in-process :class:`LayaBackend` only if a checkpoint is installed.
+
+    With no verified checkpoint directory -- the day-one state of every install,
+    whether or not the host is eligible (FR-007) -- the kind refuses
+    ``laya_backend_not_installed``. Eligibility is a *request-time* gate
+    (:meth:`LayaBackend.preflight`), because it is measured lazily at the first
+    dispatch of a laya-configured kind (FR-005), not at table build.
+    """
+    try:
+        from kenaz_ml.laya.agent import find_checkpoint, ref_from_resolution
+
+        # A directory the registry already verified this pass is reused, not re-hashed.
+        ref = ref_from_resolution(kind_id, resolution) if resolution is not None else None
+        if ref is None:
+            ref = find_checkpoint(kind_id, local_dir=local_dir, base_dir=base_dir, expected_contract=contract)
+    except Exception:
+        logger.warning("dispatch: laya checkpoint lookup failed for %r", kind_id, exc_info=True)
+        ref = None
+    if ref is None:
+        return _laya_refusal(kind_id, contract, manifest)
+    _note_checkpoint(kind_id, f"{ref.sha8}@{ref.provenance}")
+    server = LayaBackend(kind_id=kind_id, checkpoint=ref, names=tuple(contract.names) if contract else ())
+    return DispatchEntry(kind_id=kind_id, contract=contract, backend=BACKEND_LAYA, server=server, manifest=manifest)
 
 
 def _unknown_backend(kind_id: str, contract: Any, backend: str, manifest: Any) -> DispatchEntry:
@@ -640,8 +816,13 @@ def dispatch(snapshot: Mapping[str, DispatchEntry], kind_id: str, request: Recom
         raise Refused(kind_id, REASON_FEATURES_INVALID, "features must be finite numbers")
 
     server = entry.server
+    preflight = getattr(server, "preflight", None)
+    if preflight is not None:
+        preflight()  # a backend that can refuse before answering (laya: host eligibility); raises Refused
     try:
         answer = server.answer(vector)
+    except Refused:
+        raise  # a typed refusal from the backend itself (laya: not installed) keeps its own reason
     except Exception as exc:
         logger.warning("dispatch: backend %s failed for %r", server.name, kind_id, exc_info=True)
         raise Refused(kind_id, REASON_BACKEND_ERROR, f"{type(exc).__name__}: {exc}") from exc
@@ -678,15 +859,20 @@ def contracts_payload(snapshot: Mapping[str, DispatchEntry]) -> ContractsRespons
     kinds: dict[str, ContractEntry] = {}
     for kind_id, entry in snapshot.items():
         contract = entry.contract
+        available, reason, detail = entry.available, entry.reason, entry.detail
+        standing = getattr(entry.server, "standing_refusal", None)
+        refusal = standing() if callable(standing) else None
+        if refusal is not None:  # a laya kind on a host already measured ineligible: honest, not "available"
+            available, (reason, detail) = False, refusal
         kinds[kind_id] = ContractEntry(
             features=list(getattr(contract, "names", ())),
             dtypes=list(getattr(contract, "dtypes", ())),
             version=getattr(contract, "service_version", None) or "",
             supported_versions=list(entry.supported_versions),
-            available=entry.available,
+            available=available,
             backend=entry.server.name if entry.server is not None else entry.backend,
-            reason=entry.reason,
-            detail=entry.detail,
+            reason=reason,
+            detail=detail,
         )
     return ContractsResponse(kinds=kinds)
 

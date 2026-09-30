@@ -379,6 +379,9 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
         if state.store:
             state.store.close()
             logger.info("store connection closed")
+        systemone = getattr(application.state, "systemone", None)
+        if systemone is not None:
+            systemone.close()
 
     application = FastAPI(
         title="kenaz-ml",
@@ -389,6 +392,16 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
 
     register_routes(application, state)
     register_fleet_routes(application, state)
+
+    # laya-serving-and-packs-01MSK2SP WP01 (D-C1): laya's raw wire API, in
+    # process, local mode only. Never called by /v1/recommend (C-002).
+    if mode == ServingMode.LOCAL:
+        from kenaz_ml.laya.agent import get_runtime
+        from kenaz_ml.laya.systemone_mount import mount_systemone
+
+        # The loaded agent, or None (-> laya-shaped "model not loaded" 503): no
+        # shipped build has a checkpoint (C-001).
+        mount_systemone(application, lambda: get_runtime().systemone_backend())
 
     return application
 

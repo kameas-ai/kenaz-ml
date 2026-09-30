@@ -1144,6 +1144,10 @@
             "type": "integer",
             "title": "Lifecycle Protocol",
             "description": "Lifecycle protocol version: 1 = speaks /v1/clients/lease; 0 = none (cloud mode, legacy)."
+          },
+          "laya_eligibility": {
+            "$ref": "#/components/schemas/LayaEligibility",
+            "description": "The per-host laya eligibility verdict (laya-serving-and-packs-01MSK2SP WP03): the one field that mission adds to this schema. An ineligible host refuses laya-bearing kinds; the client falls back."
           }
         },
         "type": "object",
@@ -1158,7 +1162,8 @@
           "engine_sha256",
           "model_details",
           "device",
-          "lifecycle_protocol"
+          "lifecycle_protocol",
+          "laya_eligibility"
         ],
         "title": "HealthResponse",
         "description": "``/health`` \u2014 honest enough for a client to verify (FR-016, Amendment A1).\n\nThe pre-existing fields are unchanged (C-008; ``models`` stays name ->\nstatus string). Every field added by two-client-engine-01MSK2EN is\n**required**: the model cannot be built from ``{}`` or a partial payload, so\na bare or legacy response is structurally distinguishable from this one.\n``exe_path`` is reported truthfully and never verified here \u2014 verification\nis the client's job (FR-017, C-001)."
@@ -1548,6 +1553,129 @@
           "detail"
         ],
         "title": "LaneRefusalBody"
+      },
+      "LayaEligibility": {
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "title": "Verdict",
+            "description": "\"eligible\" | \"ineligible\" | \"not_evaluated\"."
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "Stable code: eligible, insufficient_memory, memory_unknown, benchmark_failed, ..."
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "measured_against": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Against",
+            "description": "\"fixture\" | \"checkpoint\" | null when unmeasured."
+          },
+          "free_memory_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Memory Bytes"
+          },
+          "memory_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Method"
+          },
+          "benchmark_calls": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchmark Calls"
+          },
+          "p50_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50 Ms"
+          },
+          "p95_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95 Ms"
+          },
+          "max_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Ms"
+          },
+          "evaluated_at_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluated At Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "verdict",
+          "reason",
+          "detail",
+          "measured_against",
+          "free_memory_bytes",
+          "memory_method",
+          "benchmark_calls",
+          "p50_ms",
+          "p95_ms",
+          "max_ms",
+          "evaluated_at_ms"
+        ],
+        "title": "LayaEligibility",
+        "description": "The per-host laya eligibility verdict (laya-serving-and-packs-01MSK2SP WP03, FR-005).\n\nMeasured **lazily** at the first dispatch of a laya-configured kind, so a\nfresh boot reports ``verdict: \"not_evaluated\"`` with null measurements until\nthen (honest nulls, never invented -- the ``ModelIntrospection`` discipline).\n``/health`` never triggers the benchmark. ``measured_against`` is ``\"fixture\"``\nwhen no checkpoint exists to measure (the bundled non-functional\nrandom-weights fixture): those timings say little about a real checkpoint."
       },
       "LeaseRequest": {
         "properties": {

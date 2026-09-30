@@ -137,6 +137,39 @@ def test_contract_names_mismatch_declines(dirs: dict[str, Path]) -> None:
     assert not (dirs["models"] / f"{KIND}.joblib").exists()
 
 
+def test_a_local_laya_checkpoint_is_never_overwritten_by_a_classic_retrain(dirs: dict[str, Path]) -> None:
+    """Review fix (laya-serving-and-packs-01MSK2SP): {kind}.json is one namespace per slot.
+
+    A laya checkpoint (FR-011) and the classic pair both answer to ``{kind}.json``. Without this
+    decline a retrain would replace the directory manifest with a joblib one, carry
+    ``serving_backend=laya`` onto it, and leave the kind claiming no laya checkpoint is installed.
+    """
+    from kenaz_ml.advice.training import REASON_LAYA_CHECKPOINT_PRESENT
+    from kenaz_ml.modelstore.registry import Manifest, directory_digest, write_manifest
+
+    push(KIND, separable_rows(KIND, 60), dirs["retained"])
+    ckpt = dirs["models"] / f"{KIND}.ckpt"
+    ckpt.mkdir(parents=True)
+    (ckpt / "laya.onnx").write_bytes(b"graph")
+    manifest_file = dirs["models"] / f"{KIND}.json"
+    write_manifest(
+        manifest_file,
+        Manifest(
+            name=KIND,
+            version="3",
+            artifact_sha256=directory_digest(ckpt).digest,
+            feature_contract=contract_for(KIND),
+            metrics={"serving_backend": "laya"},
+            artifact_kind="directory",
+        ),
+    )
+    before = manifest_file.read_bytes()
+    outcome = _train(dirs)
+    assert not outcome.trained and outcome.reason == REASON_LAYA_CHECKPOINT_PRESENT
+    assert manifest_file.read_bytes() == before
+    assert not (dirs["models"] / f"{KIND}.joblib").exists()
+
+
 def test_manifest_digest_matches_artifact_and_estimator_is_recorded(dirs: dict[str, Path]) -> None:
     push(KIND, separable_rows(KIND, 60), dirs["retained"])
     outcome = _train(dirs)
