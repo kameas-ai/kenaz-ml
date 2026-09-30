@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 from fastapi import FastAPI
 
+from kenaz_ml.advice.dispatch import DispatchTable, build_table
 from kenaz_ml.config import ServingMode, resolve_mode
 from kenaz_ml.datastore import DataStore, create_store
 from kenaz_ml.models.activity import ActivityClassifier
@@ -102,6 +103,9 @@ class AppState:
         self.resolutions: dict[str, Any] = {}
         # The last refresh_all() outcome per model, as registry.describe() data.
         self.refresh_results: dict[str, dict[str, Any]] = {}
+        # /v1/recommend dispatch table (WP03). Empty until local-mode startup
+        # populates it; stays empty in cloud mode.
+        self.dispatch_table: DispatchTable = DispatchTable()
 
     def load_models(self, model_store: ModelStore | None = None) -> None:
         """Load or reload all model instances."""
@@ -226,6 +230,10 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
             await asyncio.get_running_loop().run_in_executor(None, state.refresh_registry, ms)
 
             state.load_models(ms)
+
+            # /v1/recommend dispatch table (WP03, D-A3): seed kinds + registry.
+            populated = await asyncio.get_running_loop().run_in_executor(None, build_table)
+            state.dispatch_table.replace_all(populated.snapshot())
 
             # Initialize signal pipeline (additive, does not modify existing models)
             from kenaz_ml.signals.engine import SignalEngine

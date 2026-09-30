@@ -7,8 +7,19 @@ import time
 from typing import TYPE_CHECKING
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from kenaz_ml.advice.dispatch import (
+    REFUSAL_STATUS_CODE,
+    ContractsResponse,
+    RecommendRefusal,
+    RecommendRequest,
+    RecommendResponse,
+    Refused,
+    contracts_payload,
+    timed_dispatch,
+)
 from kenaz_ml.config import ServingMode
 from kenaz_ml.feature_store.resolve import resolve_duration_features, resolve_stuck_features
 from kenaz_ml.models.duration import DurationEstimator
@@ -546,6 +557,34 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
 
         background_tasks.add_task(_run_training, state)
         return TrainResponse(status="started", message="Training started")
+
+    # ---------- /v1 — harness advice surface (two-client-engine-01MSK2EN) ----------
+    # Additive only (C-008). In cloud mode the dispatch table is empty: the
+    # layer reads local registry slots, so no kinds are published and every
+    # kind refuses unknown_kind.
+
+    @fastapi_app.post(
+        "/v1/recommend/{kind}",
+        response_model=RecommendResponse,
+        responses={REFUSAL_STATUS_CODE: {"model": RecommendRefusal, "description": "Typed refusal"}},
+    )
+    async def recommend(kind: str, req: RecommendRequest) -> RecommendResponse | JSONResponse:
+        """Dispatch one recommendation to the kind's single registered backend.
+
+        Every refusal (kind_not_served, laya_backend_not_installed,
+        contract_mismatch, unknown_kind, ...) is HTTP 422 with a
+        ``{"refusal": {kind_id, reason, detail}}`` body. Never substitutes a
+        different backend; never clamps confidence.
+        """
+        try:
+            return timed_dispatch(state.dispatch_table, kind, req)
+        except Refused as refusal:
+            return JSONResponse(status_code=REFUSAL_STATUS_CODE, content=refusal.body())
+
+    @fastapi_app.get("/v1/contracts", response_model=ContractsResponse)
+    async def contracts() -> ContractsResponse:
+        """Every registered kind's ordered feature contract and serving availability."""
+        return contracts_payload(state.dispatch_table.snapshot())
 
     @fastapi_app.get("/")
     async def root() -> dict:
