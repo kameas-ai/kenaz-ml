@@ -113,6 +113,7 @@ REASON_NO_CONTRACT = "no_contract"
 REASON_CONFIDENCE_OUT_OF_RANGE = "confidence_out_of_range"
 REASON_BACKEND_ERROR = "backend_error"
 REASON_HOST_INELIGIBLE = "host_ineligible"
+REASON_CHECKPOINT_REFUSED = "checkpoint_refused"
 LAYA_NOT_INSTALLED_DETAIL = "kind unavailable: laya backend not installed"
 
 #: The one HTTP status every typed refusal uses. 422 is in the harness's
@@ -540,11 +541,22 @@ def _entry_for(kind_id: str, local_dir: Path, base_dir: Path) -> DispatchEntry:
     if resolution.served:
         manifest = resolution.manifest
         backend = _manifest_backend(manifest)
+        if getattr(manifest, "artifact_kind", "file") == "directory" and backend != BACKEND_LAYA:
+            # A directory artifact is a laya checkpoint (FR-011); its "model" is a path,
+            # which no other backend can serve. Refuse rather than hand a Path to sklearn.
+            return DispatchEntry(
+                kind_id=kind_id,
+                contract=contract,
+                manifest=manifest,
+                reason=REASON_BACKEND_UNKNOWN,
+                detail=f"kind unavailable: manifest is a directory artifact (a laya checkpoint) but names "
+                f"backend {backend!r}, not {BACKEND_LAYA!r}",
+            )
         if backend == BACKEND_CLASSIC:
             server = ClassicBackend(model=resolution.model, kind_id=kind_id, manifest=manifest, slot=resolution.slot)
             return DispatchEntry(kind_id=kind_id, contract=contract, backend=backend, server=server, manifest=manifest)
         if backend == BACKEND_LAYA:
-            return _laya_entry(kind_id, contract, manifest, local_dir, base_dir)
+            return _laya_entry(kind_id, contract, manifest, local_dir, base_dir, resolution)
         if backend in (None, BACKEND_HEURISTIC):
             return not_served(
                 kind_id,
@@ -563,7 +575,21 @@ def _entry_for(kind_id: str, local_dir: Path, base_dir: Path) -> DispatchEntry:
         if read.ok and read.manifest is not None:
             backend = _manifest_backend(read.manifest)
             if backend == BACKEND_LAYA:
-                return _laya_entry(kind_id, contract, read.manifest, local_dir, base_dir)
+                entry = _laya_entry(kind_id, contract, read.manifest, local_dir, base_dir)
+                refused = [str(r) for r in resolution.refusals if r.reason != REASON_SLOT_EMPTY]
+                if entry.server is None and refused and getattr(read.manifest, "artifact_kind", "file") == "directory":
+                    # The checkpoint IS installed but the registry refused it (tampered, wrong contract...):
+                    # say so, rather than the misleading "laya backend not installed".
+                    return DispatchEntry(
+                        kind_id=kind_id,
+                        contract=contract,
+                        backend=BACKEND_LAYA,
+                        manifest=read.manifest,
+                        reason=REASON_CHECKPOINT_REFUSED,
+                        detail=f"kind unavailable: {kind_id!r} laya checkpoint refused by the registry — "
+                        + "; ".join(refused),
+                    )
+                return entry
             if backend is not None and backend not in BACKENDS:
                 return _unknown_backend(kind_id, contract, backend, read.manifest)
 
@@ -599,7 +625,9 @@ def _note_checkpoint(kind_id: str, identity: str | None) -> None:
         logger.debug("dispatch: could not update the eligibility checkpoint set", exc_info=True)
 
 
-def _laya_entry(kind_id: str, contract: Any, manifest: Any, local_dir: Path, base_dir: Path) -> DispatchEntry:
+def _laya_entry(
+    kind_id: str, contract: Any, manifest: Any, local_dir: Path, base_dir: Path, resolution: Any = None
+) -> DispatchEntry:
     """A laya-configured kind: served by an in-process :class:`LayaBackend` only if a checkpoint is installed.
 
     With no verified checkpoint directory -- the day-one state of every install,
@@ -609,9 +637,12 @@ def _laya_entry(kind_id: str, contract: Any, manifest: Any, local_dir: Path, bas
     dispatch of a laya-configured kind (FR-005), not at table build.
     """
     try:
-        from kenaz_ml.laya.agent import find_checkpoint
+        from kenaz_ml.laya.agent import find_checkpoint, ref_from_resolution
 
-        ref = find_checkpoint(kind_id, local_dir=local_dir, base_dir=base_dir, expected_contract=contract)
+        # A directory the registry already verified this pass is reused, not re-hashed.
+        ref = ref_from_resolution(kind_id, resolution) if resolution is not None else None
+        if ref is None:
+            ref = find_checkpoint(kind_id, local_dir=local_dir, base_dir=base_dir, expected_contract=contract)
     except Exception:
         logger.warning("dispatch: laya checkpoint lookup failed for %r", kind_id, exc_info=True)
         ref = None

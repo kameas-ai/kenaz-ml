@@ -25,8 +25,8 @@ The shortest safe path from a file to a model::
 shorter path, and in particular none that reaches `joblib.load` without a
 matching digest.
 
-Above that sit slot resolution — local slot, then base slot, then cold start
-(FR-004) — the retained training set the local examples are kept in, and the
+Above that sit slot resolution — local slot, then (optionally) the org slot, then
+base slot, then cold start (FR-004, FR-008; ``org_dir`` defaults to "skip") — the retained training set the local examples are kept in, and the
 refresh policy that decides what a newly shipped base means for them::
 
     resolution = resolve_model("stuck")
@@ -40,11 +40,17 @@ supported surface, and it is the surface the tests should reach for too.
 """
 
 from kenaz_ml.modelstore.registry.manifest import (
+    ARTIFACT_KIND_DIRECTORY,
+    ARTIFACT_KIND_FILE,
+    ARTIFACT_KINDS,
     CHECK_CONTRACT,
     CHECK_INTEGRITY,
     CHECK_MANIFEST,
     CHECK_RUNTIME,
+    KNOWN_TRAINING_SOURCES,
     SCHEMA_VERSION,
+    TRAINING_SOURCE_ORG,
+    DirectoryDigest,
     FeatureContract,
     LoadOutcome,
     Manifest,
@@ -55,7 +61,9 @@ from kenaz_ml.modelstore.registry.manifest import (
     Training,
     ValidationOutcome,
     VerifiedArtifact,
+    VerifiedDirectory,
     deserialize_verified,
+    directory_digest,
     local_feature_contract,
     manifest_from_dict,
     manifest_to_dict,
@@ -63,9 +71,11 @@ from kenaz_ml.modelstore.registry.manifest import (
     read_manifest_text,
     running_sklearn_version,
     validate_artifact,
+    validate_artifact_directory,
     validate_feature_contract,
     validate_runtime,
     verify_artifact_bytes,
+    verify_artifact_directory,
     verify_artifact_file,
     write_manifest,
 )
@@ -116,16 +126,19 @@ from kenaz_ml.modelstore.registry.retained import (
 from kenaz_ml.modelstore.registry.slots import (
     ARTIFACT_SUFFIX,
     CHECK_SLOT,
+    DIRECTORY_SUFFIX,
     MANIFEST_SUFFIX,
     REASON_ARTIFACT_NOT_FOUND,
     REASON_SLOT_EMPTY,
     SLOT_BASE,
     SLOT_COLD_START,
     SLOT_LOCAL,
+    SLOT_ORG,
     Resolution,
     SlotRefusal,
     artifact_path,
     base_slot_dir,
+    directory_artifact_path,
     local_slot_dir,
     manifest_path,
     resolve_model,
@@ -133,6 +146,19 @@ from kenaz_ml.modelstore.registry.slots import (
 )
 
 __all__ = [
+    "ARTIFACT_KINDS",
+    "ARTIFACT_KIND_DIRECTORY",
+    "ARTIFACT_KIND_FILE",
+    "DIRECTORY_SUFFIX",
+    "KNOWN_TRAINING_SOURCES",
+    "SLOT_ORG",
+    "TRAINING_SOURCE_ORG",
+    "DirectoryDigest",
+    "VerifiedDirectory",
+    "directory_artifact_path",
+    "directory_digest",
+    "validate_artifact_directory",
+    "verify_artifact_directory",
     "ACTION_ADOPT_BASE",
     "ACTION_NONE",
     "ACTION_REBUILD",

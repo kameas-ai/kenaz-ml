@@ -27,6 +27,20 @@ by falling through to the next slot; none of them is an exception.
 and Feast inside the one that sources the contract — so reading and writing a
 manifest costs no import of the heavy stack (NFR-002).
 
+Directory artifacts (laya-serving-and-packs-01MSK2SP WP04, FR-011)
+-----------------------------------------------------------------
+A laya checkpoint is a *directory*, not a joblib file. The manifest therefore
+carries an optional ``artifact_kind`` (``"file"`` -- the default, absent from
+every existing manifest -- or ``"directory"``) and, for a directory, an optional
+``artifact_members`` map of relative path -> sha256 that makes refusals
+specific. For a directory, ``artifact_sha256`` is the sha256 over a **sorted
+manifest of member relative paths and per-member sha256** (:func:`directory_digest`),
+deterministic and independent of filesystem listing order. The loader hands back
+the **verified directory path** (:class:`VerifiedDirectory`), never a
+deserialized object: laya loads its own checkpoint, and is given the per-member
+digests to re-verify as it parses (so the window between this check and laya's
+read is closed by laya, not assumed away). Joblib pairs are untouched.
+
 Ordering is the whole point
 ---------------------------
 Two properties of this module are load-bearing and easy to break:
@@ -63,6 +77,16 @@ __all__ = [
     "CHECK_MANIFEST",
     "CHECK_RUNTIME",
     "SCHEMA_VERSION",
+    "ARTIFACT_KINDS",
+    "ARTIFACT_KIND_DIRECTORY",
+    "ARTIFACT_KIND_FILE",
+    "KNOWN_TRAINING_SOURCES",
+    "TRAINING_SOURCE_ORG",
+    "DirectoryDigest",
+    "VerifiedDirectory",
+    "directory_digest",
+    "validate_artifact_directory",
+    "verify_artifact_directory",
     "FeatureContract",
     "LoadOutcome",
     "Manifest",
@@ -87,6 +111,19 @@ __all__ = [
     "verify_artifact_file",
     "write_manifest",
 ]
+
+#: ``Manifest.artifact_kind`` values (FR-011). ``file`` is the default and is never written.
+ARTIFACT_KIND_FILE = "file"
+ARTIFACT_KIND_DIRECTORY = "directory"
+ARTIFACT_KINDS: tuple[str, ...] = (ARTIFACT_KIND_FILE, ARTIFACT_KIND_DIRECTORY)
+
+#: ``Provenance.training_source`` values. ``org`` (WP04, R5) stamps an artifact that
+#: arrived as an org-distributed pack; nothing in this repository produces one
+#: (the org fine-tune producer is a named future mission). The field stays free-form
+#: on read -- an unknown value is preserved, never refused -- so this is the
+#: vocabulary, not a gate.
+TRAINING_SOURCE_ORG = "org"
+KNOWN_TRAINING_SOURCES: tuple[str, ...] = ("base", "local", "synthetic", TRAINING_SOURCE_ORG)
 
 #: Manifest format version. Distinct from the feature-contract version, which
 #: tracks the feature set rather than the shape of this file.
@@ -321,6 +358,11 @@ class Manifest:
     training: Training = field(default_factory=Training)
     metrics: dict[str, Any] = field(default_factory=_extra)
     extra: dict[str, Any] = field(default_factory=_extra)
+    #: ``file`` (default; a joblib pair) or ``directory`` (a laya checkpoint). FR-011.
+    artifact_kind: str = ARTIFACT_KIND_FILE
+    #: Directory artifacts only: relative posix path -> sha256 of that member. Optional;
+    #: when present it makes a refusal name the member, and is handed to laya for its own re-verification.
+    artifact_members: dict[str, str] = field(default_factory=_extra)
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +384,8 @@ _MANIFEST_KEYS = (
     "training",
     "metrics",
     "artifact_sha256",
+    "artifact_kind",
+    "artifact_members",
 )
 
 
@@ -407,6 +451,18 @@ def manifest_from_dict(raw: dict[str, Any], *, source: str = "<dict>") -> Manife
             )
         )
 
+    kind = str(raw.get("artifact_kind", ARTIFACT_KIND_FILE))
+    if kind not in ARTIFACT_KINDS:
+        return ManifestRead(
+            refusal=Refusal(
+                CHECK_MANIFEST,
+                "unknown_artifact_kind",
+                f"{source}: artifact_kind {kind!r} is not one of {list(ARTIFACT_KINDS)}",
+            )
+        )
+    members_raw = raw.get("artifact_members")
+    members = {str(k): str(v).lower() for k, v in members_raw.items()} if isinstance(members_raw, dict) else {}
+
     prov_raw = _section(raw.get("provenance"))
     runtime_raw = _section(raw.get("runtime"))
     contract_raw = _section(raw.get("feature_contract"))
@@ -448,6 +504,8 @@ def manifest_from_dict(raw: dict[str, Any], *, source: str = "<dict>") -> Manife
         ),
         metrics=dict(_section(raw.get("metrics"))),
         extra=_unknown(raw, _MANIFEST_KEYS),
+        artifact_kind=kind,
+        artifact_members=members,
     )
     return ManifestRead(manifest=manifest)
 
@@ -546,6 +604,12 @@ def manifest_to_dict(manifest: Manifest) -> dict[str, Any]:
         "metrics": dict(manifest.metrics),
         "artifact_sha256": manifest.artifact_sha256,
     }
+    # FR-011: emitted only for a directory artifact, so every existing (file)
+    # manifest serializes byte-for-byte as before.
+    if manifest.artifact_kind != ARTIFACT_KIND_FILE:
+        body["artifact_kind"] = manifest.artifact_kind
+        if manifest.artifact_members:
+            body["artifact_members"] = {k: manifest.artifact_members[k] for k in sorted(manifest.artifact_members)}
     for key in sorted(manifest.extra):
         if key not in body:
             body[key] = manifest.extra[key]
@@ -979,6 +1043,175 @@ def validate_runtime(manifest: Manifest, running_version: str | None = None) -> 
         )
 
     return ValidationOutcome()
+
+
+# ---------------------------------------------------------------------------
+# Directory artifacts (FR-011)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DirectoryDigest:
+    """The digest of a directory and the per-member hashes it was built from."""
+
+    digest: str
+    members: dict[str, str]
+
+
+class DirectoryWalkError(Exception):
+    """Internal: a directory could not be digested (carries a :class:`Refusal`)."""
+
+    def __init__(self, refusal: Refusal) -> None:
+        super().__init__(str(refusal))
+        self.refusal = refusal
+
+
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(_DIGEST_CHUNK_BYTES):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def directory_digest(root: Path | str) -> DirectoryDigest:
+    """sha256 over a sorted manifest of member relative paths + per-member sha256.
+
+    Members are regular files only, addressed by POSIX relative path, sorted by
+    that path (never by filesystem listing order). The digested text is one
+    ``"<relpath>\\0<member sha256>\\n"`` line per member. Empty directories carry
+    no bytes and do not participate. **Any symlink member is refused** (a
+    superset of "symlinks escaping the directory"): a checkpoint pack is a plain
+    tree, and following a link is how a verified directory stops being the thing
+    that gets read. Raises :class:`DirectoryWalkError`; callers wrapping it
+    (:func:`verify_artifact_directory`) turn that into a :class:`Refusal`.
+    """
+    root = Path(root)
+    members: dict[str, str] = {}
+    try:
+        for path in sorted(root.rglob("*")):
+            if path.is_symlink():
+                raise DirectoryWalkError(
+                    Refusal(
+                        CHECK_INTEGRITY,
+                        "symlink_member",
+                        f"{path}: symlinks are not allowed inside a directory artifact",
+                    )
+                )
+            if path.is_dir():
+                continue
+            if not path.is_file():
+                raise DirectoryWalkError(
+                    Refusal(CHECK_INTEGRITY, "not_a_regular_file", f"{path}: not a regular file or directory")
+                )
+            members[path.relative_to(root).as_posix()] = _hash_file(path)
+    except OSError as exc:
+        raise DirectoryWalkError(
+            Refusal(CHECK_INTEGRITY, "unreadable", f"{root}: directory artifact cannot be read — {exc}")
+        ) from exc
+    text = "".join(f"{rel}\0{members[rel]}\n" for rel in sorted(members))
+    return DirectoryDigest(hashlib.sha256(text.encode("utf-8")).hexdigest(), members)
+
+
+class VerifiedDirectory:
+    """A directory whose :func:`directory_digest` matched the manifest.
+
+    Like :class:`VerifiedArtifact`, only the verification functions can build
+    one. It carries the **path** -- the registry never deserializes a directory
+    artifact; laya loads its own checkpoint, and is handed :attr:`members` to
+    re-verify each file as it parses it.
+    """
+
+    __slots__ = ("digest", "manifest", "members", "path")
+
+    def __init__(self, token: object, manifest: Manifest, path: Path, digest: str, members: dict[str, str]) -> None:
+        if token is not _VERIFIED_TOKEN:
+            raise TypeError("VerifiedDirectory cannot be constructed directly; use verify_artifact_directory()")
+        self.manifest = manifest
+        self.path = path
+        self.digest = digest
+        self.members = members
+
+    def __repr__(self) -> str:
+        return f"VerifiedDirectory(name={self.manifest.name!r}, path={str(self.path)!r}, digest={self.digest[:12]}…)"
+
+
+def _member_diagnostic(declared: dict[str, str], actual: dict[str, str]) -> str | None:
+    """Name the member that disagrees with ``artifact_members``, or ``None`` if they agree."""
+    missing = sorted(set(declared) - set(actual))
+    extra = sorted(set(actual) - set(declared))
+    changed = sorted(k for k in set(declared) & set(actual) if declared[k] != actual[k])
+    parts = []
+    if missing:
+        parts.append(f"missing member(s) {missing}")
+    if extra:
+        parts.append(f"unexpected extra member(s) {extra}")
+    if changed:
+        parts.append(f"member(s) whose sha256 differs {changed}")
+    return "; ".join(parts) or None
+
+
+def verify_artifact_directory(path: Path | str, manifest: Manifest) -> tuple[VerifiedDirectory | None, Refusal | None]:
+    """Verify a directory artifact against the manifest; exactly one of the pair is set. Never raises.
+
+    Integrity only (the contract is :func:`validate_artifact_directory`'s next
+    step). A refusal names the failing member when the manifest declares
+    ``artifact_members``; otherwise both whole-directory digests.
+    """
+    path = Path(path)
+    expected = (manifest.artifact_sha256 or "").strip().lower()
+    if not expected:
+        return None, Refusal(
+            CHECK_INTEGRITY,
+            "no_expected_digest",
+            f"{manifest.name}: manifest records no artifact_sha256, so the directory cannot be verified",
+        )
+    if path.is_symlink():
+        return None, Refusal(CHECK_INTEGRITY, "symlink_root", f"{path}: the artifact directory itself is a symlink")
+    if not path.is_dir():
+        return None, Refusal(CHECK_INTEGRITY, "not_found", f"{path}: artifact directory is missing")
+    try:
+        computed = directory_digest(path)
+    except DirectoryWalkError as exc:
+        return None, exc.refusal
+    if manifest.artifact_members:
+        diagnostic = _member_diagnostic(manifest.artifact_members, computed.members)
+        if diagnostic is not None:
+            return None, Refusal(
+                CHECK_INTEGRITY,
+                "member_mismatch",
+                f"{manifest.name}: directory does not match the manifest's members — {diagnostic}; "
+                "the checkpoint was not handed to laya",
+            )
+    if computed.digest != expected:
+        return None, Refusal(
+            CHECK_INTEGRITY,
+            "digest_mismatch",
+            f"{manifest.name}: directory does not match the manifest — expected sha256 {expected}, "
+            f"computed {computed.digest} over {len(computed.members)} member(s); "
+            "the checkpoint was not handed to laya",
+        )
+    return VerifiedDirectory(_VERIFIED_TOKEN, manifest, path, computed.digest, computed.members), None
+
+
+def validate_artifact_directory(
+    manifest: Manifest,
+    artifact_dir: Path | str,
+    *,
+    expected_contract: FeatureContract | None = None,
+) -> tuple[VerifiedDirectory | None, Refusal | None]:
+    """Integrity, then the ordered feature contract, for a directory artifact.
+
+    No runtime check: :func:`validate_runtime` pins a scikit-learn version, and a
+    laya checkpoint is not a scikit-learn artifact. Never raises.
+    """
+    verified, refusal = verify_artifact_directory(artifact_dir, manifest)
+    if refusal is not None or verified is None:
+        return None, refusal
+    contract = validate_feature_contract(manifest, expected_contract)
+    if not contract.ok:
+        return None, contract.refusal
+    return verified, None
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,27 @@
-"""Two-slot model resolution: local, then base, then cold start (FR-003, FR-004).
+"""Model resolution: local, then (optionally) org, then base, then cold start (FR-003, FR-004, FR-008).
 
-The two slots are not siblings and are not interchangeable (D-001):
+The ladder is ``local -> org -> base -> cold start`` (laya-serving-and-packs-01MSK2SP
+WP04, D-C3; design doc section 8: "local always wins unless the user chooses
+otherwise"). The **org** slot is optional and absent by default: ``org_dir=None``
+skips it entirely -- not attempted, not logged, no filesystem access -- so every
+current caller (the workbench models, the harness trio) behaves byte-for-byte as
+it did. No code here creates, assumes or fetches an org location; if an org pack
+ever arrives through the same client-verified mechanism as a base pack, a caller
+points ``org_dir`` at it and resolution honours the ladder and reports
+``Resolution.slot == "org"`` truthfully. An org refusal is logged at ``ERROR`` like
+the base slot: an org pack is distributed, not locally trained, so a bad one is a
+broken delivery the install cannot repair by itself.
+
+**Artifact kinds.** A slot entry is either a joblib pair (``{name}.joblib`` +
+``{name}.json``; the default) or -- when the manifest says
+``artifact_kind: "directory"`` (FR-011) -- a **directory** ``{name}.ckpt/`` (a laya
+checkpoint) beside the same ``{name}.json``. For a directory, resolution verifies
+integrity (a sha256 over sorted member paths + hashes) and the ordered feature
+contract, then returns the **verified directory path** as ``Resolution.model``
+(and ``Resolution.artifact``): the registry never deserializes a directory, laya
+loads its own checkpoint. Joblib resolution is unchanged.
+
+The slots are not siblings and are not interchangeable (D-001):
 
 * The **local** slot is ``config.models_dir()`` — ``~/.local/share/sigild/ml-models``,
   user-writable because local training writes there. It keeps its existing flat
@@ -19,6 +40,7 @@ added "just for tests" is still a write path in the shipped build.
 Resolution order, per model, per data-model.md §Resolution::
 
     local artifact + manifest → validate → serve
+    org   artifact + manifest → validate → serve   (only when ``org_dir`` is given)
     base  artifact + manifest → validate → serve
     otherwise                 → cold start, i.e. today's behavior
 
@@ -52,12 +74,14 @@ from typing import Any
 
 from kenaz_ml import config
 from kenaz_ml.modelstore.registry.manifest import (
+    ARTIFACT_KIND_DIRECTORY,
     FeatureContract,
     Manifest,
     Refusal,
     deserialize_verified,
     read_manifest,
     validate_artifact,
+    validate_artifact_directory,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,13 +92,16 @@ __all__ = [
     "MANIFEST_SUFFIX",
     "REASON_ARTIFACT_NOT_FOUND",
     "REASON_SLOT_EMPTY",
+    "DIRECTORY_SUFFIX",
     "SLOT_BASE",
     "SLOT_COLD_START",
     "SLOT_LOCAL",
+    "SLOT_ORG",
     "Resolution",
     "SlotRefusal",
     "artifact_path",
     "base_slot_dir",
+    "directory_artifact_path",
     "local_slot_dir",
     "manifest_path",
     "resolve_model",
@@ -85,10 +112,15 @@ __all__ = [
 #: is not a location — it means no slot answered and the caller should do what it
 #: did before the registry existed.
 SLOT_LOCAL = "local"
+#: Optional slot between local and base (D-C3). Only consulted when ``resolve_model``
+#: is given an ``org_dir``; nothing in this repository creates or points at one.
+SLOT_ORG = "org"
 SLOT_BASE = "base"
 SLOT_COLD_START = "cold_start"
 
 ARTIFACT_SUFFIX = ".joblib"
+#: A directory artifact (a laya checkpoint) lives at ``{slot}/{name}.ckpt/`` (FR-011).
+DIRECTORY_SUFFIX = ".ckpt"
 MANIFEST_SUFFIX = ".json"
 
 #: :attr:`Refusal.check` for the two conditions this module decides itself,
@@ -106,7 +138,7 @@ REASON_SLOT_EMPTY = "slot_empty"
 REASON_ARTIFACT_NOT_FOUND = "artifact_not_found"
 
 #: Log level per slot for a genuine refusal. See the module docstring.
-_REFUSAL_LEVEL = {SLOT_LOCAL: logging.WARNING, SLOT_BASE: logging.ERROR}
+_REFUSAL_LEVEL = {SLOT_LOCAL: logging.WARNING, SLOT_ORG: logging.ERROR, SLOT_BASE: logging.ERROR}
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +240,11 @@ def artifact_path(slot_dir: Path | str, model_name: str) -> Path:
     return Path(slot_dir) / f"{model_name}{ARTIFACT_SUFFIX}"
 
 
+def directory_artifact_path(slot_dir: Path | str, model_name: str) -> Path:
+    """Return the directory-artifact path (a laya checkpoint) for ``model_name`` within a slot (FR-011)."""
+    return Path(slot_dir) / f"{model_name}{DIRECTORY_SUFFIX}"
+
+
 def manifest_path(slot_dir: Path | str, model_name: str) -> Path:
     """Return the sidecar manifest path for ``model_name`` within a slot (D-004)."""
     return Path(slot_dir) / f"{model_name}{MANIFEST_SUFFIX}"
@@ -273,6 +310,33 @@ def _record(slot: str, model_name: str, refusal: Refusal) -> SlotRefusal:
 # ---------------------------------------------------------------------------
 
 
+def _try_directory_slot(
+    model_name: str,
+    slot: str,
+    slot_dir: Path,
+    manifest: Manifest,
+    expected_contract: FeatureContract | None,
+) -> tuple[Resolution | None, SlotRefusal | None]:
+    """Attempt one slot for a directory artifact. Returns the verified **path** as the model. Never raises."""
+    directory = directory_artifact_path(slot_dir, model_name)
+    if not directory.exists():
+        return None, _record(
+            slot,
+            model_name,
+            Refusal(
+                CHECK_SLOT,
+                REASON_ARTIFACT_NOT_FOUND,
+                f"{manifest_path(slot_dir, model_name)} describes a directory artifact that is not there: "
+                f"{directory} is missing",
+            ),
+        )
+    verified, refusal = validate_artifact_directory(manifest, directory, expected_contract=expected_contract)
+    if verified is None:
+        return None, _record(slot, model_name, _refusal_of(refusal, f"{directory}: failed validation"))
+    logger.info("registry: serving %r from the %s slot (directory %s)", model_name, slot, directory)
+    return Resolution(name=model_name, slot=slot, model=verified.path, manifest=manifest, artifact=directory), None
+
+
 def _try_slot(
     model_name: str,
     slot: str,
@@ -288,6 +352,14 @@ def _try_slot(
     """
     artifact = artifact_path(slot_dir, model_name)
     manifest_file = manifest_path(slot_dir, model_name)
+
+    # A manifest that declares a DIRECTORY artifact (FR-011) takes the directory
+    # path. Anything else -- no manifest, an unreadable one, ``file`` -- falls
+    # through to the joblib flow below exactly as before.
+    if manifest_file.is_file():
+        early = read_manifest(manifest_file)
+        if early.ok and early.manifest is not None and early.manifest.artifact_kind == ARTIFACT_KIND_DIRECTORY:
+            return _try_directory_slot(model_name, slot, slot_dir, early.manifest, expected_contract)
 
     # Nothing at all: the default state, reported quietly.
     if not artifact.exists() and not manifest_file.exists():
@@ -345,10 +417,11 @@ def resolve_model(
     *,
     local_dir: Path | str | None = None,
     base_dir: Path | str | None = None,
+    org_dir: Path | str | None = None,
     expected_contract: FeatureContract | None = None,
     running_version: str | None = None,
 ) -> Resolution:
-    """Resolve one model: local slot, then base slot, then cold start (FR-004).
+    """Resolve one model: local slot, then org (if given), then base slot, then cold start (FR-004, FR-008).
 
     Args:
         model_name: The model's registry name — ``stuck``, ``duration``, and so
@@ -360,6 +433,11 @@ def resolve_model(
             :func:`base_slot_dir`. This is a *read* location in both cases —
             overriding it cannot turn the base slot into somewhere this module
             writes, because this module writes nowhere.
+        org_dir: The optional org slot, consulted between local and base (D-C3).
+            ``None`` -- the default -- skips it entirely: not attempted, not
+            logged, no filesystem access. There is deliberately no default org
+            location and no ``org_slot_dir()``: nothing here creates, assumes or
+            fetches org content. ``Resolution.slot`` reports ``"org"`` when it answers.
         expected_contract: The contract to validate against. ``None`` — the
             normal case — lets WP01 source it from the model's Feast feature
             service. Models with no registered service (``quality``,
@@ -378,8 +456,13 @@ def resolve_model(
     local_root = Path(local_dir) if local_dir is not None else local_slot_dir()
     base_root = Path(base_dir) if base_dir is not None else base_slot_dir()
 
+    ladder: list[tuple[str, Path]] = [(SLOT_LOCAL, local_root)]
+    if org_dir is not None:
+        ladder.append((SLOT_ORG, Path(org_dir)))
+    ladder.append((SLOT_BASE, base_root))
+
     refusals: list[SlotRefusal] = []
-    for slot, slot_dir in ((SLOT_LOCAL, local_root), (SLOT_BASE, base_root)):
+    for slot, slot_dir in ladder:
         resolved, refusal = _try_slot(
             model_name,
             slot,

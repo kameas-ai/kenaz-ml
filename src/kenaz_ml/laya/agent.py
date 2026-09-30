@@ -248,6 +248,23 @@ class CheckpointRef:
         return (getattr(self.manifest, "artifact_sha256", "") or "")[:8] or None
 
 
+def ref_from_resolution(kind_id: str, resolution: Any) -> CheckpointRef | None:
+    """A :class:`CheckpointRef` from a registry ``Resolution`` that served a *directory* artifact, else ``None``."""
+    manifest = getattr(resolution, "manifest", None)
+    if not getattr(resolution, "served", False) or manifest is None:
+        return None
+    if getattr(manifest, "artifact_kind", "file") != "directory":
+        return None
+    members = dict(getattr(manifest, "artifact_members", {}) or {})
+    return CheckpointRef(
+        kind_id=kind_id,
+        path=Path(resolution.model),
+        provenance=resolution.slot,
+        manifest=manifest,
+        expected_sha256=members or None,
+    )
+
+
 def find_checkpoint(
     kind_id: str,
     *,
@@ -258,14 +275,25 @@ def find_checkpoint(
 ) -> CheckpointRef | None:
     """The lookup seam: kind -> verified checkpoint directory, or ``None``.
 
-    Will resolve through the registry's ladder (``local -> org -> base``) for a
-    **directory** artifact (WP04, FR-011). Packs live in the client-owned install
-    root and reach the slots already verified by the client's Go code; this engine
-    re-verifies the directory digest and never fetches anything. With nothing
-    installed -- every shipped build -- it returns ``None``.
+    Resolves through the registry's ladder (``local -> org -> base``) for a
+    **directory** artifact (WP04, FR-011): ``{slot}/{kind}.json`` declaring
+    ``artifact_kind: "directory"`` beside ``{slot}/{kind}.ckpt/``. Packs live in
+    the client-owned install root and reach the slots already verified by the
+    client's Go code; this engine re-verifies the directory digest and never
+    fetches anything. ``org_dir`` stays ``None`` in production: there is no org
+    location until a later mission delivers one (the org producer is unscheduled).
+    With nothing installed -- every shipped build -- it returns ``None``.
     """
-    # WP02 seam only: registry resolution of a *directory* artifact is WP04 (FR-011).
-    return None
+    from kenaz_ml.modelstore.registry import resolve_model
+
+    resolution = resolve_model(
+        kind_id,
+        local_dir=local_dir,
+        base_dir=base_dir,
+        org_dir=org_dir,
+        expected_contract=expected_contract,
+    )
+    return ref_from_resolution(kind_id, resolution)
 
 
 class OnnxAgentLike(Protocol):
