@@ -54,6 +54,25 @@ dependencies = [
     # provides it and `feast[sqlite]` would install nothing extra beyond emitting
     # an "unknown extra" warning.
     "feast==0.65.0",
+    # ONNX Runtime (laya-serving-and-packs-01MSK2SP, spec NFR-001): the runtime
+    # the per-host eligibility benchmark runs on today and the one laya's
+    # `ONNXAgent` runs on once a checkpoint pack exists. A SECOND deliberate
+    # exception to the dependency ceiling, recorded with its own measurement
+    # (Feast's exception does not cover it).
+    # Measured 2026-09-30 (macOS arm64, onnxruntime 1.30.0): +76 MB site-packages
+    # (onnxruntime 76 MB + flatbuffers ~1 MB), +72 MB in the built bundle
+    # (333 -> 405 MB onedir), +2 native Mach-O files to sign (437 -> 439).
+    # See plan.md "Charter Check" for the full before/after table. Why it exists:
+    # owner ruling (design doc section 1) requires laya serving inside kenaz-ml,
+    # ONNX INT8 is the ruled runtime, and torch was rejected as heavier and never
+    # allowed in the base install (C-004). Pinned EXACTLY: a native-library version
+    # skew inside a notarized bundle is a signing and behaviour hazard.
+    #
+    # `laya` / `laya-serve` are DELIBERATELY NOT declared. PyPI `laya` 0.3.22
+    # requires torch>=2.0.0 and transformers>=4.48.0 unconditionally (C-004
+    # forbids torch in the base set); `laya-serve` 0.2.1 is deprecated upstream.
+    # src/kenaz_ml/laya/ imports laya lazily and refuses truthfully when absent.
+    "onnxruntime==1.30.0",
 ]
 
 [project.optional-dependencies]

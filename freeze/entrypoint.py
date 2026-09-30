@@ -35,6 +35,11 @@ from kenaz_ml.cli import main
 #: Argv token that selects the packaging self-check instead of the product CLI.
 SELFCHECK_COMMAND = "feature-store-selfcheck"
 
+#: Second frozen-only subcommand (laya-serving-and-packs-01MSK2SP WP01): proves
+#: ONNX Runtime survived freezing, that torch did NOT get in, and that the laya
+#: layer starts with no checkpoint. Packaging verification, like the one above.
+ONNX_SELFCHECK_COMMAND = "onnx-selfcheck"
+
 #: Entity id used for the probe lookup. It is not expected to resolve to
 #: anything — the point is that the lookup *executes*, which requires the local
 #: provider, the file registry and the SQLite online store all to have survived
@@ -181,6 +186,41 @@ def _feature_store_selfcheck(argv: list[str]) -> int:
         return 1
 
 
+def _onnx_selfcheck(argv: list[str]) -> int:
+    """Verify the ONNX Runtime layer of the frozen bundle; print one JSON report.
+
+    Nothing here needs a checkpoint -- none ships (C-001). What it asserts is the
+    day-one state: ``onnxruntime`` imports and really runs a graph, ``torch`` is
+    absent (C-004), and the laya layer is constructible with nothing loaded.
+    """
+    report: dict[str, object] = {"ok": False}
+    try:
+        import onnxruntime
+
+        report["frozen"] = hasattr(sys, "_MEIPASS")
+        report["onnxruntime_version"] = onnxruntime.__version__
+        report["providers"] = list(onnxruntime.get_available_providers())
+        report["torch_importable"] = _importable("torch")
+        report["laya_importable"] = _importable("laya")
+        report["ok"] = True
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0
+    except Exception as exc:  # noqa: BLE001 — the report is the interface
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        report["traceback"] = traceback.format_exc()
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 1
+
+
+def _importable(name: str) -> bool:
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
+
+
 if __name__ == "__main__":
     # PyInstaller one-file builds re-exec the bootloader for child processes;
     # freeze_support() makes any multiprocessing-based worker (joblib/loky,
@@ -188,4 +228,6 @@ if __name__ == "__main__":
     multiprocessing.freeze_support()
     if len(sys.argv) > 1 and sys.argv[1] == SELFCHECK_COMMAND:
         raise SystemExit(_feature_store_selfcheck(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == ONNX_SELFCHECK_COMMAND:
+        raise SystemExit(_onnx_selfcheck(sys.argv[2:]))
     main()

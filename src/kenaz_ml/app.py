@@ -121,6 +121,11 @@ class AppState:
         self.engine_sha256: str | None = None
         # Per-kind advice retrain trigger (harness-recommendation-models WP01).
         self.advice_scheduler: AdviceTrainingScheduler | None = None
+        # laya-serving-and-packs-01MSK2SP: the in-process backend behind the raw
+        # /v1/systemone mount. None until a laya checkpoint is installed and
+        # loaded -- which no shipped build does (C-001) -- so the mount answers
+        # its "model not loaded" 503.
+        self.systemone_backend: Any = None
 
     def load_models(self, model_store: ModelStore | None = None) -> None:
         """Load or reload all model instances."""
@@ -378,6 +383,9 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
         if state.store:
             state.store.close()
             logger.info("store connection closed")
+        systemone = getattr(application.state, "systemone", None)
+        if systemone is not None:
+            systemone.close()
 
     application = FastAPI(
         title="kenaz-ml",
@@ -388,6 +396,13 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
 
     register_routes(application, state)
     register_fleet_routes(application, state)
+
+    # laya-serving-and-packs-01MSK2SP WP01 (D-C1): laya's raw wire API, in
+    # process, local mode only. Never called by /v1/recommend (C-002).
+    if mode == ServingMode.LOCAL:
+        from kenaz_ml.laya.systemone_mount import mount_systemone
+
+        mount_systemone(application, lambda: state.systemone_backend)
 
     return application
 
