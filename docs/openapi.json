@@ -487,6 +487,16 @@
               }
             }
           },
+          "413": {
+            "description": "More rows than the batch limit; nothing acked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendRefusal"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Contract / names / retained-header mismatch; nothing written",
             "content": {
@@ -1285,7 +1295,7 @@
           "retained_rebuilt"
         ],
         "title": "LabelBatchResponse",
-        "description": "``applied`` = new keys, ``replaced`` = higher-revision upserts, ``stale`` = not newer.\n\n``acked`` is the ``(ts, revision)`` of the last row, in the order sent,\nof the leading run of rows that were durably applied, replaced or found\nstale \u2014 always a row of this batch (never beyond the pushed window), and\n``null`` when the first row was refused. Rows after a refused row are\nstill processed but not acked, so the client re-sends them."
+        "description": "``applied`` = new keys, ``replaced`` = higher-revision upserts, ``stale`` = not newer.\n\n``acked`` is the ``(ts, revision)`` of the last row of the batch, in the\norder sent \u2014 always a row of this batch (never beyond the pushed window).\nPer-row refusals are permanent (no re-send can fix them), so the ack\nadvances past them; each is listed in ``refusals`` (Amendment A4). A\nbatch-level failure (409 / 413 / 503) acks nothing. ``null`` only for an\nempty batch."
       },
       "LabelCursor": {
         "properties": {

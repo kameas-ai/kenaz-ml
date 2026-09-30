@@ -10,10 +10,18 @@ The frozen ingest contract (Amendment A3.3, ruled 2026-09-30)
 * The **ack is a cursor over ``(ts, revision)``**: rows are processed in the
   order sent (the harness sends them in its table-global ``revision`` order —
   an updated old row keeps its ``ts`` and gets a revision above everything
-  pushed before) and the ack is the ``(ts, revision)`` of the last row of the
-  leading run that was accepted, superseded or duplicate — always a row of the
-  batch, so never beyond the pushed window; a client resumes at the first
-  refused row.
+  pushed before) and the ack is the ``(ts, revision)`` of the **last row of the
+  batch** — always a row of the batch, so never beyond the pushed window.
+  Amendment A4: per-row refusals (client/kind mismatch, unknown user_action,
+  invalid features, row too large) are *permanent* — no re-send can fix them —
+  so the ack advances past them and each is reported in the response. Only
+  batch-level failures (contract/names/retained-header mismatch -> 409, I/O ->
+  503) leave the batch un-acked with nothing written.
+* The retained mirror is updated after the label log is durably written. If
+  that update fails (``append_examples``/``reset_retained`` raising), a
+  persisted ``<kind>.retained-dirty`` marker records it and the next batch
+  rebuilds the mirror from the label log (Amendment A4); a crash cannot lose
+  the marker.
 * Propensity fields (``shown``, ``features_complete``, ``model_id``,
   ``user_action``, ``rung``, ``prompt_version``, confidence-at-decision-time)
   live in **this label log**, never in ``retained.Example`` (whose shape is
@@ -97,6 +105,24 @@ ROW_UNKNOWN_USER_ACTION = "unknown_user_action"
 ROW_CLIENT_MISMATCH = "client_mismatch"
 ROW_KIND_MISMATCH = "kind_mismatch"
 ROW_FEATURES_INVALID = "features_invalid"
+ROW_TOO_LARGE = "row_too_large"
+
+#: Every per-row refusal above is PERMANENT — no re-send of the same row can fix
+#: it — so the ack advances past it (Amendment A4). Only batch-level failures
+#: (contract/names/retained-header 409, I/O 503) leave the batch un-acked.
+PERMANENT_ROW_REFUSALS = frozenset(
+    {ROW_UNKNOWN_USER_ACTION, ROW_CLIENT_MISMATCH, ROW_KIND_MISMATCH, ROW_FEATURES_INVALID, ROW_TOO_LARGE}
+)
+
+#: Size bounds (Amendment A4). A batch over MAX_BATCH rows is refused whole by
+#: the route (HTTP 413); a row whose serialized record exceeds MAX_ROW_BYTES is a
+#: permanent per-row refusal — far below the 50 MB log bound, so one row can
+#: never evict the log.
+MAX_BATCH = 1000
+MAX_ROW_BYTES = 64 * 1024
+
+#: Suffix of the persisted "retained mirror is dirty" marker (Amendment A4).
+DIRTY_SUFFIX = ".retained-dirty"
 
 Key = tuple[str, str, str, int]
 
@@ -366,7 +392,43 @@ def _row_refusal(row: Mapping[str, Any], client: str, kind: str, names: Sequence
                 return ROW_FEATURES_INVALID
         except (TypeError, ValueError, OverflowError):  # OverflowError: an int too large for a float
             return ROW_FEATURES_INVALID
+    try:
+        if len(_dumps(row).encode("utf-8")) > MAX_ROW_BYTES:
+            return ROW_TOO_LARGE
+    except (TypeError, ValueError):
+        return ROW_FEATURES_INVALID
     return None
+
+
+# ---------------------------------------------------------------------------
+# The persisted dirty marker (Amendment A4)
+# ---------------------------------------------------------------------------
+
+
+def dirty_marker_path(kind: str, *, directory: Path | str | None = None) -> Path:
+    path = label_log_path(kind, directory=directory)
+    return path.with_name(f"{kind}{DIRTY_SUFFIX}")
+
+
+def _mark_dirty(kind: str, directory: Path | str | None, reason: str) -> None:
+    """Persist that the retained mirror lags the label log. Survives a crash."""
+    try:
+        _atomic_write(
+            dirty_marker_path(kind, directory=directory), [_dumps({"reason": reason, "at_ms": int(time.time() * 1000)})]
+        )
+    except OSError:
+        logger.error("label_log: could not persist the dirty marker for %r", kind, exc_info=True)
+
+
+def is_dirty(kind: str, *, directory: Path | str | None = None) -> bool:
+    return dirty_marker_path(kind, directory=directory).exists()
+
+
+def _clear_dirty(kind: str, directory: Path | str | None) -> None:
+    try:
+        dirty_marker_path(kind, directory=directory).unlink(missing_ok=True)
+    except OSError:
+        logger.warning("label_log: could not clear the dirty marker for %r", kind, exc_info=True)
 
 
 def _contract_refusal(rows: Sequence[Mapping[str, Any]], contract: Any) -> tuple[str, str] | None:
@@ -458,8 +520,9 @@ def _ingest(
         pending_new: dict[Key, dict[str, Any]] = {}
         replaced: dict[Key, dict[str, Any]] = {}
         appends: list[dict[str, Any]] = []
-        needs_rebuild = False
-        prefix_open = True
+        # A mirror left dirty by an earlier failed retained write is rebuilt
+        # from the label log on this batch, whatever this batch contains.
+        needs_rebuild = is_dirty(kind, directory=directory)
 
         for i in order:
             row = rows[i]
@@ -472,9 +535,10 @@ def _ingest(
             )
             reason = _row_refusal(row, client, kind, names)
             if reason is not None:
+                # Permanent: the ack advances past it (A4); it is reported.
                 outcome.reason = reason
                 result.outcomes.append(outcome)
-                prefix_open = False
+                result.ack = (outcome.ts, outcome.revision)
                 continue
 
             record = {**dict(row), "record": RECORD_LABEL, "ingested_at_ms": stamp}
@@ -497,10 +561,11 @@ def _ingest(
             else:
                 outcome.status = STATUS_DUPLICATE
             result.outcomes.append(outcome)
-            if prefix_open:
-                result.ack = (outcome.ts, outcome.revision)
+            result.ack = (outcome.ts, outcome.revision)
 
         if not pending_new and not replaced:
+            if needs_rebuild:
+                _mirror(kind, contract, directory, result, retained_kwargs, rebuild=True, examples=[])
             return result
 
         # --- label log write -------------------------------------------------
@@ -533,18 +598,53 @@ def _ingest(
             _INDEXES.pop(path, None)
 
         # --- retained mirror -------------------------------------------------
-        if needs_rebuild:
-            _rebuild_retained(kind, contract, directory, result, retained_kwargs)
-        else:
-            examples = [ex for ex in (example_for(r, names) for r in [*pending_new.values(), *appends]) if ex]
-            if examples:
-                appended = append_examples(kind, examples, contract, **retained_kwargs)
-                if appended.ok:
-                    result.retained_appended = appended.written
-                    result.retained_generation = appended.generation
-                else:  # pragma: no cover - the probe above already checked the header
-                    logger.warning("label_log: retained append for %r refused: %s", kind, appended.reason)
+        # The label log is durably written from here on, so the ack stands. A
+        # failure below leaves the mirror behind the log: it is marked dirty
+        # (persisted) and rebuilt from the log on the next batch (A4).
+        examples = (
+            []
+            if needs_rebuild
+            else [ex for ex in (example_for(r, names) for r in [*pending_new.values(), *appends]) if ex]
+        )
+        _mirror(kind, contract, directory, result, retained_kwargs, rebuild=needs_rebuild, examples=examples)
     return result
+
+
+def _mirror(
+    kind: str,
+    contract: Any,
+    directory: Path | str | None,
+    result: IngestResult,
+    retained_kwargs: dict[str, Any],
+    *,
+    rebuild: bool,
+    examples: list[Any],
+) -> None:
+    """Bring the retained mirror up to date. Never raises; a failure marks it dirty."""
+    from kenaz_ml.modelstore.registry import append_examples
+
+    try:
+        if rebuild:
+            _rebuild_retained(kind, contract, directory, result, retained_kwargs)
+        elif examples:
+            appended = append_examples(kind, examples, contract, **retained_kwargs)
+            if not appended.ok:
+                raise RuntimeError(f"retained append refused: {appended.reason}")
+            result.retained_appended = appended.written
+            result.retained_generation = appended.generation
+        else:
+            return
+    except Exception as exc:
+        logger.warning(
+            "label_log: retained mirror for %r failed after the label log was written; "
+            "marked dirty, the next batch rebuilds it from the label log",
+            kind,
+            exc_info=True,
+        )
+        _mark_dirty(kind, directory, f"{type(exc).__name__}: {exc}")
+        return
+    if rebuild:
+        _clear_dirty(kind, directory)
 
 
 def _rebuild_retained(
@@ -558,6 +658,8 @@ def _rebuild_retained(
     examples = [ex for ex in (example_for(r, names) for r in labels.values()) if ex]
     reset = reset_retained(kind, contract=contract, directory=directory)
     appended = append_examples(kind, examples, contract, generation=reset.next_generation, **retained_kwargs)
+    if not appended.ok:
+        raise RuntimeError(f"retained rebuild append refused: {appended.reason}")
     result.retained_rebuilt = True
     result.retained_appended = appended.written
     result.retained_generation = appended.generation or reset.next_generation

@@ -284,9 +284,9 @@ def test_snapshot_time_is_carried_not_recomputed(env: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_ack_covers_only_the_leading_run_in_sent_order(env: dict) -> None:
-    # Sent in the harness's table-global revision order: an updated OLD row
-    # (ts 1000) carries a revision above everything pushed before it.
+def test_ack_advances_past_a_permanently_bad_middle_row(env: dict) -> None:
+    # Amendment A4. Sent in the harness's table-global revision order: an
+    # updated OLD row (ts 1000) carries a revision above everything before it.
     rows = [
         row(1000, revision=1),
         row(3000, revision=2),
@@ -295,16 +295,117 @@ def test_ack_covers_only_the_leading_run_in_sent_order(env: dict) -> None:
         row(4000, revision=5),
     ]
     body = push(env["client"], rows).json()
-    assert body["acked"] == {"ts": 1000, "revision": 3}
+    assert body["acked"] == {"ts": 4000, "revision": 5}  # to the END of the batch
     assert (body["applied"], body["replaced"], body["refused"]) == (3, 1, 1)
-    assert body["refusals"][0]["reason"] == "unknown_user_action"
-    assert body["refusals"][0]["ts"] == 2000
+    assert body["refusals"] == [
+        {"index": 3, "features_hash": "h2000", "ts": 2000, "revision": 4, "reason": "unknown_user_action"}
+    ]
+    assert {r["ts"] for r in labels_on_disk(env["retained"])} == {1000, 3000, 4000}
+
+    # An idempotent re-send counts the good rows stale and re-reports the bad one.
+    again = push(env["client"], rows).json()
+    assert again["acked"] == {"ts": 4000, "revision": 5}
+    assert (again["applied"], again["replaced"], again["stale"], again["refused"]) == (0, 0, 4, 1)
+    assert again["refusals"][0]["reason"] == "unknown_user_action"
 
 
-def test_first_row_refused_means_no_ack(env: dict) -> None:
+def test_a_refused_first_row_is_still_acked_past(env: dict) -> None:
     body = push(env["client"], [row(1000, client="someone-else"), row(2000)]).json()
-    assert body["acked"] is None
+    assert body["acked"] == {"ts": 2000, "revision": 1}
     assert body["refusals"][0]["reason"] == "client_mismatch"
+
+
+def test_an_all_refused_batch_acks_its_last_row(env: dict) -> None:
+    body = push(env["client"], [row(1000, action="bogus"), row(2000, kind="branch_now")]).json()
+    assert body["acked"] == {"ts": 2000, "revision": 1}
+    assert [r["reason"] for r in body["refusals"]] == ["unknown_user_action", "kind_mismatch"]
+    assert not (env["retained"] / f"{KIND}.labels.jsonl").exists()
+
+
+def test_batch_level_failures_still_ack_nothing(env: dict) -> None:
+    resp = push(env["client"], [row(1000), row(2000, feature_contract_version="deadbeefdeadbeef")])
+    assert resp.status_code == 409
+    assert "acked" not in resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Amendment A4 — size bounds
+# ---------------------------------------------------------------------------
+
+
+def test_an_oversized_row_is_a_permanent_row_refusal(env: dict) -> None:
+    huge = row(1000, prompt_version="x" * (label_log.MAX_ROW_BYTES + 1))
+    body = push(env["client"], [huge, row(2000)]).json()
+    assert body["refusals"][0]["reason"] == "row_too_large"
+    assert body["acked"] == {"ts": 2000, "revision": 1}
+    assert [r["ts"] for r in labels_on_disk(env["retained"])] == [2000]
+
+
+def test_too_many_rows_is_a_413_batch_refusal(env: dict) -> None:
+    rows = [row(1000 + i) for i in range(label_log.MAX_BATCH + 1)]
+    resp = push(env["client"], rows)
+    assert resp.status_code == 413
+    assert resp.json()["error"] == "batch_too_large"
+    assert not (env["retained"] / f"{KIND}.labels.jsonl").exists()
+
+
+# ---------------------------------------------------------------------------
+# Amendment A4 — a failed retained write after the log write marks the mirror dirty
+# ---------------------------------------------------------------------------
+
+
+def test_retained_failure_after_log_write_is_rebuilt_next_batch(env: dict, monkeypatch) -> None:
+    import kenaz_ml.modelstore.registry as registry
+
+    real_append = registry.append_examples
+    calls = {"n": 0}
+
+    def flaky(name, examples, contract, **kw):
+        batch = list(examples)
+        if batch:  # the probe (empty) succeeds; the real append after the log write fails
+            calls["n"] += 1
+            raise OSError("disk full")
+        return real_append(name, batch, contract, **kw)
+
+    monkeypatch.setattr(registry, "append_examples", flaky)
+    first = push(env["client"], [row(1000), row(2000, action="dismissed")])
+    assert first.status_code == 200
+    assert first.json()["acked"] == {"ts": 2000, "revision": 1}  # the label log IS durable
+    assert len(labels_on_disk(env["retained"])) == 2
+    assert retained_rows(env["retained"]) == ()  # the mirror lags...
+    assert label_log.is_dirty(KIND, directory=env["retained"])  # ...and that is persisted
+    assert calls["n"] == 1
+
+    # A "restart": in-memory state gone, only the disk marker remains.
+    label_log._INDEXES.clear()
+    monkeypatch.setattr(registry, "append_examples", real_append)
+
+    # The next batch — even one that is entirely stale — rebuilds from the log.
+    second = push(env["client"], [row(1000)]).json()
+    assert second["stale"] == 1
+    assert second["retained_rebuilt"] is True
+    assert sorted((e.as_of_ms, e.y) for e in retained_rows(env["retained"])) == [(1000, 1.0), (2000, 0.0)]
+    assert not label_log.is_dirty(KIND, directory=env["retained"])
+
+
+def test_reset_failure_during_a_rebuild_keeps_the_mirror_dirty(env: dict, monkeypatch) -> None:
+    import kenaz_ml.modelstore.registry as registry
+
+    push(env["client"], [row(1000, action="accepted")])
+    real_reset = registry.reset_retained
+
+    def broken(*a, **kw):
+        raise OSError("read-only filesystem")
+
+    monkeypatch.setattr(registry, "reset_retained", broken)
+    resp = push(env["client"], [row(1000, revision=2, action="dismissed")])  # label-changing -> rebuild
+    assert resp.status_code == 200 and resp.json()["replaced"] == 1
+    assert label_log.is_dirty(KIND, directory=env["retained"])
+
+    monkeypatch.setattr(registry, "reset_retained", real_reset)
+    push(env["client"], [])
+    assert not label_log.is_dirty(KIND, directory=env["retained"])
+    assert [(e.as_of_ms, e.y) for e in retained_rows(env["retained"])] == [(1000, 0.0)]
 
 
 def test_full_success_acks_the_last_row_sent(env: dict) -> None:
@@ -386,6 +487,7 @@ def test_an_int_too_large_for_a_float_is_a_row_refusal_not_a_500(env: dict) -> N
     resp = env["client"].post(f"/v1/labels/{KIND}", content=wire, headers={"content-type": "application/json"})
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["acked"] is None
+    # Amendment A4: the refusal is permanent, so the ack advances past it.
+    assert body["acked"] == {"ts": 2000, "revision": 1}
     assert body["refusals"][0]["reason"] == "features_invalid"
     assert body["applied"] == 1

@@ -291,11 +291,12 @@ class LabelRowRefusal(BaseModel):
 class LabelBatchResponse(BaseModel):
     """``applied`` = new keys, ``replaced`` = higher-revision upserts, ``stale`` = not newer.
 
-    ``acked`` is the ``(ts, revision)`` of the last row, in the order sent,
-    of the leading run of rows that were durably applied, replaced or found
-    stale — always a row of this batch (never beyond the pushed window), and
-    ``null`` when the first row was refused. Rows after a refused row are
-    still processed but not acked, so the client re-sends them.
+    ``acked`` is the ``(ts, revision)`` of the last row of the batch, in the
+    order sent — always a row of this batch (never beyond the pushed window).
+    Per-row refusals are permanent (no re-send can fix them), so the ack
+    advances past them; each is listed in ``refusals`` (Amendment A4). A
+    batch-level failure (409 / 413 / 503) acks nothing. ``null`` only for an
+    empty batch.
     """
 
     acked: LabelCursor | None
@@ -885,6 +886,7 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
         response_model=LabelBatchResponse,
         responses={
             404: {"model": RecommendRefusal, "description": "Unknown kind"},
+            413: {"model": RecommendRefusal, "description": "More rows than the batch limit; nothing acked"},
             409: {
                 "model": RecommendRefusal,
                 "description": "Contract / names / retained-header mismatch; nothing written",
@@ -894,6 +896,7 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
     )
     def labels(kind: str, req: LabelBatchRequest) -> LabelBatchResponse | JSONResponse:
         """Cursor-acked, revision-upserted label ingest (FR-007..009). Loopback only; no outbound call."""
+        from kenaz_ml.advice.label_log import MAX_BATCH as MAX_LABEL_BATCH
         from kenaz_ml.advice.label_log import (
             STATUS_ACCEPTED,
             STATUS_DUPLICATE,
@@ -902,6 +905,13 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
             ingest,
         )
 
+        if len(req.rows) > MAX_LABEL_BATCH:
+            return JSONResponse(
+                status_code=413,
+                content=Refused(
+                    kind, "batch_too_large", f"{len(req.rows)} rows exceeds the batch limit of {MAX_LABEL_BATCH}"
+                ).body(),
+            )
         entry = state.dispatch_table.snapshot().get(kind)
         if entry is None or entry.contract is None:
             return JSONResponse(

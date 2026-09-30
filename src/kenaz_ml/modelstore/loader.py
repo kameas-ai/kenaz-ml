@@ -247,6 +247,17 @@ def _migrate_pre_registry(slot_dir: Path, model_name: str, contract: FeatureCont
         not be persisted, so the caller can validate against it in memory rather
         than let an unwritable model directory un-train the install.
     """
+    # KNOWN LIMITATION (dated 2026-09-30, Amendment A4 / two-client-engine
+    # security review; no code change ruled): the migration stamps the artifact
+    # with the *current* contract, because a manifest-less artifact records none.
+    # In the contrived sequence "trainer clears the manifest -> process crashes
+    # before the new manifest is written -> the model's feature contract changes
+    # in an upgrade -> next start", an artifact trained under the OLD contract is
+    # stamped with the NEW one and served with a mismatched vector layout until
+    # the next training run rewrites a truthful manifest. Reaching it needs a
+    # crash inside the trainer's write window and a contract change before the
+    # next retrain; the refresh/registry path cannot tell the two apart without
+    # deserializing first, which FR-005 forbids.
     from kenaz_ml.modelstore.registry import write_manifest
 
     artifact = slot_dir / f"{model_name}{ARTIFACT_SUFFIX}"
