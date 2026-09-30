@@ -1,3 +1,5 @@
 """ML sidecar for the Sigil developer intelligence daemon."""
 
-__version__ = "0.1.0"
+from kenaz_ml._version import __version__
+
+__all__ = ["__version__"]

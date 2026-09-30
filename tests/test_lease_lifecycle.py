@@ -485,6 +485,23 @@ def test_loopback_hosts_are_accepted(serve_calls: list[dict], monkeypatch: pytes
     assert serve_calls[0]["host"] == host
 
 
+@pytest.mark.parametrize("port", ["7774", "7775", "7776"])
+def test_port_flag_is_respected(serve_calls: list[dict], monkeypatch: pytest.MonkeyPatch, port: str) -> None:
+    _serve(monkeypatch, "--port", port)
+    assert serve_calls[0]["port"] == int(port)
+    assert serve_calls[0]["host"] == "127.0.0.1"
+
+
+@pytest.mark.parametrize("port", ["7774", "7775", "7776"])
+def test_loopback_guard_holds_on_every_port(
+    serve_calls: list[dict], monkeypatch: pytest.MonkeyPatch, port: str
+) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        _serve(monkeypatch, "--host", "0.0.0.0", "--port", port)
+    assert excinfo.value.code != 0
+    assert serve_calls == []
+
+
 def test_default_serve_is_unchanged(serve_calls: list[dict], monkeypatch: pytest.MonkeyPatch) -> None:
     _serve(monkeypatch)
     assert serve_calls[0]["host"] == "127.0.0.1"

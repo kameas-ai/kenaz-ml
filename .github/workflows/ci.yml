@@ -270,6 +270,20 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev,freeze]"
 
+      - name: Release tag must match the pyproject version (A5)
+        # pyproject.toml is the engine's single version source; the freeze
+        # stamps it into VERSION files and /health reports it. A tag that
+        # disagrees would ship a mislabelled engine, so it fails here.
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PYPROJECT_VERSION=$(python -c "from pathlib import Path; import sys; sys.path.insert(0, 'src'); from kenaz_ml._version import pyproject_version; print(pyproject_version(Path('pyproject.toml')) or '')")
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} (version ${TAG_VERSION}) does not match pyproject.toml version ${PYPROJECT_VERSION}; bump pyproject before tagging"
+            exit 1
+          fi
+
       - name: Build frozen bundle
         # `make freeze` runs `pyinstaller freeze/kenaz-ml.spec`, which applies
         # the Feast registry at build time and fails the build if the apply
@@ -601,10 +615,23 @@ jobs:
           assert body["lifecycle_protocol"] == 1, body["lifecycle_protocol"]
           assert body["sidecar_version"], "empty sidecar_version"
           assert body["engine_sha256"] and len(body["engine_sha256"]) == 64, body["engine_sha256"]
+          # A5: the version is real, stamped from pyproject.toml, carried in the
+          # onedir-root VERSION file, and (on a tag) is the tag's version.
+          version = body["sidecar_version"]
+          assert version and version != "0+unknown", version
+          root_file = open(os.path.join(os.environ["MOUNT"], "VERSION")).read().strip()
+          assert root_file == version, (root_file, version)
+          if os.environ.get("RELEASE_BUILD") == "true":
+              assert version != "0.1.0", "release build still reports the placeholder 0.1.0"
+              assert version == os.environ["GITHUB_REF_NAME"].removeprefix("v"), (version, os.environ["GITHUB_REF_NAME"])
           mount = os.path.realpath(os.environ["MOUNT"])
           assert os.path.realpath(body["exe_path"]).startswith(mount), (body["exe_path"], mount)
           print("identity OK:", {k: body[k] for k in ("product", "sidecar_version", "lifecycle_protocol", "exe_path")})
           PY
+          # `--version` on the notarized launcher agrees with /health (A5).
+          CLI_VERSION=$("$MOUNT/kameas-ml" --version)
+          HEALTH_VERSION=$(python3 -c "import json; print(json.load(open('/tmp/health.json'))['sidecar_version'])")
+          [ "$CLI_VERSION" = "$HEALTH_VERSION" ] || { echo "::error::--version ($CLI_VERSION) != /health ($HEALTH_VERSION)"; exit 1; }
           # A wrong token must be refused and leave the engine running...
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer wrong" "http://127.0.0.1:$PORT/v1/admin/shutdown")
           [ "$code" = "403" ] || { echo "::error::wrong shutdown token answered $code, expected 403"; exit 1; }

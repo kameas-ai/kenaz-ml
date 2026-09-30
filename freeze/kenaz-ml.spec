@@ -475,6 +475,21 @@ datas += [
     (str(_registry_marker_path), BUNDLE_FEATURE_STORE_DIR),
 ]
 
+# The engine version (Amendment A5): pyproject.toml is the single source.
+# Stamped into a VERSION file that lands at `<_MEIPASS>/kenaz_ml/VERSION`, where
+# `kenaz_ml._version` reads it when frozen, and is copied to the onedir root
+# after COLLECT (below) so a client can read it without executing the binary.
+from kenaz_ml._version import VERSION_FILENAME, pyproject_version  # noqa: E402
+
+ENGINE_VERSION = pyproject_version(REPO_ROOT / "pyproject.toml")
+if not ENGINE_VERSION:
+    raise SystemExit("freeze: cannot read [project].version for kenaz-ml from pyproject.toml")
+_version_file = REPO_ROOT / "build" / "version" / VERSION_FILENAME
+_version_file.parent.mkdir(parents=True, exist_ok=True)
+_version_file.write_text(ENGINE_VERSION + "\n", encoding="utf-8")
+datas += [(str(_version_file), "kenaz_ml")]
+print(f"freeze: stamping engine version {ENGINE_VERSION}")
+
 # Native extensions that `collect_submodules` alone does not bring: pyarrow
 # ships `libarrow*.dylib` / `libparquet*.dylib` alongside its extension modules
 # and loads them through its own loader, and grpcio (when present) carries a
@@ -556,3 +571,8 @@ coll = COLLECT(
     upx_exclude=[],
     name=ARTIFACT_NAME,
 )
+
+# Second carrier of the engine version: `<onedir>/VERSION`, beside the launcher.
+# A plain text file — not a Mach-O, so it needs no signature — that the
+# spawning client can read to name `versions/<semver>/` without running it.
+shutil.copyfile(_version_file, Path(DISTPATH) / ARTIFACT_NAME / VERSION_FILENAME)  # noqa: F821 — DISTPATH is injected

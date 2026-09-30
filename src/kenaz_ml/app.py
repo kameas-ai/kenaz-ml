@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 from fastapi import FastAPI
 
+from kenaz_ml import __version__
 from kenaz_ml.advice.dispatch import DispatchTable, build_table
 from kenaz_ml.config import ServingMode, resolve_mode
 from kenaz_ml.datastore import DataStore, create_store
@@ -354,7 +355,7 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
 
     application = FastAPI(
         title="kenaz-ml",
-        version="0.1.0",
+        version=__version__,
         description=f"kenaz-ml — the ML sidecar for Sigil ({mode.value} mode)",
         lifespan=lifespan,
     )
