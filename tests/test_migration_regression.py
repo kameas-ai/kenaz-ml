@@ -237,7 +237,8 @@ MISSING_TASK_ID = "task-does-not-exist"
 
 #: The raw daemon-stream buffer the poller falls back to when there is no active
 #: task. A different event vocabulary from the task-window stream: `file`/`edit`
-#: for edits, `git` (not `commit`) for commits, `terminal` exit codes for test
+#: for edits, `git` for commits (normalised to `commit` by feature-vocabulary-refresh
+#: R7, so the pinned commit-recency values are unchanged), `terminal` exit codes for test
 #: failures. Event 8 is after the reference time and must be dropped.
 BUFFER: list[dict[str, Any]] = [
     {"id": 1, "ts": NOW_MS - 27 * MINUTE_MS, "kind": "file", "payload": {"path": "/src/one.py"}},
