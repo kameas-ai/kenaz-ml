@@ -474,7 +474,10 @@ jobs:
         if: steps.creds.outputs.configured == 'true' && env.PLANT_VIOLATION == 'unsigned_dylib'
         run: |
           set -euo pipefail
-          victim=$(find dist/kameas-ml -type f -name '*.dylib' | head -1)
+          # -print -quit, not `| head -1`: under pipefail, head closing the pipe
+          # early SIGPIPEs find and fails this step for the wrong reason.
+          victim=$(find dist/kameas-ml -type f -name '*.dylib' -print -quit)
+          [ -n "$victim" ] || { echo "::error::no dylib found to plant the violation on"; exit 1; }
           codesign --remove-signature "$victim"
           echo "::warning::PLANTED VIOLATION — removed the signature from $victim; the next step must fail"
 
