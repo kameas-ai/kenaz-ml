@@ -56,7 +56,14 @@ def test_torch_is_never_a_declared_dependency() -> None:
 def test_onnxruntime_is_declared_and_pinned_exactly() -> None:
     deps = _pyproject()["project"]["dependencies"]
     pins = [d for d in deps if d.lower().startswith("onnxruntime")]
-    assert len(pins) == 1 and re.fullmatch(r"onnxruntime==\d+\.\d+\.\d+", pins[0]), pins
+    # Every entry is an exact pin. More than one is allowed only as a split over
+    # disjoint interpreter ranges (1.30.0 publishes no Python 3.10 wheels), so
+    # any one interpreter still resolves exactly one version.
+    pattern = r"onnxruntime==\d+\.\d+\.\d+(; python_version (>=|<) '3\.\d+')?"
+    assert pins and all(re.fullmatch(pattern, p) for p in pins), pins
+    if len(pins) > 1:
+        markers = sorted(p.split("; ", 1)[1] for p in pins)
+        assert markers == ["python_version < '3.11'", "python_version >= '3.11'"], pins
 
 
 def test_freeze_spec_refuses_checkpoint_artifacts_and_torch() -> None:
