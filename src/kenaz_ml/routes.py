@@ -6,7 +6,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -95,11 +95,74 @@ class TrainResponse(BaseModel):
     message: str
 
 
+class ModelHealth(BaseModel):
+    """Per-model health detail (WP05). ``refusal`` carries the registry's refusal text."""
+
+    status: str = Field(..., description="Same value as HealthResponse.models[name].")
+    slot: str | None = Field(..., description='Registry slot serving it: "local" | "base" | "cold_start" | null.')
+    refusal: str | None = Field(..., description="Registry refusal reason text (integrity/contract/runtime), or null.")
+
+
 class HealthResponse(BaseModel):
+    """``/health`` — honest enough for a client to verify (FR-016, Amendment A1).
+
+    The pre-existing fields are unchanged (C-008; ``models`` stays name ->
+    status string). Every field added by two-client-engine-01MSK2EN is
+    **required**: the model cannot be built from ``{}`` or a partial payload, so
+    a bare or legacy response is structurally distinguishable from this one.
+    ``exe_path`` is reported truthfully and never verified here — verification
+    is the client's job (FR-017, C-001).
+    """
+
     status: str
     mode: str = "local"  # Default for backward compatibility
     models: dict[str, str]
     uptime_sec: float
+    product: str = Field(
+        ..., description='Always "kenaz-ml" (the product name; the frozen artifact keeps its own frozen name).'
+    )
+    sidecar_version: str
+    contract_versions: dict[str, list[str]] = Field(
+        ..., description="Per recommend kind, the feature_contract_version values /v1/recommend accepts."
+    )
+    exe_path: str = Field(..., description="This process's own resolved executable path; not self-verified.")
+    model_details: dict[str, ModelHealth] = Field(..., description="Per-model status with registry refusal text.")
+    device: str = Field(..., description='Compute device; "cpu" for the scikit-learn engine.')
+    lifecycle_protocol: str = Field(
+        ...,
+        description='Lifecycle protocol marker: "kenaz-ml-lease/1" (speaks /v1/clients/lease), "none" in cloud mode.',
+    )
+
+
+# ---------- /v1/clients/lease and /v1/admin/shutdown (WP05, local mode) ----------
+
+
+class LeaseRequest(BaseModel):
+    client: str = Field(..., min_length=1)
+    pid: int = Field(..., gt=0)
+    client_version: str
+    min_contracts: dict[str, str] = Field(
+        default_factory=dict,
+        description="Per kind, the feature_contract_version this client requires. Only reported back "
+        "(incompatible_kinds); never stops the engine serving other clients.",
+    )
+
+
+class LeaseResponse(BaseModel):
+    lifecycle_protocol: str
+    sidecar_version: str
+    contract_versions: dict[str, list[str]]
+    incompatible_kinds: dict[str, str] = Field(..., description="kind -> why this client's min_contracts is unmet.")
+    client: str
+    pid: int
+    live_leases: int
+    implicit_lease_sec: float
+    idle_exit_sec: float
+    managed: bool = Field(..., description="True when the install root's lease/ directory exists.")
+
+
+class ShutdownResponse(BaseModel):
+    status: str
 
 
 class ModelIntrospection(BaseModel):
@@ -300,6 +363,11 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
                 mode="cloud",
                 models=models_status,
                 uptime_sec=round(time.time() - _start_time, 1),
+                **_identity(state),
+                model_details={
+                    name: ModelHealth(status=value, slot=None, refusal=None) for name, value in models_status.items()
+                },
+                lifecycle_protocol="none",
             )
 
         # Local mode: existing behavior with mode field added
@@ -317,12 +385,98 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
 
         models_status["quality"] = "ready" if state.quality is not None else "not_loaded"
 
+        # Every poll is an implicit 90 s lease (FR-013, repair R4).
+        leases = getattr(state, "leases", None)
+        if leases is not None:
+            leases.note_health_poll()
+
+        resolutions = getattr(state, "resolutions", {})
+        details: dict[str, ModelHealth] = {}
+        for name, value in models_status.items():
+            prov = _resolution_provenance(resolutions.get(name))
+            details[name] = ModelHealth(status=value, slot=prov["serving_slot"], refusal=prov["refusal"])
+
+        from kenaz_ml.lifecycle.leases import LIFECYCLE_PROTOCOL
+
         return HealthResponse(
             status="ok",
             mode="local",
             models=models_status,
             uptime_sec=round(time.time() - _start_time, 1),
+            **_identity(state),
+            model_details=details,
+            lifecycle_protocol=LIFECYCLE_PROTOCOL,
         )
+
+    @fastapi_app.post("/v1/clients/lease", response_model=LeaseResponse, responses={404: {"description": "Cloud mode"}})
+    async def client_lease(req: LeaseRequest) -> LeaseResponse | JSONResponse:
+        """Register or renew a client lease (FR-011). Local mode only."""
+        if state.mode == ServingMode.CLOUD:
+            return JSONResponse(status_code=404, content={"detail": "leases are a local-mode feature"})
+        from kenaz_ml import __version__
+        from kenaz_ml.lifecycle.leases import LIFECYCLE_PROTOCOL, is_managed
+
+        leases = state.leases
+        leases.renew(req.client, req.pid, req.client_version, req.min_contracts)
+        versions = _contract_versions(state)
+        incompatible: dict[str, str] = {}
+        for kind_id, wanted in req.min_contracts.items():
+            supported = versions.get(kind_id)
+            if supported is None:
+                incompatible[kind_id] = "unknown kind"
+            elif wanted not in supported:
+                incompatible[kind_id] = f"contract {wanted} not supported (engine supports {supported})"
+        return LeaseResponse(
+            lifecycle_protocol=LIFECYCLE_PROTOCOL,
+            sidecar_version=__version__,
+            contract_versions=versions,
+            incompatible_kinds=incompatible,
+            client=req.client,
+            pid=req.pid,
+            live_leases=leases.live_count(),
+            implicit_lease_sec=leases.implicit_lease_sec,
+            idle_exit_sec=leases.idle_exit_sec,
+            managed=is_managed(),
+        )
+
+    @fastapi_app.post(
+        "/v1/admin/shutdown",
+        response_model=ShutdownResponse,
+        status_code=202,
+        responses={401: {"description": "No bearer token"}, 403: {"description": "Token refused"}},
+    )
+    async def admin_shutdown(
+        background_tasks: BackgroundTasks, authorization: str | None = Header(None)
+    ) -> ShutdownResponse | JSONResponse:
+        """Graceful shutdown, authorized by ``Authorization: Bearer <token>`` (FR-015).
+
+        The token is read on every request from the client-owned
+        ``<install_root>/lease/shutdown.token``. Fails closed: a missing lease
+        directory or token file, an empty or unreadable file, no token or a
+        wrong one all refuse and the engine keeps running. On success the
+        response is sent first; then in-flight training drains (bounded), the
+        poller stops, and the process exits through the graceful path.
+        """
+        from kenaz_ml import config
+        from kenaz_ml.lifecycle.shutdown import (
+            REASON_NO_TOKEN,
+            check_token,
+            drain_and_exit,
+            presented_token,
+        )
+
+        if state.mode == ServingMode.CLOUD:
+            return JSONResponse(status_code=404, content={"detail": "admin shutdown is a local-mode feature"})
+        presented = presented_token(authorization)
+        result = check_token(presented, config.shutdown_token_path())
+        if not result.ok:
+            logger.warning("admin shutdown refused: %s", result.reason)
+            code = 401 if result.reason == REASON_NO_TOKEN or presented is None else 403
+            return JSONResponse(status_code=code, content={"detail": f"shutdown refused: {result.reason}"})
+        if not getattr(state, "exiting", False):
+            state.exiting = True
+            background_tasks.add_task(drain_and_exit, state, reason="admin_shutdown")
+        return ShutdownResponse(status="shutting_down")
 
     @fastapi_app.get("/status")
     async def status() -> dict:
@@ -717,6 +871,39 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
             "mode": state.mode.value,
             "version": "0.1.0",
         }
+
+
+def _contract_versions(state: AppState) -> dict[str, list[str]]:
+    """Per recommend kind, the contract versions the engine accepts (from the dispatch table)."""
+    table = getattr(state, "dispatch_table", None)
+    if table is None:
+        return {}
+    return {kind: list(entry.supported_versions) for kind, entry in table.snapshot().items()}
+
+
+def _exe_path() -> str:
+    """This process's own executable, reported truthfully — never verified here (C-001)."""
+    import os
+    import sys
+
+    if getattr(sys, "frozen", False):
+        return os.path.realpath(sys.executable)
+    argv0 = sys.argv[0] if sys.argv and sys.argv[0] else ""
+    if argv0 and os.path.exists(argv0):
+        return os.path.realpath(argv0)
+    return os.path.realpath(sys.executable)
+
+
+def _identity(state: AppState) -> dict:
+    from kenaz_ml import __version__
+
+    return {
+        "product": "kenaz-ml",
+        "sidecar_version": __version__,
+        "contract_versions": _contract_versions(state),
+        "exe_path": _exe_path(),
+        "device": "cpu",
+    }
 
 
 def _resolution_provenance(resolution: object | None) -> dict[str, str | None]:

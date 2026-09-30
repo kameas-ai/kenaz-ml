@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from kenaz_ml.advice.dispatch import DispatchTable, build_table
 from kenaz_ml.config import ServingMode, resolve_mode
 from kenaz_ml.datastore import DataStore, create_store
+from kenaz_ml.lifecycle.leases import LeaseTable, is_managed
 from kenaz_ml.models.activity import ActivityClassifier
 from kenaz_ml.models.duration import DurationEstimator
 from kenaz_ml.models.fleet_routes import register_fleet_routes
@@ -106,6 +107,12 @@ class AppState:
         # /v1/recommend dispatch table (WP03). Empty until local-mode startup
         # populates it; stays empty in cloud mode.
         self.dispatch_table: DispatchTable = DispatchTable()
+        # Lifecycle (WP05): client leases + the self-termination timer. The
+        # clock starts now (process start). ``exit_fn`` is how the engine
+        # leaves -- SIGTERM to itself by default; tests inject their own.
+        self.leases: LeaseTable = LeaseTable()
+        self.exit_fn: Any = None
+        self.exiting: bool = False
 
     def load_models(self, model_store: ModelStore | None = None) -> None:
         """Load or reload all model instances."""
@@ -199,12 +206,42 @@ class AppState:
         self.request_counters[tenant_id] = self.request_counters.get(tenant_id, 0) + 1
 
 
+async def lifecycle_loop(state: AppState) -> None:
+    """Sweep leases and run the self-termination timer, off the request path (NFR-003).
+
+    Self-termination applies only to a managed install -- one whose ``lease/``
+    directory exists (FR-014, ruled 2026-09-30). Without it (a developer's
+    ``kenaz-ml serve``) the engine never exits on its own (D-A2).
+    """
+    from kenaz_ml.lifecycle.shutdown import drain_and_exit
+
+    leases = state.leases
+    while not state.exiting:
+        await asyncio.sleep(leases.sweep_interval_sec)
+        try:
+            leases.sweep()
+            if leases.should_exit(is_managed()):
+                state.exiting = True
+                logger.info(
+                    "lifecycle: no live lease for %.0fs (window %.0fs); self-terminating",
+                    leases.idle_for(),
+                    leases.idle_exit_sec,
+                )
+                await drain_and_exit(state, reason="idle")
+                return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("lifecycle: sweep failed; will retry", exc_info=True)
+
+
 def create_app(mode: ServingMode | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     if mode is None:
         mode = resolve_mode()  # reads KENAZ_ML_MODE env var, defaults to LOCAL
 
     state = AppState(mode=mode)
+    state_tasks: list[asyncio.Task] = []
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -283,6 +320,9 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
 
             asyncio.create_task(_schedule_loop())
 
+            lifecycle_task = asyncio.create_task(lifecycle_loop(state))
+            state_tasks.append(lifecycle_task)
+
             logger.info("kenaz-ml: local mode -- models loaded, poller started, scheduler active")
         else:
             # Cloud mode: no SQLite, no poller, no scheduler.
@@ -296,6 +336,8 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
         yield
 
         # --- Shutdown ---
+        for task in state_tasks:
+            task.cancel()
         if state.poller:
             state.poller.stop()
             logger.info("poller stopped")

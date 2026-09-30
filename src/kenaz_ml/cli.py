@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
+import logging
 import os
 import sys
 
@@ -17,13 +19,44 @@ from kenaz_ml.modelstore import model_store_factory
 from kenaz_ml.training.trainer import Trainer
 
 
+def is_loopback_host(host: str | None) -> bool:
+    """True only for a loopback bind address (FR-018).
+
+    ``localhost`` is accepted by name; anything else must be an IP literal whose
+    address is loopback. ``0.0.0.0``, ``::``, an empty string and every other
+    literal or hostname are refused. Nothing is resolved over the network.
+    """
+    if not host:
+        return False
+    candidate = host.strip()
+    if candidate.lower() == "localhost":
+        return True
+    if candidate.startswith("[") and candidate.endswith("]"):
+        candidate = candidate[1:-1]
+    try:
+        return ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        return False
+
+
 def main() -> None:
     """Entry point for the kenaz-ml CLI."""
     parser = argparse.ArgumentParser(description="kenaz-ml — the ML sidecar for Sigil")
     sub = parser.add_subparsers(dest="command")
 
     serve_parser = sub.add_parser("serve", help="Start the ML server")
-    serve_parser.add_argument("--host", default="127.0.0.1")
+    serve_parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Bind address. Must be loopback (127.0.0.1, ::1, localhost) unless --dev-allow-remote is given.",
+    )
+    serve_parser.add_argument(
+        "--dev-allow-remote",
+        action="store_true",
+        default=False,
+        help="DEVELOPMENT ONLY: allow binding a non-loopback address. Exposes the engine beyond this "
+        "machine; never set by a spawning client.",
+    )
     serve_parser.add_argument("--port", type=int, default=7774)
     serve_parser.add_argument(
         "--mode",
@@ -91,6 +124,17 @@ def main() -> None:
     setup_logging()
 
     if args.command == "serve":
+        if not is_loopback_host(args.host):
+            if not args.dev_allow_remote:
+                print(
+                    f"kenaz-ml: refusing to bind non-loopback host {args.host!r}. The engine binds loopback only "
+                    "(127.0.0.1, ::1, localhost); pass --dev-allow-remote to override for development.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            logging.getLogger("kenaz_ml").warning(
+                "kenaz-ml: --dev-allow-remote set; binding non-loopback host %r (development only)", args.host
+            )
         mode = resolve_mode(args.mode)
         # Bridge mode to create_app() via env var (uvicorn string import cannot pass args)
         os.environ["KENAZ_ML_MODE"] = mode.value
