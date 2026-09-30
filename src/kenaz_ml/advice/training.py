@@ -65,7 +65,7 @@ from typing import Any
 import numpy as np
 
 from kenaz_ml.advice.contracts import KIND_IDS, contract_for
-from kenaz_ml.advice.models import MIN_TRAINING_ROWS, make_estimator
+from kenaz_ml.advice.models import MIN_TRAINING_ROWS, CalibrationDecline, fit_calibrated
 
 logger = logging.getLogger(__name__)
 
@@ -308,15 +308,21 @@ class FitResult:
 
 
 def fit_model(training_set: TrainingSet) -> FitResult | Decline:
-    """Fit ``training_set``'s kind estimator. Never raises; a failure is a :class:`Decline`."""
+    """Fit ``training_set``'s kind: a fresh ``CalibratedClassifierCV``-wrapped GBDT (WP02).
+
+    Never raises. A calibration precondition (one class, thin class, NaN) is a
+    typed decline; any sklearn failure is ``fit_failed``.
+    """
     kind = training_set.kind
     try:
-        model = make_estimator(kind)
-        model.fit(training_set.X, training_set.y)
+        fitted = fit_calibrated(kind, training_set.X, training_set.y)
     except Exception as exc:
         logger.warning("advice training: fit failed for %r", kind, exc_info=True)
         return Decline(kind, REASON_FIT_FAILED, f"{type(exc).__name__}: {exc}")
-    return FitResult(model=model)
+    if isinstance(fitted, CalibrationDecline):
+        logger.info("advice training: %r declined before fitting: %s", kind, fitted.detail)
+        return Decline(kind, fitted.reason, fitted.detail, dict(fitted.counts))
+    return FitResult(model=fitted.model, metrics=fitted.metrics())
 
 
 @dataclass(frozen=True)

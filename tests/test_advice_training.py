@@ -197,9 +197,10 @@ def test_a_failed_fit_leaves_the_prior_pair_byte_identical(
     def exploding(kind: str) -> Any:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(training, "make_estimator", exploding)
+    monkeypatch.setattr("kenaz_ml.advice.models.make_estimator", exploding)
     outcome = _train(dirs, now=T0 + 2 * DAY_MS)
-    assert not outcome.trained
+    assert outcome.status == training.STATUS_FAILED
+    assert outcome.reason == training.REASON_FIT_FAILED
     assert (artifact.read_bytes(), manifest.read_bytes()) == before
 
 
