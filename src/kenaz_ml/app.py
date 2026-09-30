@@ -113,6 +113,8 @@ class AppState:
         self.leases: LeaseTable = LeaseTable()
         self.exit_fn: Any = None
         self.exiting: bool = False
+        # /v1/features push store (WP09); created per app by register_routes.
+        self.features_push: Any = None
 
     def load_models(self, model_store: ModelStore | None = None) -> None:
         """Load or reload all model instances."""
