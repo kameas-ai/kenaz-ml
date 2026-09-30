@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import logging
 import math
+from typing import TYPE_CHECKING
 
 import joblib
 import numpy as np
@@ -12,6 +13,10 @@ from sklearn.ensemble import GradientBoostingClassifier
 
 from kenaz_ml.features import extract_workflow_features
 from kenaz_ml.modelstore import LocalModelStore, ModelStore
+from kenaz_ml.modelstore.loader import resolve_for_serving  # not in the pinned package __all__
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from kenaz_ml.modelstore.registry import Resolution
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +44,41 @@ class WorkflowStatePredictor:
         winding_down  — decreasing velocity, more integration
     """
 
-    def __init__(self, model_store: ModelStore | None = None) -> None:
+    def __init__(self, model_store: ModelStore | None = None, *, registry: bool = False) -> None:
         self._store = model_store or LocalModelStore()
         self._ml_model: GradientBoostingClassifier | None = None
         self._trained = False
+
+        self.resolution: Resolution | None = None
+        self._load_workflow(registry)
+
+    def _load_workflow(self, registry: bool) -> None:
+        """Load the persisted workflow model — through the registry when the store is a filesystem.
+
+        two-client-engine-01MSK2EN WP01 (FR-001, FR-022): a filesystem-backed
+        store resolves local slot -> base slot -> cold start with integrity,
+        ordered-contract and runtime checks before deserialization, and a
+        pre-registry artifact (no manifest) is migrated in place. The outcome is
+        kept on ``self.resolution`` for ``/introspect`` and ``/health``. Any
+        other store (S3, a test double) keeps the legacy byte-load path.
+        Neither path raises: no usable artifact means untrained, as before.
+
+        Opt-in (``registry=True``), set by the serving path
+        (``AppState.load_models``). The trainers also construct predictors --
+        inside the window where the stale manifest has been cleared and the new
+        artifact not yet written -- and a constructor-time migration there would
+        write a synthesized manifest for the *old* bytes, the mismatched pair the
+        trainer's write ordering exists to prevent. Training therefore keeps the
+        legacy load (whose result ``train()`` discards anyway).
+        """
+        resolution = resolve_for_serving(self._store, "workflow") if registry else None
+        if resolution is not None:
+            self.resolution = resolution
+            if resolution.served:
+                self._ml_model = resolution.model
+                self._trained = True
+                logger.info("Loaded workflow model from %s (%s slot)", type(self._store).__name__, resolution.slot)
+            return
 
         data = self._store.load("workflow")
         if data is not None:

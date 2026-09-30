@@ -82,6 +82,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from kenaz_ml.modelstore.registry import FeatureContract, Manifest, Refusal
+    from kenaz_ml.modelstore.registry.slots import Resolution
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +247,17 @@ def _migrate_pre_registry(slot_dir: Path, model_name: str, contract: FeatureCont
         not be persisted, so the caller can validate against it in memory rather
         than let an unwritable model directory un-train the install.
     """
+    # KNOWN LIMITATION (dated 2026-09-30, Amendment A4 / two-client-engine
+    # security review; no code change ruled): the migration stamps the artifact
+    # with the *current* contract, because a manifest-less artifact records none.
+    # In the contrived sequence "trainer clears the manifest -> process crashes
+    # before the new manifest is written -> the model's feature contract changes
+    # in an upgrade -> next start", an artifact trained under the OLD contract is
+    # stamped with the NEW one and served with a mismatched vector layout until
+    # the next training run rewrites a truthful manifest. Reaching it needs a
+    # crash inside the trainer's write window and a contract change before the
+    # next retrain; the refresh/registry path cannot tell the two apart without
+    # deserializing first, which FR-005 forbids.
     from kenaz_ml.modelstore.registry import write_manifest
 
     artifact = slot_dir / f"{model_name}{ARTIFACT_SUFFIX}"
@@ -384,9 +396,33 @@ class FilesystemModelLoader:
         ).exists()
 
     def _load(self, tenant_id: str, model_name: str) -> Any | None:
-        from kenaz_ml.modelstore.registry import REASON_SLOT_EMPTY, resolve_model
+        resolution = self._resolve_in(self._slot_dir(tenant_id, model_name), tenant_id, model_name)
+        return resolution.model if resolution.served else None
 
-        slot_dir = self._slot_dir(tenant_id, model_name)
+    def resolve_in(self, slot_dir: Path, model_name: str, *, label: str = "local") -> Resolution:
+        """Resolve ``model_name`` in ``slot_dir`` and return the whole outcome.
+
+        Added by two-client-engine-01MSK2EN WP01 (T004): local serving needs the
+        :class:`~kenaz_ml.modelstore.registry.Resolution` — the slot that
+        answered, its manifest, and every refusal collected on the way — so
+        ``/introspect`` and ``/health`` can report provenance and refusal text.
+        :meth:`load` discards it; this is the same path with the outcome kept.
+
+        Same migration, same ``UNREGISTERED_CONTRACT`` handling, same base-slot
+        fallback as :meth:`load`, and the same promise: never raises. An
+        unexpected failure is reported as a cold-start resolution carrying a
+        ``load_error`` refusal, never as an exception.
+        """
+        try:
+            return self._resolve_in(slot_dir, label, model_name)
+        except Exception as exc:
+            logger.warning("loader: failed to load %s/%s", label, model_name, exc_info=True)
+            return _error_resolution(model_name, exc)
+
+    def _resolve_in(self, slot_dir: Path, tenant_id: str, model_name: str) -> Resolution:
+        from kenaz_ml.modelstore.registry import REASON_SLOT_EMPTY, SLOT_COLD_START, SLOT_LOCAL, resolve_model
+        from kenaz_ml.modelstore.registry.slots import Resolution, SlotRefusal
+
         contract = _expected_contract(model_name)
 
         unpersisted = _migrate_pre_registry(slot_dir, model_name, contract)
@@ -395,7 +431,9 @@ class FilesystemModelLoader:
             model, refusal = _validated_load(unpersisted, artifact, contract)
             if refusal is None:
                 logger.info("loader: loaded %s/%s from %s", tenant_id, model_name, artifact)
-                return model
+                return Resolution(
+                    name=model_name, slot=SLOT_LOCAL, model=model, manifest=unpersisted, artifact=artifact
+                )
             logger.warning(
                 "loader: failed to load %s/%s from %s — %s",
                 tenant_id,
@@ -403,7 +441,11 @@ class FilesystemModelLoader:
                 artifact,
                 refusal,
             )
-            return None
+            return Resolution(
+                name=model_name,
+                slot=SLOT_COLD_START,
+                refusals=(SlotRefusal(slot=SLOT_LOCAL, model_name=model_name, refusal=refusal),),
+            )
 
         resolution = resolve_model(model_name, local_dir=slot_dir, expected_contract=contract)
         if resolution.served:
@@ -414,7 +456,7 @@ class FilesystemModelLoader:
                 resolution.artifact,
                 resolution.slot,
             )
-            return resolution.model
+            return resolution
 
         # Cold start. An empty slot is the ordinary state and is not worth a
         # warning; anything else is an artifact that exists and was refused, and
@@ -429,4 +471,68 @@ class FilesystemModelLoader:
             )
         else:
             logger.debug("loader: no model found for %s/%s", tenant_id, model_name)
+        return resolution
+
+
+#: :attr:`Refusal.reason` for an unexpected exception on the load path. The
+#: loader's contract turns every such exception into an absence; this code is
+#: what that absence reports as when the caller asked for the outcome.
+REASON_LOAD_ERROR = "load_error"
+
+
+def _error_resolution(model_name: str, exc: BaseException) -> Resolution:
+    """A cold-start :class:`Resolution` recording an unexpected load failure."""
+    from kenaz_ml.modelstore.registry import SLOT_COLD_START, SLOT_LOCAL, Refusal
+    from kenaz_ml.modelstore.registry.slots import Resolution, SlotRefusal
+
+    refusal = Refusal("slot", REASON_LOAD_ERROR, f"{type(exc).__name__}: {exc}")
+    return Resolution(
+        name=model_name,
+        slot=SLOT_COLD_START,
+        refusals=(SlotRefusal(slot=SLOT_LOCAL, model_name=model_name, refusal=refusal),),
+    )
+
+
+# ---------------------------------------------------------------------------
+# two-client-engine-01MSK2EN WP01 — the local serving seam
+# ---------------------------------------------------------------------------
+
+
+def filesystem_slot_dir(model_store: Any) -> Path | None:
+    """Return the directory ``model_store`` persists artifacts in, if it is a filesystem.
+
+    Mirrors ``training.trainer._artifact_dir``: a :class:`LocalModelStore`, or a
+    :class:`CachedModelStore` fronting one, is filesystem-backed and so can hold
+    sidecar manifests (D-004). Anything else — an ``S3ModelStore``, a test
+    double — returns ``None`` and keeps the legacy byte-load path, because a
+    manifest is a filesystem concept.
+    """
+    from kenaz_ml.modelstore.stores import CachedModelStore, LocalModelStore
+
+    store: Any = model_store
+    while isinstance(store, CachedModelStore):
+        store = getattr(store, "_inner", None)
+    if isinstance(store, LocalModelStore):
+        base = getattr(store, "_base_dir", None)
+        if base is None:
+            from kenaz_ml import config
+
+            base = config.models_dir()
+        return Path(base)
+    return None
+
+
+def resolve_for_serving(model_store: Any, model_name: str) -> Resolution | None:
+    """Resolve ``model_name`` for a local predictor through the registry seam.
+
+    Returns ``None`` when ``model_store`` is not filesystem-backed — the caller
+    then keeps its legacy ``store.load`` + ``joblib.load`` path. Otherwise the
+    :class:`~kenaz_ml.modelstore.registry.Resolution` from the store's own
+    directory (the local slot), then the base slot, then cold start — with the
+    pre-registry migration and ``UNREGISTERED_CONTRACT`` handling applied
+    exactly as :class:`FilesystemModelLoader` applies them. Never raises.
+    """
+    slot_dir = filesystem_slot_dir(model_store)
+    if slot_dir is None:
         return None
+    return FilesystemModelLoader(base_dir=slot_dir).resolve_in(slot_dir, model_name)

@@ -330,10 +330,26 @@ ENDPOINT_CALLS: list[tuple[str, str, str, dict | None]] = [
 #: compared across two runs. Nothing behavioural lives here.
 _VOLATILE = {"uptime_sec", "last_trained", "last_trained_ms", "timestamp", "created_at"}
 
+#: /health fields added *after* this capture by two-client-engine-01MSK2EN
+#: (FR-016: required identity fields, additive). The pre-existing keys above
+#: are still compared exactly; these did not exist when the capture was taken.
+_ADDITIVE_AFTER_CAPTURE = {
+    "product",
+    "sidecar_version",
+    "contract_versions",
+    "exe_path",
+    "engine_sha256",
+    "model_details",
+    "device",
+    "lifecycle_protocol",
+}
+
 
 def _strip_volatile(value: Any) -> Any:
     if isinstance(value, dict):
-        return {k: _strip_volatile(v) for k, v in value.items() if k not in _VOLATILE}
+        return {
+            k: _strip_volatile(v) for k, v in value.items() if k not in _VOLATILE and k not in _ADDITIVE_AFTER_CAPTURE
+        }
     if isinstance(value, list):
         return [_strip_volatile(v) for v in value]
     return value
