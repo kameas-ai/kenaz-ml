@@ -32,16 +32,17 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 def test_every_registered_kind_is_published_in_order(client: TestClient) -> None:
     kinds = client.get("/v1/contracts").json()["kinds"]
-    ids = [k["kind_id"] for k in kinds]
+    assert isinstance(kinds, dict)  # keyed by kind id — the harness's ContractsPayload shape
+    ids = list(kinds)
     assert ids[: len(KIND_IDS)] == list(KIND_IDS)
     assert FIXTURE_KIND in ids and FIXTURE_LAYA_KIND in ids
 
 
 @pytest.mark.parametrize("kind", KIND_IDS)
 def test_trio_contract_shape_and_status(client: TestClient, kind: str) -> None:
-    entry = next(k for k in client.get("/v1/contracts").json()["kinds"] if k["kind_id"] == kind)
+    entry = client.get("/v1/contracts").json()["kinds"][kind]
     contract = contract_for(kind)
-    assert entry["names"] == list(contract.names)  # ordered, not a set
+    assert entry["features"] == list(contract.names)  # ordered, not a set
     assert entry["dtypes"] == list(contract.dtypes)
     assert entry["version"] == contract.service_version
     assert entry["supported_versions"] == [contract.service_version]
@@ -51,7 +52,7 @@ def test_trio_contract_shape_and_status(client: TestClient, kind: str) -> None:
 
 
 def test_served_and_laya_status(client: TestClient) -> None:
-    kinds = {k["kind_id"]: k for k in client.get("/v1/contracts").json()["kinds"]}
+    kinds = client.get("/v1/contracts").json()["kinds"]
     assert kinds[FIXTURE_KIND]["available"] is True
     assert kinds[FIXTURE_KIND]["backend"] == "heuristic"
     assert kinds[FIXTURE_KIND]["reason"] is None
@@ -66,7 +67,7 @@ def test_cloud_mode_publishes_no_kinds(tmp_path: Path, monkeypatch: pytest.Monke
 
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     with TestClient(create_app(ServingMode.CLOUD)) as c:
-        assert c.get("/v1/contracts").json() == {"kinds": []}
+        assert c.get("/v1/contracts").json() == {"kinds": {}}
         assert (
             c.post("/v1/recommend/branch_now", json={"features": {}, "feature_contract_version": "x"}).json()[
                 "refusal"

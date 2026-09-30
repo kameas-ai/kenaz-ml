@@ -128,9 +128,9 @@ class HealthResponse(BaseModel):
     exe_path: str = Field(..., description="This process's own resolved executable path; not self-verified.")
     model_details: dict[str, ModelHealth] = Field(..., description="Per-model status with registry refusal text.")
     device: str = Field(..., description='Compute device; "cpu" for the scikit-learn engine.')
-    lifecycle_protocol: str = Field(
+    lifecycle_protocol: int = Field(
         ...,
-        description='Lifecycle protocol marker: "kenaz-ml-lease/1" (speaks /v1/clients/lease), "none" in cloud mode.',
+        description="Lifecycle protocol version: 1 = speaks /v1/clients/lease; 0 = none (cloud mode, legacy).",
     )
 
 
@@ -149,7 +149,7 @@ class LeaseRequest(BaseModel):
 
 
 class LeaseResponse(BaseModel):
-    lifecycle_protocol: str
+    lifecycle_protocol: int
     sidecar_version: str
     contract_versions: dict[str, list[str]]
     incompatible_kinds: dict[str, str] = Field(..., description="kind -> why this client's min_contracts is unmet.")
@@ -232,40 +232,45 @@ class LabelCursor(BaseModel):
 
 
 class LabelRow(BaseModel):
-    """One ``advice_labels`` row as the harness pushes it (frozen contract, A3.3).
+    """One ``advice_labels`` row, in the harness's wire shape (``mlsidecar.LabelWireRow``).
 
-    Idempotency key ``(client, kind, features_hash, ts)``; a higher ``revision``
-    replaces the stored row, an equal or lower one is a duplicate. Propensity
-    fields are kept verbatim in the kind's label log; only ``accepted`` /
-    ``auto_acted`` (y=1) and ``dismissed`` (y=0) rows with
-    ``features_complete=true`` reach the retained training set.
+    Frozen contract (Amendment A3.3): idempotency key
+    ``(client, kind, features_hash, ts)``; ``ts`` is the row's original
+    creation time and never changes across revisions; ``revision`` is the
+    harness's table-global monotonic change counter, and a higher one replaces
+    the stored row (equal or lower is stale). Propensity fields are kept
+    verbatim in the kind's label log; only ``accepted`` / ``auto_acted`` (y=1)
+    and ``dismissed`` (y=0) rows with ``features_complete=true`` reach the
+    retained training set. There is deliberately no ``session_id``.
     """
 
-    client: str
     kind: str
     features_hash: str
-    ts: int = Field(..., description="Decision time (ms since epoch); part of the idempotency key.")
-    revision: int = Field(..., ge=0, description="Monotonic per key; a higher revision replaces the stored row.")
-    feature_contract_version: str
-    features: dict[str, float] = Field(default_factory=dict)
+    ts: int = Field(..., description="The row's original created_at (ms); part of the key, never changes.")
+    revision: int = Field(..., ge=0, description="Table-global monotonic change counter; higher replaces.")
+    features: dict[str, Any] | str = Field(
+        default_factory=dict, description="Feature values keyed by name (a JSON object, or its JSON text)."
+    )
     features_complete: bool
     shown: bool
-    confidence: int | None = Field(None, description="Confidence at decision time (0-100), as the harness saw it.")
-    model_id: str | None = None
+    decision: bool | None = None
+    confidence: int | None = Field(None, description="Confidence at decision time (0-100).")
+    model: str | None = Field(None, description="The model that answered (the harness's model_id).")
     rung: str | None = None
     prompt_version: str | None = None
     user_action: str = Field(..., description="accepted | dismissed | ignored | auto_acted")
-    recommendation: dict | None = Field(None, description="The recommendation as served (decision/score/...).")
     latency_ms: float | None = None
-    session_id: str | None = None
+    client: str | None = Field(None, description="Optional; defaults to the batch's client.")
+    feature_contract_version: str | None = Field(
+        None, description="Optional; when present it must equal the kind's published contract version."
+    )
     snapshot_ms: int | None = Field(
-        None, description="Feature snapshot time (ms); ts is used when absent. Carried, never recomputed."
+        None, description="Optional feature snapshot time (ms); ts is used when absent. Carried, never recomputed."
     )
 
 
 class LabelBatchRequest(BaseModel):
     client: str
-    cursor: LabelCursor | None = Field(None, description="The client's current ack cursor (informational).")
     rows: list[LabelRow]
 
 
@@ -278,13 +283,19 @@ class LabelRowRefusal(BaseModel):
 
 
 class LabelBatchResponse(BaseModel):
-    kind: str
-    ack: LabelCursor | None = Field(
-        None, description="Advanced through the contiguous (ts, revision)-ordered prefix of non-refused rows."
-    )
-    accepted: int
-    superseded: int
-    duplicate: int
+    """``applied`` = new keys, ``replaced`` = higher-revision upserts, ``stale`` = not newer.
+
+    ``acked`` is the ``(ts, revision)`` of the last row, in the order sent,
+    of the leading run of rows that were durably applied, replaced or found
+    stale — always a row of this batch (never beyond the pushed window), and
+    ``null`` when the first row was refused. Rows after a refused row are
+    still processed but not acked, so the client re-sends them.
+    """
+
+    acked: LabelCursor | None
+    applied: int
+    replaced: int
+    stale: int
     refused: int
     refusals: list[LabelRowRefusal]
     retained_appended: int
@@ -332,6 +343,7 @@ class LaneRefusalBody(BaseModel):
 
 
 class LaneRefusal(BaseModel):
+    error: str
     refusal: LaneRefusalBody
 
 
@@ -410,7 +422,7 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
                 model_details={
                     name: ModelHealth(status=value, slot=None, refusal=None) for name, value in models_status.items()
                 },
-                lifecycle_protocol="none",
+                lifecycle_protocol=0,
             )
 
         # Local mode: existing behavior with mode field added
@@ -519,7 +531,9 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
         if not result.ok:
             logger.warning("admin shutdown refused: %s", result.reason)
             code = 401 if result.reason == REASON_NO_TOKEN or presented is None else 403
-            return JSONResponse(status_code=code, content={"detail": f"shutdown refused: {result.reason}"})
+            return JSONResponse(
+                status_code=code, content={"error": result.reason, "detail": f"shutdown refused: {result.reason}"}
+            )
         if not getattr(state, "exiting", False):
             state.exiting = True
             background_tasks.add_task(drain_and_exit, state, reason="admin_shutdown")
@@ -845,7 +859,7 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
 
         Every refusal (kind_not_served, laya_backend_not_installed,
         contract_mismatch, unknown_kind, ...) is HTTP 422 with a
-        ``{"refusal": {kind_id, reason, detail}}`` body. Never substitutes a
+        ``{"error": <code>, "refusal": {kind_id, reason, detail}}`` body. Never substitutes a
         different backend; never clamps confidence.
         """
         try:
@@ -886,18 +900,17 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
                 status_code=404,
                 content=Refused(kind, "unknown_kind", f"unknown kind {kind!r}: no registered contract").body(),
             )
-        result = ingest(kind, req.client, [row.model_dump() for row in req.rows], entry.contract)
+        result = ingest(kind, req.client, [_label_row(row, req.client) for row in req.rows], entry.contract)
         if result.refusal is not None:
             status = 503 if result.refusal == "io_error" else 409
             return JSONResponse(
                 status_code=status, content=Refused(kind, result.refusal, result.refusal_detail or "").body()
             )
         return LabelBatchResponse(
-            kind=kind,
-            ack=LabelCursor(ts=result.ack[0], revision=result.ack[1]) if result.ack else None,
-            accepted=result.count(STATUS_ACCEPTED),
-            superseded=result.count(STATUS_SUPERSEDED),
-            duplicate=result.count(STATUS_DUPLICATE),
+            acked=LabelCursor(ts=result.ack[0], revision=result.ack[1]) if result.ack else None,
+            applied=result.count(STATUS_ACCEPTED),
+            replaced=result.count(STATUS_SUPERSEDED),
+            stale=result.count(STATUS_DUPLICATE),
             refused=result.count(STATUS_REFUSED),
             refusals=[
                 LabelRowRefusal(
@@ -930,20 +943,22 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
             return JSONResponse(
                 status_code=422,
                 content={
+                    "error": _features_push.REASON_LANE_UNAVAILABLE,
                     "refusal": {
                         "reason": _features_push.REASON_LANE_UNAVAILABLE,
                         "detail": "the /v1/features lane is a local-mode feature",
-                    }
+                    },
                 },
             )
         if len(req.events) > _features_push.MAX_BATCH:
             return JSONResponse(
                 status_code=422,
                 content={
+                    "error": _features_push.REASON_BATCH_TOO_LARGE,
                     "refusal": {
                         "reason": _features_push.REASON_BATCH_TOO_LARGE,
                         "detail": f"{len(req.events)} events exceeds the batch limit of {_features_push.MAX_BATCH}",
-                    }
+                    },
                 },
             )
         outcome = push_store.push(req.client, [e.model_dump() for e in req.events])
@@ -960,6 +975,25 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
             "mode": state.mode.value,
             "version": "0.1.0",
         }
+
+
+def _label_row(row: LabelRow, client: str) -> dict[str, Any]:
+    """Normalize one wire row for the label log (client defaulted, features parsed, model_id alias)."""
+    import json
+
+    record = row.model_dump(exclude_none=True)
+    record.setdefault("client", client)
+    features = record.get("features")
+    if isinstance(features, str):
+        try:
+            parsed = json.loads(features)
+        except ValueError:
+            parsed = None
+        record["features"] = parsed if isinstance(parsed, dict) else {}
+    if "model" in record:
+        # The sibling mission reads ``model_id`` from the label log.
+        record.setdefault("model_id", record["model"])
+    return record
 
 
 def _contract_versions(state: AppState) -> dict[str, list[str]]:

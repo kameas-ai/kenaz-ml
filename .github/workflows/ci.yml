@@ -595,7 +595,7 @@ jobs:
           missing = [k for k in required if k not in body]
           assert not missing, f"/health identity fields missing: {missing}"
           assert body["product"] == "kenaz-ml", body["product"]
-          assert body["lifecycle_protocol"] == "kenaz-ml-lease/1", body["lifecycle_protocol"]
+          assert body["lifecycle_protocol"] == 1, body["lifecycle_protocol"]
           assert body["sidecar_version"], "empty sidecar_version"
           mount = os.path.realpath(os.environ["MOUNT"])
           assert os.path.realpath(body["exe_path"]).startswith(mount), (body["exe_path"], mount)

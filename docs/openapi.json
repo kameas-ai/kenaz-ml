@@ -374,7 +374,7 @@
     "/v1/recommend/{kind}": {
       "post": {
         "summary": "Recommend",
-        "description": "Dispatch one recommendation to the kind's single registered backend.\n\nEvery refusal (kind_not_served, laya_backend_not_installed,\ncontract_mismatch, unknown_kind, ...) is HTTP 422 with a\n``{\"refusal\": {kind_id, reason, detail}}`` body. Never substitutes a\ndifferent backend; never clamps confidence.",
+        "description": "Dispatch one recommendation to the kind's single registered backend.\n\nEvery refusal (kind_not_served, laya_backend_not_installed,\ncontract_mismatch, unknown_kind, ...) is HTTP 422 with a\n``{\"error\": <code>, \"refusal\": {kind_id, reason, detail}}`` body. Never substitutes a\ndifferent backend; never clamps confidence.",
         "operationId": "recommend_v1_recommend__kind__post",
         "parameters": [
           {
@@ -704,16 +704,13 @@
     "schemas": {
       "ContractEntry": {
         "properties": {
-          "kind_id": {
-            "type": "string",
-            "title": "Kind Id"
-          },
-          "names": {
+          "features": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "title": "Names"
+            "title": "Features",
+            "description": "Ordered feature names (the vector layout)."
           },
           "dtypes": {
             "items": {
@@ -774,23 +771,24 @@
         },
         "type": "object",
         "required": [
-          "kind_id",
-          "names",
+          "features",
           "dtypes",
           "version",
           "supported_versions",
           "available"
         ],
-        "title": "ContractEntry"
+        "title": "ContractEntry",
+        "description": "One kind in ``GET /v1/contracts``, keyed by kind id in :class:`ContractsResponse`.\n\n``features``/``backend``/``available`` are the fields the harness's\n``KindContract`` reads; ``available`` is true only when a backend actually\nserves the kind (the harness gates routing on it). ``version`` is the\nkind's 16-hex contract version (D-A4)."
       },
       "ContractsResponse": {
         "properties": {
           "kinds": {
-            "items": {
+            "additionalProperties": {
               "$ref": "#/components/schemas/ContractEntry"
             },
-            "type": "array",
-            "title": "Kinds"
+            "type": "object",
+            "title": "Kinds",
+            "description": "Every registered kind, keyed by kind id."
           }
         },
         "type": "object",
@@ -1121,9 +1119,9 @@
             "description": "Compute device; \"cpu\" for the scikit-learn engine."
           },
           "lifecycle_protocol": {
-            "type": "string",
+            "type": "integer",
             "title": "Lifecycle Protocol",
-            "description": "Lifecycle protocol marker: \"kenaz-ml-lease/1\" (speaks /v1/clients/lease), \"none\" in cloud mode."
+            "description": "Lifecycle protocol version: 1 = speaks /v1/clients/lease; 0 = none (cloud mode, legacy)."
           }
         },
         "type": "object",
@@ -1192,17 +1190,6 @@
             "type": "string",
             "title": "Client"
           },
-          "cursor": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LabelCursor"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The client's current ack cursor (informational)."
-          },
           "rows": {
             "items": {
               "$ref": "#/components/schemas/LabelRow"
@@ -1220,11 +1207,7 @@
       },
       "LabelBatchResponse": {
         "properties": {
-          "kind": {
-            "type": "string",
-            "title": "Kind"
-          },
-          "ack": {
+          "acked": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/LabelCursor"
@@ -1232,20 +1215,19 @@
               {
                 "type": "null"
               }
-            ],
-            "description": "Advanced through the contiguous (ts, revision)-ordered prefix of non-refused rows."
+            ]
           },
-          "accepted": {
+          "applied": {
             "type": "integer",
-            "title": "Accepted"
+            "title": "Applied"
           },
-          "superseded": {
+          "replaced": {
             "type": "integer",
-            "title": "Superseded"
+            "title": "Replaced"
           },
-          "duplicate": {
+          "stale": {
             "type": "integer",
-            "title": "Duplicate"
+            "title": "Stale"
           },
           "refused": {
             "type": "integer",
@@ -1280,16 +1262,17 @@
         },
         "type": "object",
         "required": [
-          "kind",
-          "accepted",
-          "superseded",
-          "duplicate",
+          "acked",
+          "applied",
+          "replaced",
+          "stale",
           "refused",
           "refusals",
           "retained_appended",
           "retained_rebuilt"
         ],
-        "title": "LabelBatchResponse"
+        "title": "LabelBatchResponse",
+        "description": "``applied`` = new keys, ``replaced`` = higher-revision upserts, ``stale`` = not newer.\n\n``acked`` is the ``(ts, revision)`` of the last row, in the order sent,\nof the leading run of rows that were durably applied, replaced or found\nstale \u2014 always a row of this batch (never beyond the pushed window), and\n``null`` when the first row was refused. Rows after a refused row are\nstill processed but not acked, so the client re-sends them."
       },
       "LabelCursor": {
         "properties": {
@@ -1312,10 +1295,6 @@
       },
       "LabelRow": {
         "properties": {
-          "client": {
-            "type": "string",
-            "title": "Client"
-          },
           "kind": {
             "type": "string",
             "title": "Kind"
@@ -1327,24 +1306,26 @@
           "ts": {
             "type": "integer",
             "title": "Ts",
-            "description": "Decision time (ms since epoch); part of the idempotency key."
+            "description": "The row's original created_at (ms); part of the key, never changes."
           },
           "revision": {
             "type": "integer",
             "minimum": 0.0,
             "title": "Revision",
-            "description": "Monotonic per key; a higher revision replaces the stored row."
-          },
-          "feature_contract_version": {
-            "type": "string",
-            "title": "Feature Contract Version"
+            "description": "Table-global monotonic change counter; higher replaces."
           },
           "features": {
-            "additionalProperties": {
-              "type": "number"
-            },
-            "type": "object",
-            "title": "Features"
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Features",
+            "description": "Feature values keyed by name (a JSON object, or its JSON text)."
           },
           "features_complete": {
             "type": "boolean",
@@ -1353,6 +1334,17 @@
           "shown": {
             "type": "boolean",
             "title": "Shown"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
           },
           "confidence": {
             "anyOf": [
@@ -1364,9 +1356,9 @@
               }
             ],
             "title": "Confidence",
-            "description": "Confidence at decision time (0-100), as the harness saw it."
+            "description": "Confidence at decision time (0-100)."
           },
-          "model_id": {
+          "model": {
             "anyOf": [
               {
                 "type": "string"
@@ -1375,7 +1367,8 @@
                 "type": "null"
               }
             ],
-            "title": "Model Id"
+            "title": "Model",
+            "description": "The model that answered (the harness's model_id)."
           },
           "rung": {
             "anyOf": [
@@ -1404,19 +1397,6 @@
             "title": "User Action",
             "description": "accepted | dismissed | ignored | auto_acted"
           },
-          "recommendation": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Recommendation",
-            "description": "The recommendation as served (decision/score/...)."
-          },
           "latency_ms": {
             "anyOf": [
               {
@@ -1428,7 +1408,7 @@
             ],
             "title": "Latency Ms"
           },
-          "session_id": {
+          "client": {
             "anyOf": [
               {
                 "type": "string"
@@ -1437,7 +1417,20 @@
                 "type": "null"
               }
             ],
-            "title": "Session Id"
+            "title": "Client",
+            "description": "Optional; defaults to the batch's client."
+          },
+          "feature_contract_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Contract Version",
+            "description": "Optional; when present it must equal the kind's published contract version."
           },
           "snapshot_ms": {
             "anyOf": [
@@ -1449,23 +1442,21 @@
               }
             ],
             "title": "Snapshot Ms",
-            "description": "Feature snapshot time (ms); ts is used when absent. Carried, never recomputed."
+            "description": "Optional feature snapshot time (ms); ts is used when absent. Carried, never recomputed."
           }
         },
         "type": "object",
         "required": [
-          "client",
           "kind",
           "features_hash",
           "ts",
           "revision",
-          "feature_contract_version",
           "features_complete",
           "shown",
           "user_action"
         ],
         "title": "LabelRow",
-        "description": "One ``advice_labels`` row as the harness pushes it (frozen contract, A3.3).\n\nIdempotency key ``(client, kind, features_hash, ts)``; a higher ``revision``\nreplaces the stored row, an equal or lower one is a duplicate. Propensity\nfields are kept verbatim in the kind's label log; only ``accepted`` /\n``auto_acted`` (y=1) and ``dismissed`` (y=0) rows with\n``features_complete=true`` reach the retained training set."
+        "description": "One ``advice_labels`` row, in the harness's wire shape (``mlsidecar.LabelWireRow``).\n\nFrozen contract (Amendment A3.3): idempotency key\n``(client, kind, features_hash, ts)``; ``ts`` is the row's original\ncreation time and never changes across revisions; ``revision`` is the\nharness's table-global monotonic change counter, and a higher one replaces\nthe stored row (equal or lower is stale). Propensity fields are kept\nverbatim in the kind's label log; only ``accepted`` / ``auto_acted`` (y=1)\nand ``dismissed`` (y=0) rows with ``features_complete=true`` reach the\nretained training set. There is deliberately no ``session_id``."
       },
       "LabelRowRefusal": {
         "properties": {
@@ -1502,12 +1493,17 @@
       },
       "LaneRefusal": {
         "properties": {
+          "error": {
+            "type": "string",
+            "title": "Error"
+          },
           "refusal": {
             "$ref": "#/components/schemas/LaneRefusalBody"
           }
         },
         "type": "object",
         "required": [
+          "error",
           "refusal"
         ],
         "title": "LaneRefusal"
@@ -1566,7 +1562,7 @@
       "LeaseResponse": {
         "properties": {
           "lifecycle_protocol": {
-            "type": "string",
+            "type": "integer",
             "title": "Lifecycle Protocol"
           },
           "sidecar_version": {
@@ -1844,16 +1840,22 @@
       },
       "RecommendRefusal": {
         "properties": {
+          "error": {
+            "type": "string",
+            "title": "Error",
+            "description": "Stable typed code, e.g. kind_not_served, contract_mismatch."
+          },
           "refusal": {
             "$ref": "#/components/schemas/RefusalBody"
           }
         },
         "type": "object",
         "required": [
+          "error",
           "refusal"
         ],
         "title": "RecommendRefusal",
-        "description": "Every typed refusal: HTTP :data:`REFUSAL_STATUS_CODE`, this body."
+        "description": "Every typed refusal: HTTP :data:`REFUSAL_STATUS_CODE`, this body.\n\n``error`` is the stable machine code at the top level \u2014 the envelope the\nharness's ``mlsidecar`` client parses (``{\"error\": \"<code>\"}``; a code of\n``kind_not_served`` satisfies its ``ErrKindNotServed``). ``refusal`` repeats\nit with the kind and a human-readable detail."
       },
       "RecommendRequest": {
         "properties": {

@@ -59,8 +59,10 @@ SWEEP_INTERVAL_ENV = "KENAZ_ML_LEASE_SWEEP_SEC"
 MAX_PID = 4_194_304
 
 #: The ``/health`` / lease-response marker naming the lifecycle protocol this
-#: engine speaks. A cross-repo value the harness's adoption check compares.
-LIFECYCLE_PROTOCOL = "kenaz-ml-lease/1"
+#: engine speaks. A cross-repo value: the harness's ``mlsidecar.HealthPayload``
+#: decodes it as an integer where 0 (or absence) means a pre-lease legacy engine,
+#: so version 1 of the lease protocol is the integer 1.
+LIFECYCLE_PROTOCOL = 1
 
 
 def _env_seconds(name: str, default: float) -> float:

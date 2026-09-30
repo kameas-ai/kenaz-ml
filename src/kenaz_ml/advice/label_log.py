@@ -7,10 +7,13 @@ The frozen ingest contract (Amendment A3.3, ruled 2026-09-30)
   **revision-based upsert**: a higher ``revision`` replaces the stored row (how
   a post-push ``user_action`` change lands); an equal or lower one is a
   duplicate and is ignored.
-* The **ack is a cursor over ``(ts, revision)``**: rows are processed in
-  ``(ts, revision)`` order and the ack advances through the contiguous prefix of
-  rows that were accepted, superseded or duplicate — a client resumes at the
-  first refused row.
+* The **ack is a cursor over ``(ts, revision)``**: rows are processed in the
+  order sent (the harness sends them in its table-global ``revision`` order —
+  an updated old row keeps its ``ts`` and gets a revision above everything
+  pushed before) and the ack is the ``(ts, revision)`` of the last row of the
+  leading run that was accepted, superseded or duplicate — always a row of the
+  batch, so never beyond the pushed window; a client resumes at the first
+  refused row.
 * Propensity fields (``shown``, ``features_complete``, ``model_id``,
   ``user_action``, ``rung``, ``prompt_version``, confidence-at-decision-time)
   live in **this label log**, never in ``retained.Example`` (whose shape is
@@ -373,7 +376,8 @@ def _contract_refusal(rows: Sequence[Mapping[str, Any]], contract: Any) -> tuple
     known = set(names)
     for row in rows:
         posted = row.get("feature_contract_version")
-        if posted != version:
+        # Optional on the wire (the harness does not send it); checked when present.
+        if posted is not None and posted != version:
             return REASON_CONTRACT_MISMATCH, f"contract {posted} != {version} for kind {contract.service!r}"
         features = row.get("features") or {}
         unexpected = sorted(set(features) - known)
@@ -447,7 +451,10 @@ def _ingest(
         index = _index(path, kind, directory)
         stamp = now_ms if now_ms is not None else int(time.time() * 1000)
 
-        order = sorted(range(len(rows)), key=lambda i: (int(rows[i]["ts"]), int(rows[i]["revision"])))
+        # Rows are processed, and acked, in the order sent: the harness pushes
+        # in its table-global revision order, which is the total order its one
+        # durable (ts, revision) cursor per kind advances over.
+        order = range(len(rows))
         pending_new: dict[Key, dict[str, Any]] = {}
         replaced: dict[Key, dict[str, Any]] = {}
         appends: list[dict[str, Any]] = []

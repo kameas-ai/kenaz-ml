@@ -130,7 +130,11 @@ def test_unserved_trio_kind_refuses_kind_not_served(table: DispatchTable, kind: 
     client, _ = _app(table)
     resp = _post(client, kind, _trio_features(kind), contract_for(kind).service_version)  # type: ignore[union-attr]
     assert resp.status_code == 422
-    refusal = resp.json()["refusal"]
+    body = resp.json()
+    # The harness's mlsidecar client keys ErrKindNotServed off a top-level
+    # {"error": "kind_not_served"} — the stable, typed, distinguishable shape.
+    assert body["error"] == "kind_not_served"
+    refusal = body["refusal"]
     assert refusal["reason"] == "kind_not_served"
     assert refusal["kind_id"] == kind
     assert kind in refusal["detail"]

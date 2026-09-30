@@ -39,27 +39,25 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
 
 def row(ts: int, *, revision: int = 1, action: str = "accepted", complete: bool = True, **extra: Any) -> dict:
+    """A row in the harness's exact wire shape (mlsidecar.LabelWireRow)."""
     features = {name: float(i + ts % 7) for i, name in enumerate(NAMES)}
     if not complete:
         features.pop(NAMES[-1])
     base = {
-        "client": "harness",
         "kind": KIND,
+        "prompt_version": "p1",
         "features_hash": f"h{ts}",
         "ts": ts,
         "revision": revision,
-        "feature_contract_version": CONTRACT.service_version,
         "features": features,
         "features_complete": complete,
-        "shown": True,
-        "confidence": 81,
-        "model_id": "heuristic/fill-threshold",
+        "model": "heuristic/fill-threshold",
         "rung": "heuristic",
-        "prompt_version": "p1",
+        "decision": True,
+        "confidence": 81,
+        "shown": True,
         "user_action": action,
-        "recommendation": {"decision": True},
-        "latency_ms": 3.5,
-        "session_id": "s1",
+        "latency_ms": 3,
     }
     base.update(extra)
     return base
@@ -88,15 +86,15 @@ def test_same_batch_twice_is_stored_once(env: dict) -> None:
     first = push(env["client"], batch).json()
     second = push(env["client"], batch).json()
 
-    assert first["accepted"] == 2
-    assert second["accepted"] == 0 and second["duplicate"] == 2
+    assert first["applied"] == 2
+    assert second["applied"] == 0 and second["stale"] == 2
     assert len(labels_on_disk(env["retained"])) == 2
     assert len(retained_rows(env["retained"])) == 2
 
 
 def test_internal_duplicates_in_one_batch(env: dict) -> None:
     body = push(env["client"], [row(1000), row(1000), row(1000)]).json()
-    assert body["accepted"] == 1 and body["duplicate"] == 2
+    assert body["applied"] == 1 and body["stale"] == 2
     assert len(labels_on_disk(env["retained"])) == 1
     assert len(retained_rows(env["retained"])) == 1
 
@@ -106,7 +104,7 @@ def test_cursor_zero_repush_adds_nothing(env: dict) -> None:
     for chunk in (history[:4], history[4:]):
         push(env["client"], chunk)
     replay = push(env["client"], history).json()
-    assert replay["accepted"] == 0 and replay["duplicate"] == 10
+    assert replay["applied"] == 0 and replay["stale"] == 10
     assert len(labels_on_disk(env["retained"])) == 10
     assert len(retained_rows(env["retained"])) == 10
 
@@ -114,7 +112,7 @@ def test_cursor_zero_repush_adds_nothing(env: dict) -> None:
 def test_index_survives_process_restart(env: dict) -> None:
     push(env["client"], [row(1000)])
     label_log._INDEXES.clear()  # simulate a fresh process: index rebuilt from disk
-    assert push(env["client"], [row(1000)]).json()["duplicate"] == 1
+    assert push(env["client"], [row(1000)]).json()["stale"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +125,16 @@ def test_shown_false_round_trips_through_the_label_log(env: dict) -> None:
     (record,) = labels_on_disk(env["retained"])  # read off disk, not out of the response
     assert record["shown"] is False
     assert record["confidence"] == 42
-    for name in ("features_complete", "model_id", "user_action", "rung", "prompt_version", "features_hash", "ts"):
+    for name in (
+        "features_complete",
+        "model",
+        "model_id",
+        "user_action",
+        "rung",
+        "prompt_version",
+        "features_hash",
+        "ts",
+    ):
         assert name in record
     assert record["record"] == "label"
     assert [f.name for f in dataclasses.fields(Example)] == ["x", "y", "as_of_ms"]
@@ -140,7 +147,7 @@ def test_shown_false_round_trips_through_the_label_log(env: dict) -> None:
 
 def test_incomplete_row_is_logged_flagged_and_never_retained(env: dict) -> None:
     body = push(env["client"], [row(1000, complete=False)]).json()
-    assert body["accepted"] == 1
+    assert body["applied"] == 1
     (record,) = labels_on_disk(env["retained"])
     assert record["features_complete"] is False
     assert retained_rows(env["retained"]) == ()
@@ -153,6 +160,7 @@ def test_incomplete_row_is_logged_flagged_and_never_retained(env: dict) -> None:
 
 def test_contract_version_mismatch_is_a_409_and_writes_nothing(env: dict) -> None:
     resp = push(env["client"], [row(1000), row(2000, feature_contract_version="deadbeefdeadbeef")])
+    assert resp.json()["error"] == "contract_mismatch"
     assert resp.status_code == 409
     refusal = resp.json()["refusal"]
     assert refusal["reason"] == "contract_mismatch"
@@ -194,7 +202,7 @@ def test_unknown_kind_is_refused_with_a_diagnostic(env: dict) -> None:
 
 
 def test_retained_cap_uses_the_existing_contiguous_eviction(env: dict) -> None:
-    rows = [row(t) for t in range(1000, 1200)]
+    rows = [{**row(t), "client": "harness"} for t in range(1000, 1200)]  # as routes normalize them
     result = label_log.ingest(KIND, "harness", rows, CONTRACT, retained_max_bytes=4096)
     assert result.refusal is None
     kept = retained_rows(env["retained"])
@@ -212,14 +220,14 @@ def test_retained_cap_uses_the_existing_contiguous_eviction(env: dict) -> None:
 def test_higher_revision_replaces_and_lower_is_ignored(env: dict) -> None:
     push(env["client"], [row(1000, revision=1, action="ignored")])
     up = push(env["client"], [row(1000, revision=2, action="dismissed")]).json()
-    assert up["superseded"] == 1
+    assert up["replaced"] == 1
     (record,) = labels_on_disk(env["retained"])
     assert record["revision"] == 2 and record["user_action"] == "dismissed"
     # ignored -> dismissed is an ordinary append
     assert [e.y for e in retained_rows(env["retained"])] == [0.0]
 
     stale = push(env["client"], [row(1000, revision=2, action="accepted"), row(1000, revision=1)]).json()
-    assert stale["duplicate"] == 2
+    assert stale["stale"] == 2
     (record,) = labels_on_disk(env["retained"])
     assert record["user_action"] == "dismissed"
 
@@ -276,25 +284,58 @@ def test_snapshot_time_is_carried_not_recomputed(env: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_ack_covers_only_the_contiguous_prefix(env: dict) -> None:
-    rows = [row(3000), row(1000), row(2000, action="bogus"), row(1000, revision=2)]
+def test_ack_covers_only_the_leading_run_in_sent_order(env: dict) -> None:
+    # Sent in the harness's table-global revision order: an updated OLD row
+    # (ts 1000) carries a revision above everything pushed before it.
+    rows = [
+        row(1000, revision=1),
+        row(3000, revision=2),
+        row(1000, revision=3),
+        row(2000, revision=4, action="bogus"),
+        row(4000, revision=5),
+    ]
     body = push(env["client"], rows).json()
-    # sorted: (1000,1) accepted, (1000,2) superseded, (2000,1) refused, (3000,1) accepted
-    assert body["ack"] == {"ts": 1000, "revision": 2}
-    assert body["refused"] == 1
+    assert body["acked"] == {"ts": 1000, "revision": 3}
+    assert (body["applied"], body["replaced"], body["refused"]) == (3, 1, 1)
     assert body["refusals"][0]["reason"] == "unknown_user_action"
     assert body["refusals"][0]["ts"] == 2000
 
 
 def test_first_row_refused_means_no_ack(env: dict) -> None:
     body = push(env["client"], [row(1000, client="someone-else"), row(2000)]).json()
-    assert body["ack"] is None
+    assert body["acked"] is None
     assert body["refusals"][0]["reason"] == "client_mismatch"
 
 
-def test_full_success_acks_the_last_row(env: dict) -> None:
-    body = push(env["client"], [row(1000), row(2000, revision=3)]).json()
-    assert body["ack"] == {"ts": 2000, "revision": 3}
+def test_full_success_acks_the_last_row_sent(env: dict) -> None:
+    body = push(env["client"], [row(2000, revision=3), row(1000, revision=4)]).json()
+    assert body["acked"] == {"ts": 1000, "revision": 4}
+
+
+def test_response_has_the_harness_wire_keys(env: dict) -> None:
+    body = push(env["client"], [row(1000)]).json()
+    assert {"acked", "applied", "replaced", "stale"} <= set(body)
+    assert set(body["acked"]) == {"ts", "revision"}
+
+
+def test_session_id_is_not_stored(env: dict) -> None:
+    push(env["client"], [row(1000, session_id="local-session")])
+    (record,) = labels_on_disk(env["retained"])
+    assert "session_id" not in record
+
+
+def test_features_as_json_text_are_accepted(env: dict) -> None:
+    r = row(1000)
+    r["features"] = json.dumps(r["features"])
+    assert push(env["client"], [r]).json()["applied"] == 1
+    assert len(retained_rows(env["retained"])) == 1
+
+
+def test_optional_contract_version_is_still_checked_when_sent(env: dict) -> None:
+    ok = push(env["client"], [row(1000, feature_contract_version=CONTRACT.service_version)])
+    assert ok.status_code == 200
+    bad = push(env["client"], [row(2000, feature_contract_version="deadbeefdeadbeef")])
+    assert bad.status_code == 409 and bad.json()["error"] == "contract_mismatch"
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +367,7 @@ def test_other_record_types_survive_an_upsert_rewrite(env: dict) -> None:
 
 
 def test_label_log_is_bounded(tmp_path: Path) -> None:
-    rows = [row(t) for t in range(1000, 1100)]
+    rows = [{**row(t), "client": "harness"} for t in range(1000, 1100)]
     label_log.ingest(KIND, "harness", rows, CONTRACT, directory=tmp_path, max_bytes=4096)
     path = tmp_path / f"{KIND}.labels.jsonl"
     assert path.stat().st_size <= 4096

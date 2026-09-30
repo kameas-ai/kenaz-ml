@@ -194,5 +194,5 @@ def test_cloud_mode_health_is_fully_shaped(slots: dict[str, Path]) -> None:
     with TestClient(create_app(ServingMode.CLOUD)) as c:
         body = c.get("/health").json()
         assert set(body) >= IDENTITY_FIELDS
-        assert body["lifecycle_protocol"] == "none"
+        assert body["lifecycle_protocol"] == 0
         assert c.post("/v1/clients/lease", json={"client": "h", "pid": 1, "client_version": "1"}).status_code == 404

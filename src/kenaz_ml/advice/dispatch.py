@@ -177,14 +177,28 @@ class RefusalBody(BaseModel):
 
 
 class RecommendRefusal(BaseModel):
-    """Every typed refusal: HTTP :data:`REFUSAL_STATUS_CODE`, this body."""
+    """Every typed refusal: HTTP :data:`REFUSAL_STATUS_CODE`, this body.
 
+    ``error`` is the stable machine code at the top level — the envelope the
+    harness's ``mlsidecar`` client parses (``{"error": "<code>"}``; a code of
+    ``kind_not_served`` satisfies its ``ErrKindNotServed``). ``refusal`` repeats
+    it with the kind and a human-readable detail.
+    """
+
+    error: str = Field(..., description="Stable typed code, e.g. kind_not_served, contract_mismatch.")
     refusal: RefusalBody
 
 
 class ContractEntry(BaseModel):
-    kind_id: str
-    names: list[str]
+    """One kind in ``GET /v1/contracts``, keyed by kind id in :class:`ContractsResponse`.
+
+    ``features``/``backend``/``available`` are the fields the harness's
+    ``KindContract`` reads; ``available`` is true only when a backend actually
+    serves the kind (the harness gates routing on it). ``version`` is the
+    kind's 16-hex contract version (D-A4).
+    """
+
+    features: list[str] = Field(..., description="Ordered feature names (the vector layout).")
     dtypes: list[str]
     version: str
     supported_versions: list[str] = Field(
@@ -197,7 +211,7 @@ class ContractEntry(BaseModel):
 
 
 class ContractsResponse(BaseModel):
-    kinds: list[ContractEntry]
+    kinds: dict[str, ContractEntry] = Field(..., description="Every registered kind, keyed by kind id.")
 
 
 # ---------------------------------------------------------------------------
@@ -534,7 +548,7 @@ class Refused(Exception):
 
     def body(self) -> dict[str, Any]:
         return RecommendRefusal(
-            refusal=RefusalBody(kind_id=self.kind_id, reason=self.reason, detail=self.detail)
+            error=self.reason, refusal=RefusalBody(kind_id=self.kind_id, reason=self.reason, detail=self.detail)
         ).model_dump()
 
 
@@ -613,21 +627,18 @@ def dispatch(snapshot: Mapping[str, DispatchEntry], kind_id: str, request: Recom
 
 def contracts_payload(snapshot: Mapping[str, DispatchEntry]) -> ContractsResponse:
     """``GET /v1/contracts``: every registered kind, its ordered contract, and availability."""
-    kinds: list[ContractEntry] = []
+    kinds: dict[str, ContractEntry] = {}
     for kind_id, entry in snapshot.items():
         contract = entry.contract
-        kinds.append(
-            ContractEntry(
-                kind_id=kind_id,
-                names=list(getattr(contract, "names", ())),
-                dtypes=list(getattr(contract, "dtypes", ())),
-                version=getattr(contract, "service_version", None) or "",
-                supported_versions=list(entry.supported_versions),
-                available=entry.available,
-                backend=entry.server.name if entry.server is not None else entry.backend,
-                reason=entry.reason,
-                detail=entry.detail,
-            )
+        kinds[kind_id] = ContractEntry(
+            features=list(getattr(contract, "names", ())),
+            dtypes=list(getattr(contract, "dtypes", ())),
+            version=getattr(contract, "service_version", None) or "",
+            supported_versions=list(entry.supported_versions),
+            available=entry.available,
+            backend=entry.server.name if entry.server is not None else entry.backend,
+            reason=entry.reason,
+            detail=entry.detail,
         )
     return ContractsResponse(kinds=kinds)
 
