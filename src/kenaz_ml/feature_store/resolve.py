@@ -296,7 +296,12 @@ def resolve_stuck_features(store: DataStore, task_id: str) -> dict[str, float]:
     """
     token = _active_resolution.set(True)
     try:
-        features = extract_stuck_features(store, task_id, pushed_commit_ts_ms=_pushed_commit_ts_ms(task_id))
+        # With no push lane installed (the common case) skip even the call:
+        # this line is on the serving hot path NFR-002 budgets.
+        if features_push.current_store() is None:
+            features = extract_stuck_features(store, task_id)
+        else:
+            features = extract_stuck_features(store, task_id, pushed_commit_ts_ms=_pushed_commit_ts_ms(task_id))
         _enqueue_push(STUCK, task_id, features)
     finally:
         _active_resolution.reset(token)
