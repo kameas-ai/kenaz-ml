@@ -115,6 +115,22 @@ class TestLeaseTable:
         table.sweep()
         assert table.explicit_leases() == []
 
+    def test_per_client_lease_count_is_capped_oldest_replaced(self) -> None:
+        clock = FakeClock()
+        table = LeaseTable(clock=clock, pid_alive_fn=lambda pid: True)
+        cap = leases_mod.MAX_LEASES_PER_CLIENT
+        for pid in range(100, 100 + cap):
+            table.renew("harness", pid, "1")
+            clock.now += 1
+        table.renew("harness", 100, "1")  # renewing an existing lease never evicts
+        clock.now += 1
+        assert len(table.explicit_leases()) == cap
+        table.renew("harness", 999, "1")  # at the cap: the least-recently-renewed (pid 101) goes
+        pids = {lease.pid for lease in table.explicit_leases()}
+        assert len(pids) == cap and 999 in pids and 101 not in pids and 100 in pids
+        table.renew("kenaz", 5, "1")  # another client's leases are unaffected
+        assert len(table.explicit_leases()) == cap + 1
+
     @pytest.mark.parametrize("pid", [0, -1, -12345, 10**9, True])
     def test_absurd_pids_are_never_signalled(self, pid: int) -> None:
         assert pid_alive(pid) is False

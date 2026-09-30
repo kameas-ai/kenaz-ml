@@ -64,6 +64,11 @@ SWEEP_INTERVAL_ENV = "KENAZ_ML_LEASE_SWEEP_SEC"
 #: or a negative pid would signal a whole process group.
 MAX_PID = 4_194_304
 
+#: Most explicit leases one client name may hold (Amendment A4, security review).
+#: A count bound, not a time bound — explicit leases still expire only when their
+#: pid dies. At the cap, that client's least-recently-renewed lease is replaced.
+MAX_LEASES_PER_CLIENT = 8
+
 #: The ``/health`` / lease-response marker naming the lifecycle protocol this
 #: engine speaks. A cross-repo value: the harness's ``mlsidecar.HealthPayload``
 #: decodes it as an integer where 0 (or absence) means a pre-lease legacy engine,
@@ -142,6 +147,17 @@ class LeaseTable:
         now = self._clock()
         with self._lock:
             lease = Lease(client, pid, client_version, dict(min_contracts or {}), now)
+            if (client, pid) not in self._leases:
+                mine = [(k, v) for k, v in self._leases.items() if k[0] == client]
+                if len(mine) >= MAX_LEASES_PER_CLIENT:
+                    oldest_key, oldest = min(mine, key=lambda item: item[1].renewed_at)
+                    del self._leases[oldest_key]
+                    logger.info(
+                        "lifecycle: client=%s at its %d-lease cap; replaced its oldest lease (pid %d)",
+                        client,
+                        MAX_LEASES_PER_CLIENT,
+                        oldest.pid,
+                    )
             self._leases[(client, pid)] = lease
             self._last_live = now
             return lease
