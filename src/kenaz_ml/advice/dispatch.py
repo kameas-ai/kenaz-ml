@@ -380,12 +380,21 @@ class LayaBackend:
             )
 
     def standing_refusal(self) -> tuple[str, str] | None:
-        """``(reason, detail)`` if the host is *already known* ineligible this boot; never triggers a measurement."""
+        """``(reason, detail)`` for a refusal already knowable without running anything; never measures or imports.
+
+        In :func:`dispatch`'s own order: a host *already known* ineligible this
+        boot, then a build with no laya runtime at all (the shipped state -- a
+        verified checkpoint alone does not make laya servable, and ``/v1/contracts``
+        must not say ``available`` for a kind every request refuses).
+        """
         from kenaz_ml.laya import eligibility
 
         verdict = eligibility.cached_verdict()
         if verdict is not None and not verdict.eligible:
             return REASON_HOST_INELIGIBLE, f"kind unavailable: host ineligible: {verdict.reason} ({verdict.detail})"
+        runtime_present = getattr(self._runtime(), "runtime_present", None)
+        if callable(runtime_present) and not runtime_present():
+            return REASON_LAYA_NOT_INSTALLED, LAYA_NOT_INSTALLED_DETAIL
         return None
 
     def answer(self, vector: tuple[float, ...]) -> BackendAnswer:

@@ -375,6 +375,23 @@ class LayaRuntime:
     def loaded_kind(self) -> str | None:
         return self._ref.kind_id if self._ref is not None else None
 
+    def runtime_present(self) -> bool:
+        """Whether an agent could be built at all -- answered **without importing laya** (or torch).
+
+        With the real factory that means the ``laya`` package is findable; an
+        injected factory (tests, a future runtime-pack loader) answers for itself.
+        Lets ``/v1/contracts`` stop advertising a laya kind as available in a
+        build where every request would refuse ``laya_backend_not_installed``.
+        """
+        if self._factory is not default_agent_factory:
+            return True
+        import importlib.util
+
+        try:
+            return importlib.util.find_spec("laya") is not None
+        except (ImportError, ValueError):
+            return False
+
     # -- lifecycle -----------------------------------------------------------
 
     def load(self, ref: CheckpointRef) -> None:

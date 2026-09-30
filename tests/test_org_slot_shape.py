@@ -495,6 +495,32 @@ def test_a_tampered_checkpoint_is_refused_not_reported_as_not_installed(slots_en
     assert refused.value.reason == "checkpoint_refused"
 
 
+def test_a_verified_checkpoint_without_the_laya_runtime_is_not_advertised_as_available(
+    slots_env: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review fix: the shipped state (a checkpoint placed, no laya runtime) must not read as servable.
+
+    Before the fix ``/v1/contracts`` said ``available: true, backend: laya`` for a kind every
+    request refused ``laya_backend_not_installed`` -- before and after the first refusal.
+    """
+    from kenaz_ml.advice.dispatch import contracts_payload
+
+    _checkpoint(slots_env["local"])
+    monkeypatch.setattr(el, "free_memory_bytes", lambda: (8 * 1024**3, "test"))
+    monkeypatch.setattr("importlib.util.find_spec", lambda name, *a, **k: None if name == "laya" else object())
+    table = build_table(slots_env["local"], slots_env["base"])
+    for _ in range(2):  # before any dispatch, and after one
+        kind = contracts_payload(table.snapshot()).kinds["compact_now"]
+        assert not kind.available and kind.reason == "laya_backend_not_installed"
+        with pytest.raises(Refused) as refused:
+            dispatch(table.snapshot(), "compact_now", _request())
+        assert refused.value.reason == "laya_backend_not_installed"
+    assert el.cached_verdict() is not None  # contracts never measured; dispatch did, once
+    # ...and with a runtime able to build agents, the same entry is advertised truthfully as available.
+    agent_mod.set_runtime(LayaRuntime(lambda ref: _Agent()))
+    assert contracts_payload(table.snapshot()).kinds["compact_now"].available
+
+
 def test_a_directory_artifact_naming_a_non_laya_backend_is_refused(slots_env: dict[str, Path]) -> None:
     _checkpoint(slots_env["local"])
     manifest = read_manifest(slots_env["local"] / "compact_now.json").manifest
