@@ -260,10 +260,15 @@ def _pushed_commit_ts_ms(session_id: str | None) -> int | None:
     exists for pushes). The session-scoped value and the global (unscoped)
     value are both candidates; the later wins.
     """
+    # No lane installed is the common case and sits on the serving hot path
+    # (NFR-002): answer it without touching the store's lock.
+    store = features_push.current_store()
+    if store is None:
+        return None
     try:
-        candidates = [features_push.commit_ts_ms(None)]
+        candidates = [store.commit_ts_ms(None)]
         if session_id is not None:
-            candidates.append(features_push.commit_ts_ms(session_id))
+            candidates.append(store.commit_ts_ms(session_id))
         found = [c for c in candidates if isinstance(c, int) and not isinstance(c, bool)]
         return max(found) if found else None
     except Exception:  # never let an optional hint break live resolution
