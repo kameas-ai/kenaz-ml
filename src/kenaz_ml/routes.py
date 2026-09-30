@@ -158,6 +158,75 @@ class IntrospectResponse(BaseModel):
     capabilities: dict[str, bool]
 
 
+# ---------- /v1/labels/{kind} — frozen ingest contract (Amendment A3.3) ----------
+
+
+class LabelCursor(BaseModel):
+    """The ack cursor: a position over ``(ts, revision)``."""
+
+    ts: int
+    revision: int
+
+
+class LabelRow(BaseModel):
+    """One ``advice_labels`` row as the harness pushes it (frozen contract, A3.3).
+
+    Idempotency key ``(client, kind, features_hash, ts)``; a higher ``revision``
+    replaces the stored row, an equal or lower one is a duplicate. Propensity
+    fields are kept verbatim in the kind's label log; only ``accepted`` /
+    ``auto_acted`` (y=1) and ``dismissed`` (y=0) rows with
+    ``features_complete=true`` reach the retained training set.
+    """
+
+    client: str
+    kind: str
+    features_hash: str
+    ts: int = Field(..., description="Decision time (ms since epoch); part of the idempotency key.")
+    revision: int = Field(..., ge=0, description="Monotonic per key; a higher revision replaces the stored row.")
+    feature_contract_version: str
+    features: dict[str, float] = Field(default_factory=dict)
+    features_complete: bool
+    shown: bool
+    confidence: int | None = Field(None, description="Confidence at decision time (0-100), as the harness saw it.")
+    model_id: str | None = None
+    rung: str | None = None
+    prompt_version: str | None = None
+    user_action: str = Field(..., description="accepted | dismissed | ignored | auto_acted")
+    recommendation: dict | None = Field(None, description="The recommendation as served (decision/score/...).")
+    latency_ms: float | None = None
+    session_id: str | None = None
+    as_of_ms: int | None = Field(None, description="Feature snapshot time; ts is used when absent (never recomputed).")
+
+
+class LabelBatchRequest(BaseModel):
+    client: str
+    cursor: LabelCursor | None = Field(None, description="The client's current ack cursor (informational).")
+    rows: list[LabelRow]
+
+
+class LabelRowRefusal(BaseModel):
+    index: int
+    features_hash: str
+    ts: int
+    revision: int
+    reason: str
+
+
+class LabelBatchResponse(BaseModel):
+    kind: str
+    ack: LabelCursor | None = Field(
+        None, description="Advanced through the contiguous (ts, revision)-ordered prefix of non-refused rows."
+    )
+    accepted: int
+    superseded: int
+    duplicate: int
+    refused: int
+    refusals: list[LabelRowRefusal]
+    retained_appended: int
+    retained_rebuilt: bool
+    retained_generation: str | None = None
+
+
 # (internal model attr, display name, ml_predictions.model key or None)
 _INTROSPECT_MODEL_SPECS: list[tuple[str, str, str | None]] = [
     ("stuck", "Stuck Predictor", "stuck"),
@@ -585,6 +654,59 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
     async def contracts() -> ContractsResponse:
         """Every registered kind's ordered feature contract and serving availability."""
         return contracts_payload(state.dispatch_table.snapshot())
+
+    @fastapi_app.post(
+        "/v1/labels/{kind}",
+        response_model=LabelBatchResponse,
+        responses={
+            404: {"model": RecommendRefusal, "description": "Unknown kind"},
+            409: {
+                "model": RecommendRefusal,
+                "description": "Contract / names / retained-header mismatch; nothing written",
+            },
+            503: {"model": RecommendRefusal, "description": "Label log I/O failure; nothing acked"},
+        },
+    )
+    def labels(kind: str, req: LabelBatchRequest) -> LabelBatchResponse | JSONResponse:
+        """Cursor-acked, revision-upserted label ingest (FR-007..009). Loopback only; no outbound call."""
+        from kenaz_ml.advice.label_log import (
+            STATUS_ACCEPTED,
+            STATUS_DUPLICATE,
+            STATUS_REFUSED,
+            STATUS_SUPERSEDED,
+            ingest,
+        )
+
+        entry = state.dispatch_table.snapshot().get(kind)
+        if entry is None or entry.contract is None:
+            return JSONResponse(
+                status_code=404,
+                content=Refused(kind, "unknown_kind", f"unknown kind {kind!r}: no registered contract").body(),
+            )
+        result = ingest(kind, req.client, [row.model_dump() for row in req.rows], entry.contract)
+        if result.refusal is not None:
+            status = 503 if result.refusal == "io_error" else 409
+            return JSONResponse(
+                status_code=status, content=Refused(kind, result.refusal, result.refusal_detail or "").body()
+            )
+        return LabelBatchResponse(
+            kind=kind,
+            ack=LabelCursor(ts=result.ack[0], revision=result.ack[1]) if result.ack else None,
+            accepted=result.count(STATUS_ACCEPTED),
+            superseded=result.count(STATUS_SUPERSEDED),
+            duplicate=result.count(STATUS_DUPLICATE),
+            refused=result.count(STATUS_REFUSED),
+            refusals=[
+                LabelRowRefusal(
+                    index=o.index, features_hash=o.features_hash, ts=o.ts, revision=o.revision, reason=o.reason or ""
+                )
+                for o in result.outcomes
+                if o.status == STATUS_REFUSED
+            ],
+            retained_appended=result.retained_appended,
+            retained_rebuilt=result.retained_rebuilt,
+            retained_generation=result.retained_generation,
+        )
 
     @fastapi_app.get("/")
     async def root() -> dict:
