@@ -195,7 +195,9 @@ class LabelRow(BaseModel):
     recommendation: dict | None = Field(None, description="The recommendation as served (decision/score/...).")
     latency_ms: float | None = None
     session_id: str | None = None
-    as_of_ms: int | None = Field(None, description="Feature snapshot time; ts is used when absent (never recomputed).")
+    snapshot_ms: int | None = Field(
+        None, description="Feature snapshot time (ms); ts is used when absent. Carried, never recomputed."
+    )
 
 
 class LabelBatchRequest(BaseModel):

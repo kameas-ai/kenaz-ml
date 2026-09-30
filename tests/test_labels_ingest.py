@@ -266,8 +266,8 @@ def test_training_mapping(env: dict) -> None:
     assert len(labels_on_disk(env["retained"])) == 4
 
 
-def test_as_of_ms_is_carried_not_recomputed(env: dict) -> None:
-    push(env["client"], [row(5000, as_of_ms=4321)])
+def test_snapshot_time_is_carried_not_recomputed(env: dict) -> None:
+    push(env["client"], [row(5000, snapshot_ms=4321)])
     assert [e.as_of_ms for e in retained_rows(env["retained"])] == [4321]
 
 

@@ -283,8 +283,10 @@ def example_for(record: Mapping[str, Any], names: Sequence[str]) -> Any | None:
 
     features = record.get("features") or {}
     x = tuple(float(features[name]) for name in names)
-    as_of = record.get("as_of_ms")
-    return Example(x=x, y=y, as_of_ms=int(as_of) if as_of is not None else int(record["ts"]))
+    # The wire field is ``snapshot_ms`` (not ``as_of_ms``: the reference-time name
+    # is pinned out of the public HTTP schema by test_serving_regression).
+    snapshot = record.get("snapshot_ms")
+    return Example(x=x, y=y, as_of_ms=int(snapshot) if snapshot is not None else int(record["ts"]))
 
 
 # ---------------------------------------------------------------------------
