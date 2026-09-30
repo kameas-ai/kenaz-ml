@@ -126,6 +126,12 @@ class HealthResponse(BaseModel):
         ..., description="Per recommend kind, the feature_contract_version values /v1/recommend accepts."
     )
     exe_path: str = Field(..., description="This process's own resolved executable path; not self-verified.")
+    engine_sha256: str | None = Field(
+        ...,
+        description="sha256 of the engine's own executable file (sys.executable resolved through symlinks; "
+        "the launcher executable in the frozen onedir), computed once at startup. An adoption cross-check for "
+        "the client, never a trust root; null only if the file could not be read.",
+    )
     model_details: dict[str, ModelHealth] = Field(..., description="Per-model status with registry refusal text.")
     device: str = Field(..., description='Compute device; "cpu" for the scikit-learn engine.')
     lifecycle_protocol: int = Field(
@@ -397,6 +403,8 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
     """Register all API routes on the given FastAPI app."""
 
     get_tenant = make_tenant_dependency(state)
+    # Computed once per app, at startup (registration), never per request.
+    state.engine_sha256 = engine_sha256()
 
     @fastapi_app.get("/health", response_model=HealthResponse)
     async def health() -> HealthResponse:
@@ -1017,6 +1025,30 @@ def _exe_path() -> str:
     return os.path.realpath(sys.executable)
 
 
+def engine_sha256() -> str | None:
+    """sha256 of this engine's own executable file, resolved through symlinks.
+
+    ``sys.executable``: under the frozen onedir that is the frozen
+    launcher; from source it is the interpreter. Reported for the client's
+    adoption cross-check (design F2) — kenaz-ml never verifies it itself
+    (C-001). ``None`` when the file cannot be read.
+    """
+    import hashlib
+    import os
+    import sys
+
+    try:
+        path = os.path.realpath(sys.executable)
+        digest = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except (OSError, TypeError, ValueError):
+        logger.warning("health: could not hash the engine executable", exc_info=True)
+        return None
+
+
 def _identity(state: AppState) -> dict:
     from kenaz_ml import __version__
 
@@ -1025,6 +1057,7 @@ def _identity(state: AppState) -> dict:
         "sidecar_version": __version__,
         "contract_versions": _contract_versions(state),
         "exe_path": _exe_path(),
+        "engine_sha256": getattr(state, "engine_sha256", None),
         "device": "cpu",
     }
 

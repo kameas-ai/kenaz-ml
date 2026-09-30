@@ -590,13 +590,14 @@ jobs:
           MOUNT="$MOUNT" python3 - <<'PY'
           import json, os
           body = json.load(open("/tmp/health.json"))
-          required = ["product", "sidecar_version", "contract_versions", "exe_path",
+          required = ["product", "sidecar_version", "contract_versions", "exe_path", "engine_sha256",
                       "model_details", "device", "lifecycle_protocol"]
           missing = [k for k in required if k not in body]
           assert not missing, f"/health identity fields missing: {missing}"
           assert body["product"] == "kenaz-ml", body["product"]
           assert body["lifecycle_protocol"] == 1, body["lifecycle_protocol"]
           assert body["sidecar_version"], "empty sidecar_version"
+          assert body["engine_sha256"] and len(body["engine_sha256"]) == 64, body["engine_sha256"]
           mount = os.path.realpath(os.environ["MOUNT"])
           assert os.path.realpath(body["exe_path"]).startswith(mount), (body["exe_path"], mount)
           print("identity OK:", {k: body[k] for k in ("product", "sidecar_version", "lifecycle_protocol", "exe_path")})

@@ -338,6 +338,7 @@ _ADDITIVE_AFTER_CAPTURE = {
     "sidecar_version",
     "contract_versions",
     "exe_path",
+    "engine_sha256",
     "model_details",
     "device",
     "lifecycle_protocol",

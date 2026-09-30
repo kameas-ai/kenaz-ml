@@ -115,6 +115,8 @@ class AppState:
         self.exiting: bool = False
         # /v1/features push store (WP09); created per app by register_routes.
         self.features_push: Any = None
+        # sha256 of the engine executable, computed once by register_routes.
+        self.engine_sha256: str | None = None
 
     def load_models(self, model_store: ModelStore | None = None) -> None:
         """Load or reload all model instances."""

@@ -31,6 +31,7 @@ IDENTITY_FIELDS = {
     "sidecar_version",
     "contract_versions",
     "exe_path",
+    "engine_sha256",
     "model_details",
     "device",
     "lifecycle_protocol",
@@ -65,6 +66,7 @@ def _valid_payload() -> dict[str, Any]:
         "sidecar_version": "0.1.0",
         "contract_versions": {},
         "exe_path": "/x",
+        "engine_sha256": "0" * 64,
         "model_details": {"stuck": {"status": "untrained", "slot": "cold_start", "refusal": None}},
         "device": "cpu",
         "lifecycle_protocol": LIFECYCLE_PROTOCOL,
@@ -196,3 +198,32 @@ def test_cloud_mode_health_is_fully_shaped(slots: dict[str, Path]) -> None:
         assert set(body) >= IDENTITY_FIELDS
         assert body["lifecycle_protocol"] == 0
         assert c.post("/v1/clients/lease", json={"client": "h", "pid": 1, "client_version": "1"}).status_code == 404
+
+
+def test_engine_sha256_is_the_hash_of_this_executable(client: TestClient) -> None:
+    import hashlib
+
+    expected = hashlib.sha256(Path(os.path.realpath(sys.executable)).read_bytes()).hexdigest()
+    assert client.get("/health").json()["engine_sha256"] == expected
+
+
+def test_engine_sha256_is_computed_once_not_per_request(
+    slots: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kenaz_ml import routes
+    from kenaz_ml.app import create_app
+
+    calls: list[int] = []
+    real = routes.engine_sha256
+    monkeypatch.setattr(routes, "engine_sha256", lambda: (calls.append(1), real())[1])
+    with TestClient(create_app()) as c:
+        for _ in range(3):
+            c.get("/health")
+    assert len(calls) == 1
+
+
+def test_unreadable_executable_reports_null(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from kenaz_ml import routes
+
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "missing"))
+    assert routes.engine_sha256() is None

@@ -1105,6 +1105,18 @@
             "title": "Exe Path",
             "description": "This process's own resolved executable path; not self-verified."
           },
+          "engine_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Sha256",
+            "description": "sha256 of the engine's own executable file (sys.executable resolved through symlinks; the launcher executable in the frozen onedir), computed once at startup. An adoption cross-check for the client, never a trust root; null only if the file could not be read."
+          },
           "model_details": {
             "additionalProperties": {
               "$ref": "#/components/schemas/ModelHealth"
@@ -1133,6 +1145,7 @@
           "sidecar_version",
           "contract_versions",
           "exe_path",
+          "engine_sha256",
           "model_details",
           "device",
           "lifecycle_protocol"
