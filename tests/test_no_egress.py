@@ -689,6 +689,16 @@ def bind_host_violations(source: str, filename: str) -> list[str]:
     return problems
 
 
+def uvicorn_importers(source: str) -> bool:
+    """True when ``source`` imports ``uvicorn`` (or a submodule) under any spelling."""
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import) and any(a.name.split(".")[0] == "uvicorn" for a in node.names):
+            return True
+        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "uvicorn":
+            return True
+    return False
+
+
 class TestLoopbackBindIsEnforced:
     """FR-018 clause 1. The guard in cli.py enforces; these tests prove it."""
 
@@ -731,6 +741,24 @@ class TestLoopbackBindIsEnforced:
         source = (_KENAZ_SRC / "cli.py").read_text(encoding="utf-8")
         assert "is_loopback_host(args.host)" in source
         assert source.index("is_loopback_host(args.host)") < source.index("uvicorn.run(")
+
+    def test_only_the_guarded_cli_imports_uvicorn(self) -> None:
+        # Review addition: the call-site scan above matches ``uvicorn.run`` by
+        # spelling, so ``from uvicorn import run as go`` or ``import uvicorn as u``
+        # would evade it. Confining the import to cli.py closes that class.
+        importers = [
+            str(path.relative_to(_KENAZ_SRC))
+            for path in sorted(_KENAZ_SRC.rglob("*.py"))
+            if uvicorn_importers(path.read_text(encoding="utf-8"))
+        ]
+        assert importers == ["cli.py"], importers
+
+    @pytest.mark.parametrize(
+        "planted",
+        ["import uvicorn as u\n", "from uvicorn import run as go\n", "def f():\n    import uvicorn.server\n"],
+    )
+    def test_the_import_scan_catches_a_planted_violation(self, planted: str) -> None:
+        assert uvicorn_importers(planted)
 
     @pytest.mark.parametrize(
         "planted",
