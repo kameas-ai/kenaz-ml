@@ -21,8 +21,14 @@ Design doc §3.5 / repairs R4, R5 (via this mission's research.md):
   root's ``lease/`` directory exists** (a managed install; ruled 2026-09-30,
   FR-014 / D-A2). Without it — a developer's ``kenaz-ml serve`` — the engine
   never self-terminates. The countdown starts at process start (the literal
-  reading): a freshly spawned engine that never receives a lease or a health
-  poll exits after the window.
+  reading) and is **restarted once when serving begins**
+  (:meth:`LeaseTable.restart_countdown`, called as the lifecycle loop starts):
+  startup — the registry refresh, which may run a due rebuild, and model
+  loading — happens before uvicorn accepts a connection, so no client *could*
+  have leased or polled during it, and counting it would let a slow startup
+  spend the window and exit within one sweep of becoming reachable. A freshly
+  spawned engine that never receives a lease or a health poll still exits one
+  window after it became reachable.
 
 Timing constants are module-level and overridable by environment variable for
 tests (plan D-A6), read when a :class:`LeaseTable` is constructed.
@@ -125,6 +131,12 @@ class LeaseTable:
         self._last_live: float = clock()
 
     # -- recording -------------------------------------------------------------
+
+    def restart_countdown(self) -> None:
+        """Restart the idle countdown now: serving has just begun (see module docstring)."""
+        now = self._clock()
+        with self._lock:
+            self._last_live = max(self._last_live, now)
 
     def renew(self, client: str, pid: int, client_version: str, min_contracts: dict[str, Any] | None = None) -> Lease:
         now = self._clock()

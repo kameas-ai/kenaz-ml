@@ -135,6 +135,20 @@ class TestIdleTimer:
         clock.now += 1
         assert table.should_exit(True)
 
+    def test_a_slow_startup_does_not_spend_the_window(self) -> None:
+        # Review fix: startup runs before uvicorn accepts a connection, so no
+        # client could lease during it. Serving begins -> the countdown restarts.
+        clock = FakeClock()
+        table = self._table(clock)
+        clock.now += 300  # a startup rebuild longer than the whole window
+        assert table.should_exit(True)
+        table.restart_countdown()
+        assert not table.should_exit(True)
+        clock.now += 119
+        assert not table.should_exit(True)
+        clock.now += 1
+        assert table.should_exit(True)
+
     def test_degraded_mode_never_self_terminates(self) -> None:
         clock = FakeClock()
         table = self._table(clock)
@@ -230,6 +244,20 @@ def test_managed_engine_with_no_lease_self_terminates(engine_env: Path, exits: l
 
     with TestClient(create_app()):
         assert _wait_for(lambda: exits == ["exit"]), "managed engine never self-terminated"
+
+
+def test_the_countdown_restarts_when_serving_begins(
+    engine_env: Path, exits: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kenaz_ml.app import create_app
+    from kenaz_ml.lifecycle.leases import LeaseTable
+
+    calls: list[str] = []
+    real = LeaseTable.restart_countdown
+    monkeypatch.setattr(LeaseTable, "restart_countdown", lambda self: (calls.append("restart"), real(self)))
+    with TestClient(create_app()) as client:
+        assert client.get("/health").status_code == 200
+        assert _wait_for(lambda: calls == ["restart"]), "the lifecycle loop never restarted the countdown"
 
 
 def test_degraded_engine_starts_serves_and_never_self_terminates(engine_env: Path, exits: list[str]) -> None:

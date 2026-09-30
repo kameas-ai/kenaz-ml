@@ -220,6 +220,9 @@ async def lifecycle_loop(state: AppState) -> None:
     from kenaz_ml.lifecycle.shutdown import drain_and_exit
 
     leases = state.leases
+    # Startup (refresh_all, model load) ran before any client could connect;
+    # the window counts from the moment the engine is reachable.
+    leases.restart_countdown()
     while not state.exiting:
         await asyncio.sleep(leases.sweep_interval_sec)
         try:
