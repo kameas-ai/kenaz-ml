@@ -339,3 +339,24 @@ def test_shadow_failure_never_fails_the_request(dirs: dict[str, Path], monkeypat
     monkeypatch.setattr(shadow, "enqueue_shadow", explode)
     resp = _ask(_client(table))
     assert resp.status_code == 422 and resp.json()["refusal"]["reason"] == "kind_not_served"
+
+
+def test_shadow_record_carries_the_requests_exact_join_key(dirs: dict[str, Path]) -> None:
+    """Review fix 2026-09-30: the write site reads request.features_hash / request.ts (Mission A 9461214)."""
+    _train(T0)
+    table = build_table(dirs["models"], dirs["base"])
+    resp = _client(table).post(
+        f"/v1/recommend/{KIND}",
+        json={
+            "features": FEATURES,
+            "feature_contract_version": CONTRACT.service_version,
+            "session_id": "s1",
+            "features_hash": "fh-42",
+            "ts": T0 + 123,
+        },
+    )
+    assert resp.status_code == 422 and resp.json()["refusal"]["reason"] == "kind_not_served"
+    assert SHADOW_WRITER.flush()
+    (rec,) = read_shadow_log(KIND).shadows
+    assert rec["features_hash"] == "fh-42" and rec["label_ts"] == T0 + 123
+    assert rec["ts"] != T0 + 123  # ts stays the engine's receipt time

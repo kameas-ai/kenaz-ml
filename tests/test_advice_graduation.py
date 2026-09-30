@@ -329,3 +329,107 @@ def test_tunables_are_the_documented_initial_values() -> None:
         "max_eval_window_days": 21,
         "baseline_window_days": 90,
     }
+
+
+# ---------------------------------------------------------------------------
+# Review fixes 2026-09-30 — the exact (features_hash, ts) join and exclusive
+# serving attribution
+# ---------------------------------------------------------------------------
+
+
+def _feats(value: float) -> dict[str, float]:
+    return {name: value for name in NAMES}
+
+
+def _shadow(ts: int, feats: dict[str, float], **key: Any) -> dict[str, Any]:
+    return shadow_record(
+        KIND, [feats[n] for n in NAMES], ts_ms=ts, p=0.9, decision=True, confidence=90,
+        model_id_sha8="abcd1234", generation="1", rung="R2", session_id="s1", **key,
+    )  # fmt: skip
+
+
+def test_exact_key_joins_even_when_the_vector_and_time_disagree() -> None:
+    from tests.fixtures.advice_labels import label_row
+
+    # The label's features differ from the request's and it arrives 10 min later:
+    # the fallback could never pair these; the exact key does.
+    label = label_row(KIND, T0 + 600_000, _feats(2.0))
+    rec = _shadow(T0, _feats(1.0), features_hash=label["features_hash"], label_ts=label["ts"])
+    assert rec["ts"] == T0 and rec["label_ts"] == label["ts"]  # receipt time and join key kept apart
+    joined = shadow.join_shadow_to_labels(KIND, shadow.ShadowLog(KIND, True, shadows=[rec], labels=[label]))
+    assert [(j.shadow["label_ts"], j.label["ts"]) for j in joined] == [(label["ts"], label["ts"])]
+
+
+def test_exact_key_never_falls_back_to_a_guess() -> None:
+    from tests.fixtures.advice_labels import label_row
+
+    feats = _feats(1.0)
+    lookalike = label_row(KIND, T0 + 1_000, feats)  # same vector, same session, 1 s away
+    rec = _shadow(T0, feats, features_hash="h-not-arrived-yet", label_ts=T0 + 5)
+    log = shadow.ShadowLog(KIND, True, shadows=[rec], labels=[lookalike])
+    assert shadow.join_shadow_to_labels(KIND, log) == []
+
+
+def test_keyless_records_still_use_the_vector_hash_fallback() -> None:
+    from tests.fixtures.advice_labels import label_row
+
+    feats = _feats(1.0)
+    label = label_row(KIND, T0 + 1_000, feats)
+    rec = _shadow(T0, feats)  # no features_hash/label_ts: an older client
+    assert rec["features_hash"] is None and rec["label_ts"] is None
+    joined = shadow.join_shadow_to_labels(KIND, shadow.ShadowLog(KIND, True, shadows=[rec], labels=[label]))
+    assert len(joined) == 1 and joined[0].label is label
+
+
+def test_a_row_the_exact_pass_took_is_never_offered_to_the_fallback() -> None:
+    from tests.fixtures.advice_labels import label_row
+
+    feats = _feats(1.0)
+    label = label_row(KIND, T0 + 1_000, feats)
+    keyed = _shadow(T0 + 90_000, feats, features_hash=label["features_hash"], label_ts=label["ts"])
+    keyless = _shadow(T0, feats)  # earlier, nearer, same vector: would win a fuzzy race
+    log = shadow.ShadowLog(KIND, True, shadows=[keyless, keyed], labels=[label])
+    joined = shadow.join_shadow_to_labels(KIND, log)
+    assert len(joined) == 1 and joined[0].shadow is keyed
+
+
+def test_each_label_pairs_at_most_once_in_the_fallback() -> None:
+    from tests.fixtures.advice_labels import label_row
+
+    feats = _feats(1.0)
+    label = label_row(KIND, T0 + 1_000, feats)
+    log = shadow.ShadowLog(KIND, True, shadows=[_shadow(T0, feats), _shadow(T0 + 2_000, feats)], labels=[label])
+    assert len(shadow.join_shadow_to_labels(KIND, log)) == 1
+
+
+def test_enqueue_carries_the_exact_key_onto_the_record(dirs: dict[str, Path], trained: Any) -> None:
+    from kenaz_ml.advice.models import make_estimator
+
+    model = make_estimator(KIND).fit([[0.0] * len(NAMES), [1.0] * len(NAMES)] * 5, [0, 1] * 5)
+    writer = ShadowWriter()
+    assert enqueue_shadow(
+        KIND, [0.5] * len(NAMES), model, trained, ts_ms=T0, writer=writer, features_hash="fh1", ts=T0 - 7
+    ).ok
+    assert writer.flush()
+    (rec,) = read_shadow_log(KIND).shadows
+    assert (rec["features_hash"], rec["label_ts"], rec["ts"]) == ("fh1", T0 - 7, T0)
+
+
+@pytest.mark.parametrize(
+    ("model_id", "rung", "heuristic", "classic"),
+    [
+        ("heuristic/rule", "heuristic", True, False),  # the harness's own heuristic
+        ("heuristic/rule", "R2", True, False),
+        (f"classic/{KIND}@3", "R3", False, True),  # the engine's model, written verbatim
+        (f"classic/{KIND}@3", "heuristic", False, True),  # a stray rung never double-counts
+        ("laya/pack@1", "heuristic", False, False),  # a future backend counts on neither side
+        ("laya/pack@1", "R4", False, False),
+        ("", "heuristic", True, False),  # no model_id: the rung decides
+        ("", "R3", False, False),
+        (f"classic/{KIND}_v2@1", "R3", False, False),  # another kind's classic label
+    ],
+)
+def test_serving_attribution_is_exclusive(model_id: str, rung: str, heuristic: bool, classic: bool) -> None:
+    row = {"model_id": model_id, "rung": rung}
+    assert shadow.served_by_heuristic(row) is heuristic
+    assert shadow.served_by_classic(row, KIND) is classic

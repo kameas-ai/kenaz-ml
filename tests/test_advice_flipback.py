@@ -199,7 +199,10 @@ def test_same_generation_never_reflips_a_new_one_does(env: dict[str, Any]) -> No
     _evaluate(env, FLIP_AT + DAY_MS)
     assert _metrics(env)["demoted_generation"] == 1
 
-    # The same generation still measures eligible on its shadow log...
+    # Fresh post-demotion evidence (the pre-demotion shadow records no longer
+    # count — review fix 2026-09-30, see the next test)...
+    seed_decisions(KIND, env["retained"], ELIGIBLE, start=FLIP_AT + DAY_MS + 3_600_000, seed=31)
+    # ...on which the same generation measures eligible...
     later = FLIP_AT + 2 * DAY_MS
     again = graduation_check(KIND, now_ms=later)
     assert again.verdict == "eligible" and again.generation == "1"
@@ -343,3 +346,43 @@ def test_demotion_manifest_write_failure_reverts_nothing(env: dict[str, Any], mo
 def test_unflipped_kinds_are_not_evaluated(env: dict[str, Any]) -> None:
     results = evaluate_flipped_kinds(env["table"], now_ms=FLIP_AT + DAY_MS, base_dir=env["base"])
     assert set(results) == {KIND}  # branch_now / escalate_model have no flipped model
+
+
+def test_a_new_generation_does_not_reflip_on_the_evidence_the_demotion_contradicted(env: dict[str, Any]) -> None:
+    """Review fix 2026-09-30 (D-B5 "a fresh eligible verdict"): no flap cycle.
+
+    The shadow records that earned the first flip are still inside the 90-day
+    window after the demotion. A later generation must not graduate on them —
+    before this fix it re-flipped at the very next retrain.
+    """
+    classic_rows(env, accepted=5, dismissed=35)
+    _evaluate(env, FLIP_AT + DAY_MS)
+    demoted_at = _metrics(env)["demoted_at_ms"]
+
+    push(KIND, separable_rows(KIND, 60, start_ts=FLIP_AT + 3 * DAY_MS, seed=21, shown=False), env["retained"])
+    gen2 = train_kind(KIND, clock=lambda: FLIP_AT + 4 * DAY_MS)
+    assert gen2.trained and gen2.manifest.metrics["demoted_at_ms"] == demoted_at  # carried forward
+    report = after_retrain(env["table"], KIND, gen2, now_ms=FLIP_AT + 4 * DAY_MS, base_dir=env["base"])
+
+    assert "flip" not in report
+    grad = report["graduation"]
+    assert grad.verdict == "not_eligible" and "since the demotion" in grad.reason
+    assert grad.window_start_ms == demoted_at
+    assert _ask(env["table"]).json()["refusal"]["reason"] == "kind_not_served"
+    assert _metrics(env)["serving_backend"] == "heuristic"
+
+
+def test_insufficient_data_is_audited_once_even_across_a_retrain(env: dict[str, Any]) -> None:
+    """Review fix 2026-09-30: a retrain carries flipback_verdict, so the audit row stays once-per-transition."""
+    classic_rows(env, accepted=0, dismissed=5)
+    late = FLIP_AT + MAX_EVAL_WINDOW_DAYS * DAY_MS
+    assert _evaluate(env, late).verdict == "insufficient_data"
+
+    push(KIND, separable_rows(KIND, 60, start_ts=late, seed=22, shown=False), env["retained"])
+    gen2 = train_kind(KIND, clock=lambda: late + DAY_MS)
+    assert gen2.trained and gen2.manifest.metrics["flipback_verdict"] == "insufficient_data"
+    after_retrain(env["table"], KIND, gen2, now_ms=late + DAY_MS, store=env["store"], base_dir=env["base"])
+    assert _ask(env["table"]).json()["generation"] == "2"  # the flip survived the retrain
+
+    audits = [e for e in env["store"].events if e[0] == AUDIT_INSUFFICIENT_DATA]
+    assert audits == [(AUDIT_INSUFFICIENT_DATA, f"advice/{KIND}@1")]

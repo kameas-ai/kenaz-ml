@@ -12,21 +12,36 @@ Promotion is **measured, never asserted** (design doc §5.4). This module:
   merges it into the manifest's existing ``metrics`` dict
   (:func:`update_manifest_metrics`) — never a new top-level manifest key.
 
-The join key — a deviation from the prompt, reported
-----------------------------------------------------
+The join key: exact first, the vector-hash heuristic only as a fallback
+-----------------------------------------------------------------------
 The planning documents join shadow to label on the harness's
-``(features_hash, ts)``. Mission A's shipped ``/v1/recommend`` request carries
-**neither** (``features``, ``feature_contract_version``, ``session_id``,
-``kind_id`` only), and this mission may not change the wire (the OpenAPI
-document is frozen for it). So a shadow record carries what the engine *can*
-know at decision time: an engine-computed ``vector_hash`` over the kind's
-ordered feature vector, the engine's receipt time ``ts``, and ``session_id``.
-The join recomputes the same ``vector_hash`` from each label row's full
-``features`` JSON and pairs a shadow record with the nearest label row of the
-same ``vector_hash`` (and the same ``session_id`` when both carry one) whose
-``ts`` lies within :data:`SHADOW_JOIN_TOLERANCE_MS`. Each label row pairs at
-most once. ``user_action`` is never stored on a shadow record; it is read from
-the label row (highest ``revision``) at evaluation time.
+``(features_hash, ts)``. Mission A's ``/v1/recommend`` request now carries
+both as **optional** fields (``RecommendRequest.features_hash`` / ``.ts``,
+two-client-engine-01MSK2EN 9461214). A shadow record stores them as
+``features_hash`` and ``label_ts`` — ``label_ts``, not ``ts``, because the
+record's ``ts`` is the engine's own receipt time and other code reads it.
+
+:func:`join_shadow_to_labels` pairs in two passes:
+
+1. **Exact** — a shadow record carrying both ``features_hash`` and
+   ``label_ts`` pairs with the label row whose ``(features_hash, ts)`` equals
+   them, or with nothing. It never falls back: a keyed record whose label has
+   not arrived (or was evicted) stays unpaired rather than being guessed.
+2. **Fallback, superseded when the exact key is present** — only for a
+   record missing either field (a client that predates the wire fields, or a
+   record written before 2026-09-30): an engine-computed ``vector_hash`` over
+   the kind and its ordered feature vector, the engine's receipt ``ts`` and
+   ``session_id``. The join recomputes ``vector_hash`` from each label row's
+   full ``features`` JSON and takes the nearest row of the same hash (and the
+   same ``session_id`` when both carry one) within
+   :data:`SHADOW_JOIN_TOLERANCE_MS`. Delete this pass once every supported
+   harness sends the exact key (owner: the harness release that makes
+   ``features_hash``/``ts`` unconditional on ``/v1/recommend``).
+
+Each label row pairs at most once across both passes, and a row the exact pass
+took is never offered to the fallback. ``user_action`` is never stored on a
+shadow record; it is read from the label row (highest ``revision``) at
+evaluation time.
 
 Who served a label row
 ----------------------
@@ -182,8 +197,15 @@ def shadow_record(
     generation: str,
     rung: str,
     session_id: str | None = None,
+    features_hash: str | None = None,
+    label_ts: int | None = None,
 ) -> dict[str, Any]:
-    """One shadow record. No ``user_action`` (not yet known) and no heuristic decision."""
+    """One shadow record. No ``user_action`` (not yet known) and no heuristic decision.
+
+    ``features_hash``/``label_ts`` are the request's exact join key (the label
+    row's ``(features_hash, ts)``) when the client sent it; ``ts`` stays the
+    engine's receipt time.
+    """
     return {
         "record": RECORD_SHADOW,
         "kind": kind,
@@ -191,6 +213,8 @@ def shadow_record(
         "ts": int(ts_ms),
         "as_of_ms": int(ts_ms),
         "session_id": session_id,
+        "features_hash": features_hash,
+        "label_ts": int(label_ts) if label_ts is not None else None,
         "predicted": {"decision": bool(decision), "confidence": int(confidence), "p": float(p)},
         "model_id_sha8": model_id_sha8,
         "generation": str(generation),
@@ -262,21 +286,60 @@ class JoinedDecision:
     label: dict[str, Any]
 
 
+def _exact_key(shadow: Mapping[str, Any]) -> tuple[str, int] | None:
+    """The shadow record's exact join key, or ``None`` when either half is absent."""
+    features_hash, label_ts = shadow.get("features_hash"), shadow.get("label_ts")
+    if not features_hash or label_ts is None:
+        return None
+    try:
+        return str(features_hash), int(label_ts)
+    except (TypeError, ValueError):
+        return None
+
+
 def join_shadow_to_labels(kind: str, log: ShadowLog) -> list[JoinedDecision]:
-    """Pair each shadow record with its label row (see the module docstring). Deterministic."""
+    """Pair each shadow record with its label row (see the module docstring). Deterministic.
+
+    Exact ``(features_hash, ts)`` pass first; the vector-hash fallback only for
+    records without the exact key, and only over label rows the exact pass did
+    not take.
+    """
     contract = contract_for(kind)
     if contract is None:
         return []
     names = tuple(contract.names)
+    shadows = sorted(log.shadows, key=lambda s: int(s["ts"]))
+
+    used: set[int] = set()
+    joined: list[JoinedDecision] = []
+
+    # Pass 1 — exact key. Several label rows can share (features_hash, ts)
+    # across clients; the first unused one (log order) is taken.
+    by_key: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    for label in log.labels:
+        try:
+            by_key.setdefault((str(label["features_hash"]), int(label["ts"])), []).append(label)
+        except (KeyError, TypeError, ValueError):
+            continue
+    fallback: list[dict[str, Any]] = []
+    for shadow in shadows:
+        key = _exact_key(shadow)
+        if key is None:
+            fallback.append(shadow)
+            continue
+        for label in by_key.get(key, ()):
+            if id(label) not in used:
+                used.add(id(label))
+                joined.append(JoinedDecision(shadow=shadow, label=label))
+                break
+
+    # Pass 2 — the vector-hash heuristic, superseded wherever the exact key exists.
     by_hash: dict[str, list[dict[str, Any]]] = {}
     for label in log.labels:
         h = label_vector_hash(kind, label, names)
         if h is not None:
             by_hash.setdefault(h, []).append(label)
-
-    used: set[int] = set()
-    joined: list[JoinedDecision] = []
-    for shadow in sorted(log.shadows, key=lambda s: int(s["ts"])):
+    for shadow in fallback:
         best: dict[str, Any] | None = None
         best_gap: int | None = None
         for label in by_hash.get(str(shadow["vector_hash"]), ()):
@@ -312,6 +375,8 @@ class _Pending:
     ts_ms: int
     session_id: str | None
     directory: Path | None
+    features_hash: str | None = None
+    label_ts: int | None = None
 
 
 class ShadowWriter:
@@ -387,6 +452,8 @@ class ShadowWriter:
             generation=str(getattr(manifest, "version", "0")),
             rung=str((getattr(manifest, "metrics", None) or {}).get("rung") or "R2"),
             session_id=pending.session_id,
+            features_hash=pending.features_hash,
+            label_ts=pending.label_ts,
         )
         return write_shadow_records(pending.kind, [record], directory=pending.directory)
 
@@ -404,8 +471,14 @@ def enqueue_shadow(
     session_id: str | None = None,
     directory: Path | str | None = None,
     writer: ShadowWriter | None = None,
+    features_hash: str | None = None,
+    ts: int | None = None,
 ) -> ShadowWrite:
     """Record one shadow-rung prediction. Non-raising, non-blocking: O(1) on the request path.
+
+    ``features_hash``/``ts`` are the request's optional exact join key (the
+    label row's ``(features_hash, ts)``); ``ts`` is stored as ``label_ts``
+    because the record's own ``ts`` is ``ts_ms``, the engine's receipt time.
 
     Scoring (calibrated probability, decision, confidence) and the append
     happen on :data:`SHADOW_WRITER`'s thread. The returned value says only
@@ -420,6 +493,8 @@ def enqueue_shadow(
             ts_ms=int(ts_ms),
             session_id=session_id,
             directory=Path(directory) if directory is not None else None,
+            features_hash=features_hash or None,
+            label_ts=int(ts) if ts is not None else None,
         )
         return (writer or SHADOW_WRITER).submit(pending)
     except Exception as exc:
@@ -469,10 +544,23 @@ def is_shown(label: Mapping[str, Any]) -> bool:
 
 
 def served_by_heuristic(label: Mapping[str, Any]) -> bool:
-    return label.get("rung") == "heuristic" or str(label.get("model_id") or "").startswith("heuristic")
+    """The harness's heuristic served this row (``model_id`` ``heuristic...``).
+
+    Exclusive with :func:`served_by_classic`: when ``model_id`` is present it
+    alone decides (the harness writes the engine's ``model`` verbatim), so a
+    ``classic/``/``laya/``/unknown ``model_id`` is never counted as the
+    heuristic because of its ``rung``. ``rung == "heuristic"`` decides only for
+    a row with no ``model_id``. Anything else (laya, a future backend) counts
+    on **neither** side of any comparison. (Review fix 2026-09-30.)
+    """
+    model_id = str(label.get("model_id") or "")
+    if model_id:
+        return model_id.startswith("heuristic")
+    return label.get("rung") == "heuristic"
 
 
 def served_by_classic(label: Mapping[str, Any], kind: str) -> bool:
+    """This engine's classic backend served this row: ``model_id`` is its ``classic/<kind>@<generation>`` label."""
     return str(label.get("model_id") or "").startswith(f"classic/{kind}@")
 
 
@@ -620,6 +708,17 @@ def _graduation_check(
         return result
 
     metrics = manifest.metrics or {}
+    # Review fix 2026-09-30 (D-B5 "a fresh eligible verdict"): after a
+    # demotion, evidence from before it does not count. The shadow records
+    # that earned the demoted flip were contradicted by live accept rates;
+    # letting the next generation graduate on them re-flipped at the very next
+    # retrain (24 h / 50 labels later) — a flap cycle. The window therefore
+    # opens at ``demoted_at_ms`` (carried forward by retrains, cleared by the
+    # next successful flip) for both the shadow side and the heuristic side.
+    demoted_at = metrics.get("demoted_at_ms")
+    if demoted_at is not None and int(demoted_at) > start:
+        start = int(demoted_at)
+        result.window_start_ms = start
     result.generation = str(manifest.version)
     result.calibration_fitted = metrics.get("calibration_fitted") is True
     result.calibration_ece = metrics.get("calibration_ece")
@@ -652,6 +751,8 @@ def _graduation_check(
 
     if result.label_count < MIN_GRADUATION_LABELS:
         result.reason = f"{result.label_count} shadow-labelled decisions < {MIN_GRADUATION_LABELS}"
+        if demoted_at is not None and start == int(demoted_at):
+            result.reason += " since the demotion (earlier evidence does not count)"
     elif shown.rate is None:
         result.reason = "no shadow prediction at or above the shown threshold"
     elif baseline.rate is None:

@@ -601,6 +601,9 @@ def _record_shadow(entry: DispatchEntry, kind_id: str, contract: Any, request: R
             entry.manifest,
             ts_ms=int(time.time() * 1000),
             session_id=request.session_id,
+            # The exact shadow-join key (two-client-engine 9461214), when sent.
+            features_hash=request.features_hash,
+            ts=request.ts,
         )
     except Exception:
         logger.debug("dispatch: shadow record skipped for %r", kind_id, exc_info=True)

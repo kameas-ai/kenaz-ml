@@ -115,6 +115,10 @@ CARRY_FORWARD_METRIC_KEYS: tuple[str, ...] = (
     "flipped_generation",
     "demoted_generation",
     "demoted_at_ms",
+    # Review fix 2026-09-30: the flip-back state the insufficient_data audit
+    # compares against ("audited once, on the transition"). Without it every
+    # retrain of a still-starved flipped kind re-emitted the audit row.
+    "flipback_verdict",
 )
 
 # Rungs (design doc §5.4) as this mission reports them in ``metrics["rung"]``.
