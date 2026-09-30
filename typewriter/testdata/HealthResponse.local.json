@@ -1,0 +1,69 @@
+{
+  "contract_versions": {
+    "branch_now": [
+      "20e0d23994daee80"
+    ],
+    "compact_now": [
+      "3ad8b0c1fa514476"
+    ],
+    "escalate_model": [
+      "57d4bdc1bd6a71be"
+    ]
+  },
+  "device": "cpu",
+  "engine_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "exe_path": "/opt/kenaz-ml/bin/python",
+  "laya_eligibility": {
+    "benchmark_calls": null,
+    "detail": "measured lazily at the first dispatch of a laya-configured kind; none has happened this boot",
+    "evaluated_at_ms": null,
+    "free_memory_bytes": null,
+    "max_ms": null,
+    "measured_against": null,
+    "memory_method": null,
+    "p50_ms": null,
+    "p95_ms": null,
+    "reason": "not_evaluated",
+    "verdict": "not_evaluated"
+  },
+  "lifecycle_protocol": 1,
+  "mode": "local",
+  "model_details": {
+    "activity": {
+      "refusal": null,
+      "slot": "cold_start",
+      "status": "untrained"
+    },
+    "duration": {
+      "refusal": null,
+      "slot": "cold_start",
+      "status": "untrained"
+    },
+    "quality": {
+      "refusal": null,
+      "slot": null,
+      "status": "ready"
+    },
+    "stuck": {
+      "refusal": null,
+      "slot": "cold_start",
+      "status": "untrained"
+    },
+    "workflow": {
+      "refusal": null,
+      "slot": "cold_start",
+      "status": "untrained"
+    }
+  },
+  "models": {
+    "activity": "untrained",
+    "duration": "untrained",
+    "quality": "ready",
+    "stuck": "untrained",
+    "workflow": "untrained"
+  },
+  "product": "kenaz-ml",
+  "sidecar_version": "0.1.0",
+  "status": "ok",
+  "uptime_sec": 1.5
+}

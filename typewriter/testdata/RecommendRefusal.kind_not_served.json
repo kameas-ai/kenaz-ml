@@ -1,0 +1,8 @@
+{
+  "error": "kind_not_served",
+  "refusal": {
+    "detail": "kind unavailable: no backend serves 'branch_now' (the client's heuristic answers)",
+    "kind_id": "branch_now",
+    "reason": "kind_not_served"
+  }
+}

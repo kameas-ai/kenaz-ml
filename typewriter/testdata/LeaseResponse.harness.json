@@ -1,0 +1,22 @@
+{
+  "client": "harness",
+  "contract_versions": {
+    "branch_now": [
+      "20e0d23994daee80"
+    ],
+    "compact_now": [
+      "3ad8b0c1fa514476"
+    ],
+    "escalate_model": [
+      "57d4bdc1bd6a71be"
+    ]
+  },
+  "idle_exit_sec": 120.0,
+  "implicit_lease_sec": 90.0,
+  "incompatible_kinds": {},
+  "lifecycle_protocol": 1,
+  "live_leases": 2,
+  "managed": false,
+  "pid": 4242,
+  "sidecar_version": "0.1.0"
+}

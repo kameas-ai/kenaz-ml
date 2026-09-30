@@ -1,4 +1,4 @@
-"""Hand-authored feature contracts for the harness recommendation kinds (D-A4).
+"""Feature contracts for the harness recommendation kinds (D-A4).
 
 One ordered :class:`~kenaz_ml.modelstore.registry.FeatureContract` per kind —
 ``branch_now``, ``compact_now``, ``escalate_model`` — shared by the dispatch
@@ -6,18 +6,17 @@ layer (``/v1/recommend``, ``/v1/contracts``), label ingest (``/v1/labels``) and,
 later, training (``harness-recommendation-models-01MSK2RM``). No other module
 keeps its own copy: look contracts up through :func:`contract_for`.
 
-Source of truth, and the sync obligation
-----------------------------------------
+Source of truth
+---------------
 These features are computed **harness-side** and arrive already computed in
 the request body, so there is no daemon-observed event stream for Feast to materialize
 and these contracts are *not* Feast-derived. The authoritative feature lists
-are the kenaz-harness design doc's §4 recommendation catalog
-(``kitty-specs/laya-advisors-01LAYA001/research/kenaz-ml-integration-design.md``)
-and the harness kind registry that implements it. Nothing in this repository
-can check that the harness still posts these names: **a harness-side contract
-change requires a matching change here and a version bump** (a name change or
-reorder moves ``service_version`` automatically; a change to what a feature
-*means* requires incrementing :data:`VOCABULARY_VERSION`).
+are ``typewriter/spec.yaml`` in this repository: the ordered names, the
+``ERROR_KINDS`` enum and ``VOCABULARY_VERSION`` are generated from it into
+:mod:`kenaz_ml.typewriter.vocab` (re-exported below), and the same spec
+generates the Go module the harness builds its feature structs from. A name
+change or reorder moves ``service_version`` automatically; a change to what a
+feature *means* requires incrementing ``vocabulary_version`` in the spec.
 
 If a Feast feature service is later registered for any of these kinds, the
 constant here becomes that service's seed — not a competing source of truth.
@@ -54,63 +53,31 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from kenaz_ml.modelstore.registry import FeatureContract
 
-#: Semantic salt folded into every contract's ``service_version``. Increment it
-#: when what any feature *means* changes (units, window, extraction rule) while
-#: its name and position stay the same — the one kind of change a name/order
-#: hash cannot see. Initial value 1 (D-A4, extended 2026-09-30).
-VOCABULARY_VERSION = 1
+from kenaz_ml.typewriter.vocab import ERROR_KINDS, FEATURE_DTYPE, KIND_FEATURES, VOCABULARY_VERSION
 
-#: The dtype every harness-kind feature is declared with (registry convention).
-FEATURE_DTYPE = "float64"
+#: ``VOCABULARY_VERSION`` is the semantic salt folded into every contract's
+#: ``service_version``; ``ERROR_KINDS`` is the harness's closed ``ErrorCategory``
+#: enum, whose one-hots ``escalate_model`` expands in enum order. Both, with
+#: ``FEATURE_DTYPE`` and the per-kind ordered names in ``KIND_FEATURES``, are
+#: generated from ``typewriter/spec.yaml`` and re-exported here.
+BRANCH_NOW_FEATURES: tuple[str, ...] = KIND_FEATURES["branch_now"]
+COMPACT_NOW_FEATURES: tuple[str, ...] = KIND_FEATURES["compact_now"]
+ESCALATE_MODEL_FEATURES: tuple[str, ...] = KIND_FEATURES["escalate_model"]
 
-#: The harness's closed ``ErrorCategory`` enum, in order — a **cross-repo
-#: constant** (kenaz-harness ``core/fleet/usage_emitter.go``, double-projected on
-#: the chat path, so nothing outside this set can arrive; a category unknown at
-#: the wire buckets to ``unknown``). A harness-side change to the enum requires a
-#: matching change here and a :data:`VOCABULARY_VERSION` bump. Ruled 2026-09-30.
-ERROR_KINDS: tuple[str, ...] = ("auth", "transient", "cancelled", "budget", "unknown")
-
-#: branch_now — design doc §4. The heuristic counts come from the shipped
-#: ``core/branchadvisor`` detector, demoted to a feature extractor harness-side.
-BRANCH_NOW_FEATURES: tuple[str, ...] = (
-    "turns_since_session_start",
-    "turns_since_last_branch",
-    "prior_branch_count",
-    "edit_resend_precursor",
-    "heuristic_signal_count",
-    "heuristic_noise_count",
-    "last_user_msg_len",
-    "tool_call_density_window",
-)
-
-#: compact_now — design doc §4; every field is present on the harness's
-#: ``SessionCompactedPayload``.
-COMPACT_NOW_FEATURES: tuple[str, ...] = (
-    "context_fill_fraction",
-    "tokens_in_span",
-    "turns_since_last_compaction",
-    "tool_result_token_fraction",
-    "model_context_limit",
-    "historical_compression_ratio",
-)
-
-#: escalate_model — design doc §4, with the ``error_kind`` one-hots expanded over
-#: :data:`ERROR_KINDS` in enum order, at the catalog's position.
-ESCALATE_MODEL_FEATURES: tuple[str, ...] = (
-    "consecutive_tool_failures",
-    "retries_in_window",
-    "turn_latency_trend",
-    "current_rung",
-    *(f"error_kind_{kind}" for kind in ERROR_KINDS),
-    "budget_remaining_fraction",
-)
-
-#: Kind id -> ordered feature names. Insertion order is the published order.
-KIND_FEATURES: dict[str, tuple[str, ...]] = {
-    "branch_now": BRANCH_NOW_FEATURES,
-    "compact_now": COMPACT_NOW_FEATURES,
-    "escalate_model": ESCALATE_MODEL_FEATURES,
-}
+__all__ = [
+    "BRANCH_NOW_FEATURES",
+    "COMPACT_NOW_FEATURES",
+    "ERROR_KINDS",
+    "ESCALATE_MODEL_FEATURES",
+    "FEATURE_DTYPE",
+    "KIND_FEATURES",
+    "KIND_IDS",
+    "VOCABULARY_VERSION",
+    "all_contracts",
+    "build_contract",
+    "contract_for",
+    "contract_version",
+]
 
 #: The harness kind ids this engine registers, in publication order.
 KIND_IDS: tuple[str, ...] = tuple(KIND_FEATURES)

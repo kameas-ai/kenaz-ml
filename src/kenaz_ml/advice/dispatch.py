@@ -73,11 +73,17 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal, Protocol
-
-from pydantic import BaseModel, Field, model_validator
+from typing import Any, Protocol
 
 from kenaz_ml.advice.contracts import KIND_IDS, contract_for
+from kenaz_ml.typewriter.models import (
+    ContractEntry,
+    ContractsResponse,
+    RecommendRefusal,
+    RecommendRequest,
+    RecommendResponse,
+    RefusalBody,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -130,106 +136,16 @@ LATENCY_RING_SIZE = 512
 # ---------------------------------------------------------------------------
 
 
-class RecommendRequest(BaseModel):
-    """``POST /v1/recommend/{kind}`` body (design doc §3.2)."""
-
-    features: dict[str, float] = Field(..., description="Feature values keyed by name; must match the kind's contract.")
-    feature_contract_version: str = Field(..., description="The contract version the client computed features under.")
-    session_id: str | None = Field(None, description="Opaque client session id; not interpreted by the engine.")
-    kind_id: str | None = Field(None, description="Optional; when present it must equal the path's kind.")
-    # Exact shadow-join key (ruled 2026-09-30 from Mission B's contradiction):
-    # the same (features_hash, ts) the harness later pushes on the label row.
-    # Optional and absent-tolerated; the engine never interprets them for
-    # serving -- they are carried on the parsed request for the shadow write
-    # site (harness-recommendation-models-01MSK2RM owns the join).
-    features_hash: str | None = Field(
-        None, min_length=1, description="Optional: the label row's features_hash for this decision (exact shadow join)."
-    )
-    ts: int | None = Field(
-        None, gt=0, description="Optional: the label row's ts (decision time, epoch ms) for this decision."
-    )
-
-
-class RecommendResponse(BaseModel):
-    """A served recommendation (FR-004). Exactly one of ``decision``/``score``.
-
-    Field semantics for values the specs leave open:
-
-    * ``rung`` — the serving manifest's ``metrics["rung"]`` when present,
-      otherwise the backend name (a test fixture reports ``"heuristic"``).
-    * ``checkpoint_provenance`` — the registry slot that served the artifact
-      (``local`` / ``base``); ``org`` is reserved for an org-distributed pack.
-      A test fixture has no checkpoint and reports ``local`` (in-process).
-    * ``model_id_sha8`` — first eight hex characters of the serving artifact's
-      ``artifact_sha256``; ``null`` when there is no artifact (a fixture).
-    * ``generation`` — the serving manifest's ``Manifest.version``; ``"0"`` when
-      there is no artifact.
-    * ``unbenchmarked`` — ``true`` unless the manifest records
-      ``metrics["benchmarked"] is True``; always ``true`` for a fixture.
-    """
-
-    decision: bool | None = None
-    score: int | None = None
-    confidence: int = Field(..., ge=0, le=100, description="0-100, validated, never clamped.")
-    kind_id: str
-    feature_contract_version: str
-    model: str
-    rung: str
-    backend: Literal["heuristic", "classic", "laya"]
-    model_id_sha8: str | None
-    checkpoint_provenance: Literal["local", "org", "base"]
-    generation: str
-    unbenchmarked: bool
-
-    @model_validator(mode="after")
-    def _exactly_one_answer(self) -> RecommendResponse:
-        if (self.decision is None) == (self.score is None):
-            raise ValueError("exactly one of decision or score must be set")
-        return self
-
-
-class RefusalBody(BaseModel):
-    kind_id: str
-    reason: str = Field(..., description="Stable machine reason, e.g. kind_not_served, contract_mismatch.")
-    detail: str = Field(..., description="Human-readable diagnostic, e.g. 'kind unavailable: contract v3 != v2'.")
-
-
-class RecommendRefusal(BaseModel):
-    """Every typed refusal: HTTP :data:`REFUSAL_STATUS_CODE`, this body.
-
-    ``error`` is the stable machine code at the top level — the envelope the
-    harness's ``mlsidecar`` client parses (``{"error": "<code>"}``; a code of
-    ``kind_not_served`` satisfies its ``ErrKindNotServed``). ``refusal`` repeats
-    it with the kind and a human-readable detail.
-    """
-
-    error: str = Field(..., description="Stable typed code, e.g. kind_not_served, contract_mismatch.")
-    refusal: RefusalBody
-
-
-class ContractEntry(BaseModel):
-    """One kind in ``GET /v1/contracts``, keyed by kind id in :class:`ContractsResponse`.
-
-    ``features``/``backend``/``available`` are the fields the harness's
-    ``KindContract`` reads; ``available`` is true only when a backend actually
-    serves the kind (the harness gates routing on it). ``version`` is the
-    kind's 16-hex contract version (D-A4).
-    """
-
-    features: list[str] = Field(..., description="Ordered feature names (the vector layout).")
-    dtypes: list[str]
-    version: str
-    supported_versions: list[str] = Field(
-        ..., description="Versions accepted by /v1/recommend. Only the current one today (no N-1 defined)."
-    )
-    available: bool
-    backend: str | None = None
-    reason: str | None = None
-    detail: str | None = None
-
-
-class ContractsResponse(BaseModel):
-    kinds: dict[str, ContractEntry] = Field(..., description="Every registered kind, keyed by kind id.")
+# Generated from ``typewriter/spec.yaml`` and re-exported here; the spec is the
+# only place these shapes are written.
+__all__ = [
+    "ContractEntry",
+    "ContractsResponse",
+    "RecommendRefusal",
+    "RecommendRequest",
+    "RecommendResponse",
+    "RefusalBody",
+]
 
 
 # ---------------------------------------------------------------------------

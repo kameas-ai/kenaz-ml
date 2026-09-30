@@ -1,0 +1,22 @@
+{
+  "acked": {
+    "revision": 8,
+    "ts": 1759190400001
+  },
+  "applied": 1,
+  "refusals": [
+    {
+      "features_hash": "ab12",
+      "index": 1,
+      "reason": "unknown_user_action",
+      "revision": 8,
+      "ts": 1759190400001
+    }
+  ],
+  "refused": 1,
+  "replaced": 0,
+  "retained_appended": 1,
+  "retained_generation": "1",
+  "retained_rebuilt": false,
+  "stale": 0
+}

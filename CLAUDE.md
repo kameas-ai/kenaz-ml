@@ -76,6 +76,15 @@ Note what this does *not* license: the exception covers Feast's tree only. Addin
 - Events later than the reference time are filtered out before aggregation. The boundary is inclusive.
 - **Feature names and ordering are a contract.** Both trainers build vectors positionally against `FEATURE_NAMES`, so a reordering silently permutes every model input.
 
+## Wire Contract (typewriter)
+
+`typewriter/spec.yaml` is the **single source** of every request/response shape, each recommendation kind's ordered feature names, and the closed vocabularies. `scripts/gen_typewriter.py` generates `src/kenaz_ml/typewriter/{vocab,models}.py` and the Go module `typewriter/typewriter.gen.go` that the Go clients import.
+
+- Never edit a generated file or hand-write a wire model in `routes.py` / `advice/dispatch.py`. Edit the spec, run `make typewriter`, then `make openapi`.
+- CI runs `make typewriter-check` and `make typewriter-test`; `tests/test_typewriter.py` pins the engine's own constants to the spec.
+- A change to what a feature *means* (same name, same position) is invisible to types: bump `vocabulary_version` in the spec.
+- Dialect and Go usage: [`typewriter/README.md`](typewriter/README.md).
+
 ## Known Data Gotchas
 
 Observed against a real `sigild` database (~3.5k events, single install — treat as strong evidence, not proof):

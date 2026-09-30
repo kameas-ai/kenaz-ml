@@ -1,0 +1,55 @@
+{
+  "client": "harness",
+  "rows": [
+    {
+      "confidence": 80,
+      "decision": true,
+      "features": {
+        "edit_resend_precursor": 3.0,
+        "heuristic_noise_count": 5.0,
+        "heuristic_signal_count": 4.0,
+        "last_user_msg_len": 6.0,
+        "prior_branch_count": 2.0,
+        "tool_call_density_window": 7.0,
+        "turns_since_last_branch": 1.0,
+        "turns_since_session_start": 0.0
+      },
+      "features_complete": true,
+      "features_hash": "ab12",
+      "kind": "branch_now",
+      "latency_ms": 3,
+      "model": "heuristic",
+      "prompt_version": "v1",
+      "revision": 7,
+      "rung": "heuristic",
+      "shown": true,
+      "ts": 1759190400000,
+      "user_action": "accepted"
+    },
+    {
+      "confidence": 80,
+      "decision": true,
+      "features": {
+        "edit_resend_precursor": 3.0,
+        "heuristic_noise_count": 5.0,
+        "heuristic_signal_count": 4.0,
+        "last_user_msg_len": 6.0,
+        "prior_branch_count": 2.0,
+        "tool_call_density_window": 7.0,
+        "turns_since_last_branch": 1.0,
+        "turns_since_session_start": 0.0
+      },
+      "features_complete": true,
+      "features_hash": "ab12",
+      "kind": "branch_now",
+      "latency_ms": 3,
+      "model": "heuristic",
+      "prompt_version": "v1",
+      "revision": 8,
+      "rung": "heuristic",
+      "shown": true,
+      "ts": 1759190400001,
+      "user_action": "bogus"
+    }
+  ]
+}

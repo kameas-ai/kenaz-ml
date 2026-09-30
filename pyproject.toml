@@ -76,7 +76,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.4"]
+# pyyaml is build-time only: scripts/gen_typewriter.py reads typewriter/spec.yaml.
+dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.4", "pyyaml>=6.0"]
 # The cloud deployment swaps SQLite for PostgreSQL on both halves of the store
 # (data-model.md §Deployment configuration). Same exact Feast pin as above —
 # both deployments must read a registry written by the identical version.

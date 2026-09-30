@@ -1,0 +1,92 @@
+{
+  "capabilities": {
+    "retrain": true,
+    "toggle": false
+  },
+  "mode": "local",
+  "models": [
+    {
+      "algorithm": null,
+      "display_name": "Stuck Predictor",
+      "enabled": true,
+      "last_trained": null,
+      "manifest_version": null,
+      "name": "stuck",
+      "prediction_model": "stuck",
+      "recent_predictions": 0,
+      "refusal": null,
+      "sample_count": null,
+      "serving_slot": "cold_start",
+      "status": "untrained",
+      "trained": false,
+      "training_source": null
+    },
+    {
+      "algorithm": null,
+      "display_name": "Activity Classifier",
+      "enabled": true,
+      "last_trained": null,
+      "manifest_version": null,
+      "name": "activity",
+      "prediction_model": null,
+      "recent_predictions": 0,
+      "refusal": null,
+      "sample_count": null,
+      "serving_slot": "cold_start",
+      "status": "untrained",
+      "trained": false,
+      "training_source": null
+    },
+    {
+      "algorithm": null,
+      "display_name": "Suggestion Policy",
+      "enabled": true,
+      "last_trained": null,
+      "manifest_version": null,
+      "name": "workflow",
+      "prediction_model": "suggest",
+      "recent_predictions": 0,
+      "refusal": null,
+      "sample_count": null,
+      "serving_slot": "cold_start",
+      "status": "untrained",
+      "trained": false,
+      "training_source": null
+    },
+    {
+      "algorithm": null,
+      "display_name": "Duration Estimator",
+      "enabled": true,
+      "last_trained": null,
+      "manifest_version": null,
+      "name": "duration",
+      "prediction_model": "duration",
+      "recent_predictions": 0,
+      "refusal": null,
+      "sample_count": null,
+      "serving_slot": "cold_start",
+      "status": "untrained",
+      "trained": false,
+      "training_source": null
+    },
+    {
+      "algorithm": "rules",
+      "display_name": "Quality Estimator",
+      "enabled": true,
+      "last_trained": null,
+      "manifest_version": null,
+      "name": "quality",
+      "prediction_model": "quality",
+      "recent_predictions": 0,
+      "refusal": null,
+      "sample_count": null,
+      "serving_slot": null,
+      "status": "ready",
+      "trained": true,
+      "training_source": null
+    }
+  ],
+  "service": "kenaz-ml",
+  "uptime_sec": 1.5,
+  "version": "0.1.0"
+}
