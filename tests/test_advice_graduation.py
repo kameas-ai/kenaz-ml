@@ -11,7 +11,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pytest
 
 from kenaz_ml import config
@@ -33,7 +32,7 @@ from kenaz_ml.advice.shadow import (
 )
 from kenaz_ml.advice.training import train_kind
 from kenaz_ml.modelstore.registry import read_manifest, verify_artifact_file
-from tests.fixtures.advice_labels import DAY_MS, T0, features_for, label_row, push, separable_rows
+from tests.fixtures.advice_labels import DAY_MS, T0, push, seed_decisions, separable_rows
 
 KIND = "compact_now"
 NAMES = contract_for(KIND).names  # type: ignore[union-attr]
@@ -57,47 +56,8 @@ def trained(dirs: dict[str, Path]) -> Any:
     return outcome.manifest
 
 
-def seed(
-    retained: Path,
-    groups: list[tuple[int, str, bool]],
-    *,
-    start: int = T0 + DAY_MS,
-    seed_: int = 0,
-    model_id: str = "heuristic/fill-threshold",
-    rung: str = "heuristic",
-    with_shadow: bool = True,
-) -> None:
-    """Label rows (heuristic-served, shown) + matching shadow records.
-
-    ``groups`` is ``[(count, user_action, shadow_would_show), ...]``.
-    """
-    rng = np.random.default_rng(seed_)
-    rows, shadows = [], []
-    ts = start
-    for count, action, shows in groups:
-        for _ in range(count):
-            feats = features_for(KIND, rng, float(rng.normal()))
-            rows.append(label_row(KIND, ts, feats, action=action, model_id=model_id, rung=rung))
-            vector = [feats[n] for n in NAMES]
-            p = 0.9 if shows else 0.3
-            shadows.append(
-                shadow_record(
-                    KIND,
-                    vector,
-                    ts_ms=ts + 50,
-                    p=p,
-                    decision=p >= 0.5,
-                    confidence=round(100 * max(p, 1 - p)),
-                    model_id_sha8="abcd1234",
-                    generation="1",
-                    rung="R2",
-                    session_id="s1",
-                )
-            )
-            ts += 60_000
-    push(KIND, rows, retained)
-    if with_shadow:
-        assert write_shadow_records(KIND, shadows, directory=retained).ok
+def seed(retained: Path, groups: list[tuple[int, str, bool]], *, seed_: int = 0, **kw: Any) -> None:
+    seed_decisions(KIND, retained, groups, seed=seed_, **kw)
 
 
 # ---------------------------------------------------------------------------

@@ -294,12 +294,14 @@ class ClassicBackend:
         return self.manifest.metrics.get(BENCHMARKED_METRIC_KEY) is not True
 
     def answer(self, vector: tuple[float, ...]) -> BackendAnswer:
-        proba = self.model.predict_proba([list(vector)])[0]
-        classes = list(getattr(self.model, "classes_", range(len(proba))))
-        positive = classes.index(1) if 1 in classes else len(proba) - 1
-        p = float(proba[positive])
-        decision = p >= 0.5
-        return BackendAnswer(decision=decision, confidence=int(round(100 * (p if decision else 1 - p))))
+        # harness-recommendation-models-01MSK2RM WP04: the served artifact is a
+        # CalibratedClassifierCV, so ``p`` is the *calibrated* P(positive); the
+        # ruled mapping (R4) is models.decision_and_confidence, which raises
+        # rather than clamps on an out-of-range probability.
+        from kenaz_ml.advice.models import decision_and_confidence, positive_probability
+
+        decision, confidence = decision_and_confidence(positive_probability(self.model, vector))
+        return BackendAnswer(decision=decision, confidence=confidence)
 
 
 #: The complete set of backend *implementations* shipped in ``src/``. There is
@@ -324,6 +326,9 @@ class DispatchEntry:
     manifest: Any = None
     reason: str | None = None
     detail: str | None = None
+    #: A trained-but-unflipped model (rung R2): scored in shadow on every
+    #: request for the kind, never authoritative (harness-recommendation-models WP04).
+    shadow_model: Any = None
 
     @property
     def available(self) -> bool:
@@ -448,6 +453,7 @@ def _entry_for(kind_id: str, local_dir: Path, base_dir: Path) -> DispatchEntry:
                 f"kind unavailable: {kind_id!r} has a trained model (generation {manifest.version}) "
                 "that has not graduated; the client's heuristic answers",
                 manifest=manifest,
+                shadow_model=resolution.model,
             )
         return _unknown_backend(kind_id, contract, backend, manifest)
 
@@ -574,6 +580,32 @@ def _ordered_diagnostic(expected: tuple[str, ...], posted: set[str]) -> str:
     return "; ".join(parts)
 
 
+def _record_shadow(entry: DispatchEntry, kind_id: str, contract: Any, request: RecommendRequest) -> None:
+    """The shadow write site (harness-recommendation-models WP04 T017, D-B3). Never raises.
+
+    The kind is at the shadow rung: a trained model exists but has not been
+    flipped, so the engine still refuses ``kind_not_served`` and the client's
+    heuristic answers. The request's features are queued for scoring; scoring
+    and the append happen off the request path (``shadow.enqueue_shadow``).
+    A request whose features do not match the contract is simply not shadowed.
+    """
+    try:
+        from kenaz_ml.advice.models import vector_for
+        from kenaz_ml.advice.shadow import enqueue_shadow
+
+        vector = vector_for(request.features, tuple(contract.names))
+        enqueue_shadow(
+            kind_id,
+            vector,
+            entry.shadow_model,
+            entry.manifest,
+            ts_ms=int(time.time() * 1000),
+            session_id=request.session_id,
+        )
+    except Exception:
+        logger.debug("dispatch: shadow record skipped for %r", kind_id, exc_info=True)
+
+
 def dispatch(snapshot: Mapping[str, DispatchEntry], kind_id: str, request: RecommendRequest) -> RecommendResponse:
     """Serve one request against one table snapshot. Raises :class:`Refused` only."""
     entry = snapshot.get(kind_id)
@@ -592,6 +624,8 @@ def dispatch(snapshot: Mapping[str, DispatchEntry], kind_id: str, request: Recom
         )
 
     if entry.server is None:
+        if entry.shadow_model is not None and contract is not None:
+            _record_shadow(entry, kind_id, contract, request)
         raise Refused(kind_id, entry.reason or REASON_KIND_NOT_SERVED, entry.detail or "kind unavailable")
 
     names = tuple(contract.names)
@@ -668,3 +702,251 @@ def timed_dispatch(table: DispatchTable, kind_id: str, request: RecommendRequest
     finally:
         if kind_id in snapshot:
             table.record_latency(kind_id, (time.perf_counter() - started) * 1000)
+
+
+# ---------------------------------------------------------------------------
+# Hot reload, audit and the classic flip (harness-recommendation-models-01MSK2RM WP04)
+# ---------------------------------------------------------------------------
+#
+# Mirrors ``AppState.reload_models_into_poller`` (app.py) for the advice kinds:
+# after a retrain the new generation is resolved through the registry
+# (integrity, ordered contract, runtime) and swapped into the table through
+# :meth:`DispatchTable.replace_entry` — the atomic seam Mission A built. A
+# request sees the whole old entry or the whole new one.
+#
+# Failed-retrain safety (FR-012): a retrain that declines or fails writes
+# nothing, so there is nothing to reload; a new artifact the registry refuses
+# is never swapped in — the in-memory entry keeps serving. What is *not*
+# covered is an evaluation regression of a successfully-fitted generation
+# (e.g. a much worse held-out ECE): no such gate exists; graduation and the
+# flip-back (WP05) are the quality gates.
+
+#: ``ml_events`` rows for the advice loop. ``kind`` is prefixed ``advice_`` so
+#: none can be mistaken for the workbench scheduler's ``"retrain"`` row;
+#: ``endpoint`` names the kind and generation (the table has no generation
+#: column); ``routing`` is ``"local"`` like every local-mode row.
+AUDIT_RETRAIN = "advice_retrain"
+AUDIT_FLIP = "advice_flip"
+AUDIT_DEMOTE = "advice_demote"
+AUDIT_INSUFFICIENT_DATA = "advice_insufficient_data"
+
+#: Manifest ``metrics`` keys the flip persists (read back by :func:`_entry_for`).
+FLIPPED_AT_METRIC_KEY = "flipped_at_ms"
+FLIPPED_GENERATION_METRIC_KEY = "flipped_generation"
+DEMOTED_GENERATION_METRIC_KEY = "demoted_generation"
+RUNG_LIVE = "R3"
+
+
+def audit_event(store: Any, event: str, kind_id: str, generation: Any, latency_ms: int = 0) -> None:
+    """One best-effort ``ml_events`` row (mirrors ``TrainingScheduler._log_retrain``). Never raises."""
+    if store is None:
+        return
+    try:
+        store.insert_ml_event(event, f"advice/{kind_id}@{generation}", "local", int(latency_ms))
+        store.commit()
+    except Exception:
+        logger.warning("dispatch: failed to write the %s audit row for %r", event, kind_id)
+
+
+@dataclass(frozen=True)
+class ReloadResult:
+    kind_id: str
+    reloaded: bool
+    generation: str | None = None
+    reason: str | None = None
+
+
+def reload_kind(
+    table: DispatchTable,
+    kind_id: str,
+    *,
+    expected_generation: str | None = None,
+    local_dir: Path | None = None,
+    base_dir: Path | None = None,
+) -> ReloadResult:
+    """Resolve ``kind_id`` afresh and swap it in, or leave the current entry serving. Never raises."""
+    from kenaz_ml import config
+
+    local = Path(local_dir) if local_dir is not None else config.models_dir()
+    base = Path(base_dir) if base_dir is not None else config.base_models_dir()
+    try:
+        entry = _entry_for(kind_id, local, base)
+    except Exception as exc:  # pragma: no cover - _entry_for never raises by contract
+        logger.warning("dispatch: reload of %r failed; previous entry keeps serving", kind_id, exc_info=True)
+        return ReloadResult(kind_id, False, reason=f"{type(exc).__name__}: {exc}")
+
+    has_model = entry.server is not None or entry.shadow_model is not None
+    generation = str(entry.manifest.version) if entry.manifest is not None else None
+    if not has_model or (expected_generation is not None and generation != str(expected_generation)):
+        logger.warning(
+            "dispatch: reload of %r did not yield generation %s (%s); previous entry keeps serving",
+            kind_id,
+            expected_generation,
+            entry.detail or entry.reason,
+        )
+        return ReloadResult(kind_id, False, generation, entry.detail or entry.reason or "artifact refused")
+    table.replace_entry(entry)
+    logger.info(
+        "advice model reloaded into dispatch: kind=%s trained_generation=%s backend=%s",
+        kind_id,
+        generation,
+        entry.server.name if entry.server is not None else "shadow",
+    )
+    return ReloadResult(kind_id, True, generation)
+
+
+@dataclass(frozen=True)
+class FlipOutcome:
+    kind_id: str
+    flipped: bool
+    reason: str
+    generation: str | None = None
+
+
+def apply_flip(
+    table: DispatchTable,
+    kind_id: str,
+    result: Any,
+    *,
+    now_ms: int,
+    store: Any = None,
+    local_dir: Path | None = None,
+    base_dir: Path | None = None,
+) -> FlipOutcome:
+    """D-B1: flip ``kind_id`` to ``classic`` on an ``eligible`` verdict — a separable call.
+
+    One sequence: write the verdict *plus* the persisted serving backend, rung
+    and flip time into manifest ``metrics`` (pinned to the generation the
+    verdict was computed for), then swap the dispatch entry. If the manifest
+    write fails there is no flip. If the swap fails after the write, the
+    manifest's serving keys are rolled back and the inconsistency is logged at
+    ERROR — never "classic in the manifest, not served" silently. Refuses the
+    generation recorded as ``demoted_generation`` (WP05's marker).
+    """
+    from kenaz_ml.advice.shadow import VERDICT_ELIGIBLE, update_manifest_metrics
+
+    generation = result.generation
+    if result.verdict != VERDICT_ELIGIBLE or generation is None:
+        return FlipOutcome(kind_id, False, f"verdict {result.verdict}", generation)
+    if result.promoted:
+        return FlipOutcome(kind_id, False, "already served by classic", generation)
+    manifest = _current_manifest(kind_id, local_dir)
+    if manifest is None or str(manifest.version) != str(generation):
+        return FlipOutcome(kind_id, False, "manifest changed since the verdict", generation)
+    demoted = manifest.metrics.get(DEMOTED_GENERATION_METRIC_KEY)
+    if demoted is not None and str(demoted) == str(generation):
+        logger.info("dispatch: %r generation %s was demoted; it may not re-flip", kind_id, generation)
+        return FlipOutcome(kind_id, False, "generation demoted; awaiting a new generation", generation)
+
+    serving = {
+        BACKEND_METRIC_KEY: BACKEND_CLASSIC,
+        RUNG_METRIC_KEY: RUNG_LIVE,
+        FLIPPED_AT_METRIC_KEY: int(now_ms),
+        FLIPPED_GENERATION_METRIC_KEY: int(generation),
+    }
+    previous = {k: manifest.metrics[k] for k in serving if k in manifest.metrics}
+    written = update_manifest_metrics(
+        kind_id, {**result.to_metrics(), **serving}, models_dir=local_dir, expected_version=generation
+    )
+    if not written.ok:
+        logger.warning("dispatch: flip of %r aborted — manifest write failed (%s)", kind_id, written.reason)
+        return FlipOutcome(kind_id, False, f"manifest write failed: {written.reason}", generation)
+
+    reloaded = reload_kind(table, kind_id, expected_generation=generation, local_dir=local_dir, base_dir=base_dir)
+    entry = table.snapshot().get(kind_id)
+    if not reloaded.reloaded or entry is None or entry.server is None:
+        rollback = update_manifest_metrics(
+            kind_id,
+            {**previous, "verdict_reason": f"flip rolled back: {reloaded.reason}"},
+            models_dir=local_dir,
+            remove=[k for k in serving if k not in previous],
+        )
+        logger.error(
+            "dispatch: flip of %r generation %s wrote the manifest but could not serve it (%s); manifest rollback %s",
+            kind_id,
+            generation,
+            reloaded.reason,
+            "succeeded" if rollback.ok else f"FAILED ({rollback.reason}) — manifest says classic, table does not",
+        )
+        return FlipOutcome(kind_id, False, f"swap failed: {reloaded.reason}", generation)
+
+    audit_event(store, AUDIT_FLIP, kind_id, generation)
+    logger.info(
+        "dispatch: FLIPPED %r to classic at generation %s (shadow precision %s vs heuristic %s, delta %s pp, "
+        "%d labels, ECE %s)",
+        kind_id,
+        generation,
+        result.shadow_precision,
+        result.heuristic_precision,
+        result.precision_delta_pp,
+        result.label_count,
+        result.calibration_ece,
+    )
+    return FlipOutcome(kind_id, True, "eligible", generation)
+
+
+def _current_manifest(kind_id: str, local_dir: Path | None) -> Any:
+    from kenaz_ml.advice.training import previous_manifest
+
+    return previous_manifest(kind_id, local_dir)
+
+
+def after_retrain(
+    table: DispatchTable,
+    kind_id: str,
+    outcome: Any,
+    *,
+    now_ms: int,
+    store: Any = None,
+    local_dir: Path | None = None,
+    base_dir: Path | None = None,
+    flip: bool = True,
+) -> dict[str, Any]:
+    """The retrain job's post-fit sequence: audit row, hot reload, graduation, verdict, flip.
+
+    ``flip=False`` (or deleting the :func:`apply_flip` call) leaves the reload
+    path untouched — the separability D-B1 asks for. Never raises.
+    """
+    from kenaz_ml.advice.shadow import VERDICT_ELIGIBLE, graduation_check, update_manifest_metrics
+    from kenaz_ml.advice.training import kind_lock
+
+    report: dict[str, Any] = {"kind": kind_id}
+    generation = outcome.generation
+    with kind_lock(kind_id):
+        audit_event(store, AUDIT_RETRAIN, kind_id, generation, getattr(outcome, "duration_ms", 0))
+        report["reload"] = reload_kind(
+            table, kind_id, expected_generation=generation, local_dir=local_dir, base_dir=base_dir
+        )
+        result = graduation_check(
+            kind_id,
+            now_ms=now_ms,
+            models_dir=local_dir,
+            latency_p95_ms=table.latency_p95_ms(kind_id),
+            latency_samples=len(table.latency_samples(kind_id)),
+        )
+        report["graduation"] = result
+        if flip and result.verdict == VERDICT_ELIGIBLE and not result.promoted:
+            report["flip"] = apply_flip(
+                table, kind_id, result, now_ms=now_ms, store=store, local_dir=local_dir, base_dir=base_dir
+            )
+            if report["flip"].flipped:
+                return report
+        # No flip: the verdict and its numbers are still recorded.
+        written = update_manifest_metrics(
+            kind_id, result.to_metrics(), models_dir=local_dir, expected_version=generation
+        )
+        if not written.ok:
+            logger.warning("dispatch: could not record %r's verdict (%s)", kind_id, written.reason)
+    return report
+
+
+def retrain_hook(table: DispatchTable, store: Any = None, clock: Any = None) -> Any:
+    """Bind :func:`after_retrain` as ``AdviceTrainingScheduler(on_trained=...)``."""
+    from kenaz_ml.advice.training import wall_clock_ms
+
+    now = clock or wall_clock_ms
+
+    def _hook(kind_id: str, outcome: Any) -> None:
+        after_retrain(table, kind_id, outcome, now_ms=now(), store=store)
+
+    return _hook

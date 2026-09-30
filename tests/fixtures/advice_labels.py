@@ -93,3 +93,52 @@ def push(kind: str, rows: list[dict[str, Any]], directory: Path) -> label_log.In
     result = label_log.ingest(kind, "harness", rows, contract, directory=directory, now_ms=T0)
     assert result.refusal is None, (result.refusal, result.refusal_detail)
     return result
+
+
+def seed_decisions(
+    kind: str,
+    retained: Path,
+    groups: list[tuple[int, str, bool]],
+    *,
+    start: int = T0 + DAY_MS,
+    seed: int = 0,
+    model_id: str = "heuristic/rule",
+    rung: str = "heuristic",
+    with_shadow: bool = True,
+    shown: bool = True,
+) -> int:
+    """Label rows (``model_id``/``rung``-served, shown) plus matching shadow records.
+
+    ``groups`` is ``[(count, user_action, shadow_would_show), ...]``. Returns the
+    ``ts`` after the last row, so callers can chain windows.
+    """
+    from kenaz_ml.advice.shadow import shadow_record, write_shadow_records
+
+    names = contract_for(kind).names  # type: ignore[union-attr]
+    rng = np.random.default_rng(seed)
+    rows, shadows = [], []
+    ts = start
+    for count, action, shows in groups:
+        for _ in range(count):
+            feats = features_for(kind, rng, float(rng.normal()))
+            rows.append(label_row(kind, ts, feats, action=action, model_id=model_id, rung=rung, shown=shown))
+            p = 0.9 if shows else 0.3
+            shadows.append(
+                shadow_record(
+                    kind,
+                    [feats[n] for n in names],
+                    ts_ms=ts + 50,
+                    p=p,
+                    decision=p >= 0.5,
+                    confidence=round(100 * max(p, 1 - p)),
+                    model_id_sha8="abcd1234",
+                    generation="1",
+                    rung="R2",
+                    session_id="s1",
+                )
+            )
+            ts += 60_000
+    push(kind, rows, retained)
+    if with_shadow:
+        assert write_shadow_records(kind, shadows, directory=retained).ok
+    return ts

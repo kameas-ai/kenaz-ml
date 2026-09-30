@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 from fastapi import FastAPI
 
-from kenaz_ml.advice.dispatch import DispatchTable, build_table
+from kenaz_ml.advice.dispatch import DispatchTable, build_table, retrain_hook
 from kenaz_ml.advice.training import TICK_SEC as ADVICE_TICK_SEC
 from kenaz_ml.advice.training import AdviceTrainingScheduler
 from kenaz_ml.config import ServingMode, resolve_mode
@@ -346,7 +346,8 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
             # harness-recommendation-models-01MSK2RM WP01 (FR-005, R5): the
             # per-kind advice retrain trigger, a sibling of the workbench
             # scheduler above. Stopped on shutdown with the other state tasks.
-            state.advice_scheduler = AdviceTrainingScheduler()
+            # WP04 binds the post-retrain sequence: audit row, hot reload, verdict, flip.
+            state.advice_scheduler = AdviceTrainingScheduler(on_trained=retrain_hook(state.dispatch_table, store))
             state_tasks.append(asyncio.create_task(advice_schedule_loop(state.advice_scheduler)))
 
             lifecycle_task = asyncio.create_task(lifecycle_loop(state))
