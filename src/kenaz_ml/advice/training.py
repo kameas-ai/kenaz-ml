@@ -125,6 +125,7 @@ RUNG_LIVE = "R3"  # classic model serves
 REASON_UNKNOWN_KIND = "unknown_kind"
 REASON_NO_RETAINED = "no_retained_set"
 REASON_CONTRACT_MISMATCH = "contract_mismatch"
+REASON_MIRROR_DIRTY = "retained_mirror_dirty"
 REASON_INSUFFICIENT_COMPLETE = "insufficient_complete_labels"
 REASON_BELOW_MINIMUM = "below_minimum_rows"
 REASON_FIT_FAILED = "fit_failed"
@@ -232,6 +233,14 @@ def load_training_set(kind: str, *, retained_dir: Path | str | None = None) -> T
         return Decline(kind, REASON_UNKNOWN_KIND, f"{kind!r} has no published contract (advice/contracts.py)")
     names = tuple(contract.names)
     directory = Path(retained_dir) if retained_dir is not None else None
+
+    from kenaz_ml.advice.label_log import is_dirty
+
+    # Mission A (Amendment A4) marks the retained mirror dirty when it lags the
+    # label log (a failed append/rebuild); it may then hold a stale label for a
+    # row a later revision changed. Wait for the next ingest batch's rebuild.
+    if is_dirty(kind, directory=directory):
+        return Decline(kind, REASON_MIRROR_DIRTY, f"retained mirror for {kind!r} is marked dirty; awaiting its rebuild")
 
     retained = read_retained(kind, directory=directory)
     if not retained.ok:

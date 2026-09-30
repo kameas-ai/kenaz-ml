@@ -355,3 +355,13 @@ def test_app_starts_and_stops_the_advice_scheduler(monkeypatch: pytest.MonkeyPat
     source = Path(app_mod.__file__).read_text()
     assert "state.advice_scheduler = AdviceTrainingScheduler(" in source
     assert "state_tasks.append(asyncio.create_task(advice_schedule_loop(" in source
+
+
+def test_a_dirty_retained_mirror_declines(dirs: dict[str, Path]) -> None:
+    from kenaz_ml.advice.label_log import dirty_marker_path
+
+    push(KIND, separable_rows(KIND, 60), dirs["retained"])
+    dirty_marker_path(KIND, directory=dirs["retained"]).write_text("{}\n")
+    outcome = _train(dirs)
+    assert outcome.reason == training.REASON_MIRROR_DIRTY
+    assert not (dirs["models"] / f"{KIND}.joblib").exists()
