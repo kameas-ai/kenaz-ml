@@ -3,8 +3,21 @@ name: CI
 on:
   push:
     branches: [main]
+    # two-client-engine-01MSK2EN WP08: a `v*` tag is a RELEASE build. The
+    # notarization gate below cannot be skipped on one (Amendment A3.1).
+    tags: ['v*']
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      plant_violation:
+        # Evidence that the release gate can fail (WP08 T034 step 3). Run the
+        # workflow manually with `unsigned_dylib` and the "Verify every nested
+        # signature" step must go red; with `broken_health` the dmg spawn-smoke
+        # must go red. Never set on a real release.
+        description: "Planted violation to prove the gate fails (none | unsigned_dylib | broken_health)"
+        required: false
+        default: none
 
 jobs:
   lint:
@@ -346,11 +359,24 @@ jobs:
   # `stapler` can only attach a ticket to a container format (.app, .dmg, .pkg);
   # there is nowhere on a loose executable to put one. The .dmg is therefore the
   # distributable artifact, and it is what gets validated.
+  #
+  # Release semantics (two-client-engine-01MSK2EN WP08, Amendment A3.1): the
+  # engine artifact IS this job's signed + notarized + stapled .dmg — a zip or
+  # a bare onedir cannot carry a stapled ticket. On a RELEASE build (a `v*` tag)
+  # missing Apple credentials is a hard FAILURE, never a "NOT RUN" skip. On a
+  # non-release run (a push to main, a manual dispatch off a branch) the skip is
+  # still allowed, is reported as NOT RUN, and can never satisfy the release
+  # gate, because the release gate is this job on the tag's run. The freeze spec
+  # is not involved: it keeps codesign_identity=None; CI signs, the freeze does
+  # not.
   notarize:
     name: Notarization gate
     needs: freeze
     runs-on: macos-14
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    env:
+      RELEASE_BUILD: ${{ startsWith(github.ref, 'refs/tags/v') }}
+      PLANT_VIOLATION: ${{ github.event.inputs.plant_violation || 'none' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -379,11 +405,23 @@ jobs:
             echo "configured=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Release builds require credentials (A3.1 — fail, never skip)
+        if: steps.creds.outputs.configured != 'true' && env.RELEASE_BUILD == 'true'
+        run: |
+          {
+            echo "### Notarization gate: FAILED — release build without Apple credentials"
+            echo ""
+            echo "\`${GITHUB_REF}\` is a release build. The engine artifact is the signed +"
+            echo "notarized + stapled .dmg this job produces, so it cannot be skipped here."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "::error::release build ${GITHUB_REF} has no Apple Developer credentials; the notarized engine .dmg cannot be produced (FR-021, Amendment A3.1)"
+          exit 1
+
       - name: Report that the gate did not run
         if: steps.creds.outputs.configured != 'true'
         run: |
           {
-            echo "### Notarization gate: NOT RUN"
+            echo "### Notarization gate: NOT RUN (non-release run — does NOT satisfy the release gate)"
             echo ""
             echo "Apple Developer credentials are not configured for this repository, so the"
             echo "bundle was neither signed, notarized, nor stapled. FR-012 and NFR-005 are"
@@ -431,6 +469,14 @@ jobs:
             | xargs -0 -n 25 codesign --force --timestamp --options runtime --sign "$IDENTITY"
           codesign --force --timestamp --options runtime --sign "$IDENTITY" dist/kameas-ml/kameas-ml
           echo "signed $(find dist/kameas-ml \( -name '*.so' -o -name '*.dylib' \) | wc -l | tr -d ' ') nested Mach-O files plus the launcher"
+
+      - name: "Planted violation: strip one nested signature (evidence run only)"
+        if: steps.creds.outputs.configured == 'true' && env.PLANT_VIOLATION == 'unsigned_dylib'
+        run: |
+          set -euo pipefail
+          victim=$(find dist/kameas-ml -type f -name '*.dylib' | head -1)
+          codesign --remove-signature "$victim"
+          echo "::warning::PLANTED VIOLATION — removed the signature from $victim; the next step must fail"
 
       - name: Verify every nested signature before notarizing
         if: steps.creds.outputs.configured == 'true'
@@ -497,12 +543,73 @@ jobs:
           set -euo pipefail
           pip install -e ".[dev]"
           MOUNT=$(hdiutil attach /tmp/kenaz-ml.dmg -nobrowse -readonly | tail -1 | awk '{print $NF}')
+          # `serves_health` (added by WP08) reuses test_frozen_binary_serves_health
+          # and its launcher against the MOUNTED, notarized binary.
           KENAZ_ML_FROZEN_BIN="$MOUNT/kameas-ml" pytest tests/test_frozen_smoke.py -v -s \
-            -k "feature_store or registry_records" || {
+            -k "feature_store or registry_records or serves_health" || {
               hdiutil detach "$MOUNT" || true
               exit 1
             }
           hdiutil detach "$MOUNT"
+
+      - name: Spawn the notarized artifact and verify /health identity + the lease lifecycle (FR-021)
+        if: steps.creds.outputs.configured == 'true'
+        # Repair R3's spawn-smoke half, on the artifact users actually receive:
+        # the stapled .dmg, mounted read-only. Spawns the staged binary with a
+        # temporary install root (never the runner's real directories) and short
+        # lifecycle windows, asserts the WP05 identity payload, then proves the
+        # token-authorized shutdown really stops it. `spctl --assess` on the same
+        # .dmg ran in "Verify notarization" above.
+        run: |
+          set -euo pipefail
+          MOUNT=$(hdiutil attach /tmp/kenaz-ml.dmg -nobrowse -readonly | tail -1 | awk '{print $NF}')
+          trap 'hdiutil detach "$MOUNT" >/dev/null 2>&1 || true' EXIT
+          ROOT=$(mktemp -d)
+          DATA=$(mktemp -d)
+          mkdir -p "$ROOT/lease"
+          TOKEN=$(uuidgen)
+          printf '%s\n' "$TOKEN" > "$ROOT/lease/shutdown.token"
+          chmod 600 "$ROOT/lease/shutdown.token"
+          PORT=7797
+          KENAZ_ML_INSTALL_ROOT="$ROOT" XDG_DATA_HOME="$DATA" \
+            KENAZ_ML_IDLE_EXIT_SEC=600 KENAZ_ML_LEASE_SWEEP_SEC=1 \
+            "$MOUNT/kameas-ml" serve --host 127.0.0.1 --port "$PORT" > /tmp/spawn.log 2>&1 &
+          PID=$!
+          ready=""
+          for _ in $(seq 1 60); do
+            if curl -sf -o /tmp/health.json "http://127.0.0.1:$PORT/health"; then ready=1; break; fi
+            if ! kill -0 "$PID" 2>/dev/null; then cat /tmp/spawn.log; echo "::error::the notarized binary exited before answering /health"; exit 1; fi
+            sleep 1
+          done
+          [ -n "$ready" ] || { cat /tmp/spawn.log; echo "::error::the notarized binary never answered /health"; exit 1; }
+          if [ "$PLANT_VIOLATION" = "broken_health" ]; then
+            echo "::warning::PLANTED VIOLATION — corrupting the /health payload; this step must fail"
+            echo '{}' > /tmp/health.json
+          fi
+          MOUNT="$MOUNT" python3 - <<'PY'
+          import json, os
+          body = json.load(open("/tmp/health.json"))
+          required = ["product", "sidecar_version", "contract_versions", "exe_path",
+                      "model_details", "device", "lifecycle_protocol"]
+          missing = [k for k in required if k not in body]
+          assert not missing, f"/health identity fields missing: {missing}"
+          assert body["product"] == "kenaz-ml", body["product"]
+          assert body["lifecycle_protocol"] == "kenaz-ml-lease/1", body["lifecycle_protocol"]
+          assert body["sidecar_version"], "empty sidecar_version"
+          mount = os.path.realpath(os.environ["MOUNT"])
+          assert os.path.realpath(body["exe_path"]).startswith(mount), (body["exe_path"], mount)
+          print("identity OK:", {k: body[k] for k in ("product", "sidecar_version", "lifecycle_protocol", "exe_path")})
+          PY
+          # A wrong token must be refused and leave the engine running...
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer wrong" "http://127.0.0.1:$PORT/v1/admin/shutdown")
+          [ "$code" = "403" ] || { echo "::error::wrong shutdown token answered $code, expected 403"; exit 1; }
+          kill -0 "$PID" || { echo "::error::a refused shutdown stopped the engine"; exit 1; }
+          # ...and the right one must stop it gracefully.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/v1/admin/shutdown")
+          [ "$code" = "202" ] || { echo "::error::authorized shutdown answered $code, expected 202"; exit 1; }
+          for _ in $(seq 1 30); do kill -0 "$PID" 2>/dev/null || break; sleep 1; done
+          if kill -0 "$PID" 2>/dev/null; then kill "$PID"; echo "::error::the engine did not exit after an authorized shutdown"; exit 1; fi
+          echo "### Spawn-smoke on the notarized .dmg: PASSED" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload notarized disk image
         if: steps.creds.outputs.configured == 'true'
