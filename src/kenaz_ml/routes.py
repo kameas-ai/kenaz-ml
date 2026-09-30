@@ -120,6 +120,20 @@ class ModelIntrospection(BaseModel):
     # No per-predictor toggle exists today (capabilities.toggle=false);
     # reflects whether the model is loaded and will serve predictions.
     enabled: bool
+    # --- Registry provenance (two-client-engine-01MSK2EN WP01, additive) ---
+    # Which registry slot served this model: "local" | "base" | "cold_start",
+    # or null when the model is not resolved through the registry (quality,
+    # whose JSON weights the registry cannot govern; or a non-filesystem store).
+    serving_slot: str | None = None
+    # The serving manifest's provenance.training_source ("local" | "base" | ...),
+    # or null when no manifest served (cold start / not registry-resolved).
+    training_source: str | None = None
+    # The serving manifest's version (Manifest.version), or null.
+    manifest_version: str | None = None
+    # Registry refusal text collected while resolving ("<model> [<slot>]
+    # <check>/<reason>: <detail>"; empty-slot misses omitted), or null when
+    # nothing was refused.
+    refusal: str | None = None
 
 
 class IntrospectResponse(BaseModel):
@@ -323,6 +337,8 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
 
                     last_trained = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
+            provenance = _resolution_provenance(getattr(state, "resolutions", {}).get(attr))
+
             models.append(
                 ModelIntrospection(
                     name=attr,
@@ -335,6 +351,7 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
                     sample_count=None,  # not tracked per-model today
                     recent_predictions=recent_counts.get(prediction_model, 0) if prediction_model else 0,
                     enabled=obj is not None,
+                    **provenance,
                 )
             )
 
@@ -539,6 +556,33 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
         }
 
 
+def _resolution_provenance(resolution: object | None) -> dict[str, str | None]:
+    """Render a registry ``Resolution`` as the additive /introspect fields.
+
+    Honest nulls throughout when the model was not resolved through the
+    registry. Refusal text omits the ordinary empty-slot miss, which is the
+    state of every install before a base model ships and is not a refusal an
+    operator can act on.
+    """
+    out: dict[str, str | None] = {
+        "serving_slot": None,
+        "training_source": None,
+        "manifest_version": None,
+        "refusal": None,
+    }
+    if resolution is None:
+        return out
+    out["serving_slot"] = getattr(resolution, "slot", None)
+    manifest = getattr(resolution, "manifest", None)
+    if manifest is not None and getattr(resolution, "served", False):
+        out["training_source"] = manifest.provenance.training_source
+        out["manifest_version"] = manifest.version
+    refused = [str(r) for r in getattr(resolution, "refusals", ()) if getattr(r, "reason", None) != "slot_empty"]
+    if refused:
+        out["refusal"] = "; ".join(refused)
+    return out
+
+
 def _run_training(state: AppState) -> None:
     """Run training in a background thread."""
     try:
@@ -546,6 +590,10 @@ def _run_training(state: AppState) -> None:
         trainer = Trainer(state.store, model_store=state.model_store)
         result = trainer.train_all()
         logger.info("Training complete: %s", result)
+        # FR-002: a retrain can change a base-version relationship, so the
+        # registry refresh runs before the reload, exactly as the scheduler's
+        # reload callback does.
+        state.refresh_registry()
         state.load_models()
     except Exception:
         logger.exception("Training failed")

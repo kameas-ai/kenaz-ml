@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import io
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import joblib
 import numpy as np
 from sklearn.ensemble import GradientBoostingClassifier
 
 from kenaz_ml.modelstore import LocalModelStore, ModelStore
+from kenaz_ml.modelstore.loader import resolve_for_serving  # not in the pinned package __all__
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from kenaz_ml.modelstore.registry import Resolution
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +31,41 @@ FEATURE_NAMES = [
 class StuckPredictor:
     """Predicts whether a developer is stuck on a task."""
 
-    def __init__(self, model_store: ModelStore | None = None) -> None:
+    def __init__(self, model_store: ModelStore | None = None, *, registry: bool = False) -> None:
         self._store = model_store or LocalModelStore()
         self.model: GradientBoostingClassifier | None = None
         self._trained = False
+        self.resolution: Resolution | None = None
+        self._load_stuck(registry)
+
+    def _load_stuck(self, registry: bool) -> None:
+        """Load the persisted stuck model — through the registry when the store is a filesystem.
+
+        two-client-engine-01MSK2EN WP01 (FR-001, FR-022): a filesystem-backed
+        store resolves local slot -> base slot -> cold start with integrity,
+        ordered-contract and runtime checks before deserialization, and a
+        pre-registry artifact (no manifest) is migrated in place. The outcome is
+        kept on ``self.resolution`` for ``/introspect`` and ``/health``. Any
+        other store (S3, a test double) keeps the legacy byte-load path.
+        Neither path raises: no usable artifact means untrained, as before.
+
+        Opt-in (``registry=True``), set by the serving path
+        (``AppState.load_models``). The trainers also construct predictors --
+        inside the window where the stale manifest has been cleared and the new
+        artifact not yet written -- and a constructor-time migration there would
+        write a synthesized manifest for the *old* bytes, the mismatched pair the
+        trainer's write ordering exists to prevent. Training therefore keeps the
+        legacy load (whose result ``train()`` discards anyway).
+        """
+        resolution = resolve_for_serving(self._store, "stuck") if registry else None
+        if resolution is not None:
+            self.resolution = resolution
+            if resolution.served:
+                self.model = resolution.model
+                self._trained = True
+                logger.info("Loaded stuck model from %s (%s slot)", type(self._store).__name__, resolution.slot)
+            return
+
         data = self._store.load("stuck")
         if data is not None:
             try:

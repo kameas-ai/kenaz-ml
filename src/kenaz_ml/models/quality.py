@@ -63,6 +63,14 @@ class QualityEstimator:
         return instance
 
     def _load_weights(self) -> None:
+        # EXEMPT from the registry seam (two-client-engine-01MSK2EN WP01 T002).
+        # FR-001 says every local predictor loads through FilesystemModelLoader,
+        # but quality persists JSON weights (``_save_weights``) -- under the
+        # ``quality.joblib`` filename LocalModelStore gives every model -- not a
+        # joblib pickle. The registry deserializes with joblib after verifying
+        # the digest, so it cannot govern this artifact. Its disposition is an
+        # OPEN owner question (mission tasks/README item 7); until ruled, this
+        # stays on the legacy byte-load path and FR-001 is NOT satisfied here.
         data = self._store.load("quality")
         if data is not None:
             try:

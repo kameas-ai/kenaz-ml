@@ -28,6 +28,51 @@ from kenaz_ml.training.scheduler import TrainingScheduler
 
 logger = logging.getLogger("kenaz_ml")
 
+#: The local models whose artifacts are registry-format (joblib + manifest) and
+#: so are governed by ``refresh_all()``. ``quality`` persists JSON weights and
+#: stays on its legacy path pending an owner ruling (tasks/README item 7).
+REGISTRY_ROSTER: tuple[str, ...] = ("stuck", "activity", "workflow", "duration")
+
+
+def refresh_registry_roster(model_store: ModelStore | None, sink: dict[str, dict[str, Any]] | None = None) -> None:
+    """Call ``refresh_all()`` for :data:`REGISTRY_ROSTER` and log every outcome.
+
+    Only for a filesystem-backed store (manifests are a filesystem concept,
+    D-004); anything else is logged and skipped. Never raises.
+    """
+    import time
+
+    from kenaz_ml.modelstore.loader import filesystem_slot_dir
+
+    local_dir = filesystem_slot_dir(model_store) if model_store is not None else None
+    if local_dir is None:
+        logger.info("refresh_all: skipped -- model store %s is not filesystem-backed", type(model_store).__name__)
+        return
+    started = time.monotonic()
+    try:
+        from kenaz_ml.modelstore.registry import describe, refresh_all
+
+        results = refresh_all(REGISTRY_ROSTER, local_dir=local_dir)
+    except Exception:
+        logger.warning("refresh_all: failed; serving continues on the current slots", exc_info=True)
+        return
+    elapsed_ms = (time.monotonic() - started) * 1000
+    for result in results:
+        try:
+            info = describe(result)
+        except Exception:  # pragma: no cover - describe is plain data
+            info = {"name": getattr(result, "name", "?"), "action": getattr(result, "action", "?")}
+        if sink is not None:
+            sink[str(info.get("name"))] = info
+        logger.info(
+            "refresh_all: model=%s action=%s ok=%s reason=%s",
+            info.get("name"),
+            info.get("action"),
+            info.get("ok"),
+            info.get("reason"),
+        )
+    logger.info("refresh_all: %d model(s) refreshed in %.1f ms", len(results), elapsed_ms)
+
 
 class AppState:
     """Holds model instances and runtime state, passed to routes."""
@@ -49,18 +94,52 @@ class AppState:
         self.model_loader: Any = None
         # Per-tenant request counters (cloud mode, reset on restart)
         self.request_counters: dict[str, int] = {}
+        # two-client-engine-01MSK2EN WP01 (T004, ruling R5): the registry's
+        # resolution outcome per local model -- slot, manifest, refusals. The
+        # shared seam /introspect (provenance) and /health (refusal text) read.
+        # A model absent from this map was not resolved through the registry
+        # (legacy store, or quality -- see models/quality.py).
+        self.resolutions: dict[str, Any] = {}
+        # The last refresh_all() outcome per model, as registry.describe() data.
+        self.refresh_results: dict[str, dict[str, Any]] = {}
 
     def load_models(self, model_store: ModelStore | None = None) -> None:
         """Load or reload all model instances."""
         ms = model_store or self.model_store
-        self.stuck = StuckPredictor(model_store=ms)
-        self.activity = ActivityClassifier(model_store=ms)
-        self.workflow = WorkflowStatePredictor(model_store=ms)
-        self.duration = DurationEstimator(model_store=ms)
+        self.stuck = StuckPredictor(model_store=ms, registry=True)
+        self.activity = ActivityClassifier(model_store=ms, registry=True)
+        self.workflow = WorkflowStatePredictor(model_store=ms, registry=True)
+        self.duration = DurationEstimator(model_store=ms, registry=True)
         self.quality = QualityEstimator(model_store=ms)
+
+        resolutions: dict[str, Any] = {}
+        for name, predictor in (
+            ("stuck", self.stuck),
+            ("activity", self.activity),
+            ("workflow", self.workflow),
+            ("duration", self.duration),
+        ):
+            resolution = getattr(predictor, "resolution", None)
+            if resolution is not None:
+                resolutions[name] = resolution
+        self.resolutions = resolutions
+
+    def refresh_registry(self, model_store: ModelStore | None = None) -> None:
+        """Run the registry's base-refresh policy over the local roster (FR-002).
+
+        The first production caller of ``refresh_all()`` (WP01 T003). Runs
+        before models are (re)loaded so a rebuilt or adopted artifact is what
+        gets served. Logs one INFO line per model -- including the ordinary
+        ``no_base`` case -- which is SC-002's evidence that it ran. Never
+        raises: a refresh failure is logged and serving continues on whatever
+        the slots already hold.
+        """
+        ms = model_store or self.model_store
+        refresh_registry_roster(ms, self.refresh_results)
 
     def reload_models_into_poller(self) -> None:
         """Reload model instances after retraining."""
+        self.refresh_registry()
         self.load_models()
         if self.poller:
             self.poller.stuck = self.stuck
@@ -140,6 +219,11 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
                 store.ensure_tables()
             except Exception:
                 logger.warning("schema bootstrap failed (sigild may not have started yet)", exc_info=True)
+
+            # FR-002: the registry's refresh policy runs before the first load,
+            # off the event loop. It blocks startup (not the loop) for as long
+            # as a due rebuild takes -- serving begins on the refreshed slots.
+            await asyncio.get_running_loop().run_in_executor(None, state.refresh_registry, ms)
 
             state.load_models(ms)
 
