@@ -1,0 +1,657 @@
+# typewriter — the engine's wire contract, written once.
+#
+# This file is the source of truth for every shape and vocabulary a client
+# shares with the engine. `scripts/gen_typewriter.py` generates from it:
+#
+#   src/kenaz_ml/typewriter/vocab.py    stdlib-only constants (kinds, features, enums)
+#   src/kenaz_ml/typewriter/models.py   the pydantic request/response models
+#   typewriter/typewriter.gen.go        the Go module the clients import
+#
+# Never edit the generated files; edit this file and run `make typewriter`.
+# See README.md for the dialect.
+typewriter: 1
+go_module: github.com/kameas-ai/kenaz-ml/typewriter
+
+# Semantic salt folded into every kind's contract version. Increment it when
+# what any feature *means* changes (units, window, extraction rule) while its
+# name and position stay the same — the one kind of change a name/order hash
+# cannot see.
+vocabulary_version: 1
+
+# The dtype every kind feature is declared with (clients post JSON numbers).
+feature_dtype: float64
+
+enums:
+  ErrorKind:
+    description: >-
+      The client's closed error-category enum, in order. A category unknown at
+      the wire buckets to `unknown`. Changing it requires a vocabulary_version
+      bump.
+    values: [auth, transient, cancelled, budget, unknown]
+  UserAction:
+    description: >-
+      What the user did with a recommendation. `accepted` and `auto_acted`
+      train as y=1, `dismissed` as y=0; `ignored` is recorded but never trained.
+    values: [accepted, dismissed, ignored, auto_acted]
+  Backend:
+    description: >-
+      The closed serving-backend set. `heuristic` is reserved for test
+      fixtures: the engine ships no heuristic backends.
+    values: [heuristic, classic, laya]
+  CheckpointProvenance:
+    description: The registry slot that served the artifact.
+    values: [local, org, base]
+  RecommendRefusalReason:
+    description: Stable machine reasons for a typed /v1/recommend refusal.
+    values:
+      - unknown_kind
+      - kind_not_served
+      - laya_backend_not_installed
+      - contract_mismatch
+      - features_mismatch
+      - features_invalid
+      - kind_id_mismatch
+      - backend_unknown
+      - no_contract
+      - confidence_out_of_range
+      - backend_error
+      - host_ineligible
+      - checkpoint_refused
+  LabelBatchRefusalReason:
+    description: Batch-level /v1/labels refusals. Nothing is written and nothing is acked.
+    values: [contract_mismatch, names_mismatch, retained_refused, io_error]
+  LabelRowRefusalReason:
+    description: >-
+      Per-row /v1/labels refusals. Each is permanent (no re-send can fix the
+      row), so the ack advances past it.
+    values: [unknown_user_action, client_mismatch, kind_mismatch, features_invalid, row_too_large]
+  FeaturesRefusalReason:
+    description: Refusal reasons on the /v1/features push lane.
+    values:
+      - unknown_class
+      - class_schema_not_defined
+      - invalid_ts_ms
+      - invalid_fields
+      - invalid_session_id
+      - batch_too_large
+      - lane_unavailable
+
+# Recommendation kinds. The feature list is ORDERED: it is the vector layout,
+# and the contract version hashes it. Features are computed client-side and
+# arrive already computed.
+kinds:
+  branch_now:
+    description: Should the session branch now?
+    features:
+      - turns_since_session_start
+      - turns_since_last_branch
+      - prior_branch_count
+      - edit_resend_precursor
+      - heuristic_signal_count
+      - heuristic_noise_count
+      - last_user_msg_len
+      - tool_call_density_window
+  compact_now:
+    description: Should the session compact its context now?
+    features:
+      - context_fill_fraction
+      - tokens_in_span
+      - turns_since_last_compaction
+      - tool_result_token_fraction
+      - model_context_limit
+      - historical_compression_ratio
+  escalate_model:
+    description: Should the session escalate to a stronger model?
+    features:
+      - consecutive_tool_failures
+      - retries_in_window
+      - turn_latency_trend
+      - current_rung
+      - one_hot: ErrorKind
+        prefix: error_kind_
+      - budget_remaining_fraction
+
+schemas:
+  # ---------- /predict/* and /train ----------
+  StuckRequest:
+    fields:
+      task_id: {type: string, nullable: true, default: null}
+      features: {type: "map<float>", nullable: true, default: null}
+  StuckResponse:
+    fields:
+      probability: float
+      confidence: string
+  WorkflowStateRequest:
+    fields:
+      task_id: {type: string, nullable: true, default: null}
+      classified_events: {type: "list<object>", nullable: true, default: null}
+  WorkflowStateResponse:
+    fields:
+      flow_state: "map<float>"
+      dominant_state: string
+      momentum: float
+      focus_score: float
+      dominant_activity: string
+      activity_distribution: "map<float>"
+      session_elapsed_min: float
+      method: string
+      confidence: float
+  DurationRequest:
+    fields:
+      task_id: {type: string, nullable: true, default: null}
+      features: {type: "map<float>", nullable: true, default: null}
+  DurationResponse:
+    fields:
+      estimated_minutes: float
+      confidence_interval: "list<float>"
+  QualityRequest:
+    fields:
+      features: "map<float>"
+  QualityResponse:
+    fields:
+      score: int
+      components: "map<float>"
+      status: string
+  TrainRequest:
+    fields:
+      db:
+        type: string
+        nullable: true
+        default: null
+        description: "Deprecated: ignored, kept for backward compat"
+  TrainResponse:
+    fields:
+      status: string
+      message: string
+
+  # ---------- /health ----------
+  ModelHealth:
+    description: |
+      Per-model health detail (WP05). ``refusal`` carries the registry's refusal text.
+    fields:
+      status:
+        type: string
+        description: Same value as HealthResponse.models[name].
+      slot:
+        type: string
+        nullable: true
+        description: 'Registry slot serving it: "local" | "base" | "cold_start" | null.'
+      refusal:
+        type: string
+        nullable: true
+        description: Registry refusal reason text (integrity/contract/runtime), or null.
+  LayaEligibility:
+    description: |
+      The per-host laya eligibility verdict (laya-serving-and-packs-01MSK2SP WP03, FR-005).
+
+      Measured **lazily** at the first dispatch of a laya-configured kind, so a
+      fresh boot reports ``verdict: "not_evaluated"`` with null measurements until
+      then (honest nulls, never invented -- the ``ModelIntrospection`` discipline).
+      ``/health`` never triggers the benchmark. ``measured_against`` is ``"fixture"``
+      when no checkpoint exists to measure (the bundled non-functional
+      random-weights fixture): those timings say little about a real checkpoint.
+    fields:
+      verdict:
+        type: string
+        description: '"eligible" | "ineligible" | "not_evaluated".'
+      reason:
+        type: string
+        description: "Stable code: eligible, insufficient_memory, memory_unknown, benchmark_failed, ..."
+      detail: string
+      measured_against:
+        type: string
+        nullable: true
+        description: '"fixture" | "checkpoint" | null when unmeasured.'
+      free_memory_bytes: {type: int, nullable: true}
+      memory_method: {type: string, nullable: true}
+      benchmark_calls: {type: int, nullable: true}
+      p50_ms: {type: float, nullable: true}
+      p95_ms: {type: float, nullable: true}
+      max_ms: {type: float, nullable: true}
+      evaluated_at_ms: {type: int, nullable: true}
+  HealthResponse:
+    description: |
+      ``/health`` — honest enough for a client to verify (FR-016, Amendment A1).
+
+      The pre-existing fields are unchanged (C-008; ``models`` stays name ->
+      status string). Every field added by two-client-engine-01MSK2EN is
+      **required**: the model cannot be built from ``{}`` or a partial payload, so
+      a bare or legacy response is structurally distinguishable from this one.
+      ``exe_path`` is reported truthfully and never verified here — verification
+      is the client's job (FR-017, C-001).
+    fields:
+      status: string
+      mode:
+        type: string
+        default: local
+        comment: Default for backward compatibility
+      models: "map<string>"
+      uptime_sec: float
+      product:
+        type: string
+        description: 'Always "kenaz-ml" (the product name; the frozen artifact keeps its own frozen name).'
+      sidecar_version: string
+      contract_versions:
+        type: "map<list<string>>"
+        description: Per recommend kind, the feature_contract_version values /v1/recommend accepts.
+      exe_path:
+        type: string
+        description: This process's own resolved executable path; not self-verified.
+      engine_sha256:
+        type: string
+        nullable: true
+        description: >-
+          sha256 of the engine's own executable file (sys.executable resolved
+          through symlinks; the launcher executable in the frozen onedir),
+          computed once at startup. An adoption cross-check for the client,
+          never a trust root; null only if the file could not be read.
+      model_details:
+        type: "map<ModelHealth>"
+        description: Per-model status with registry refusal text.
+      device:
+        type: string
+        description: 'Compute device; "cpu" for the scikit-learn engine.'
+      lifecycle_protocol:
+        type: int
+        description: "Lifecycle protocol version: 1 = speaks /v1/clients/lease; 0 = none (cloud mode, legacy)."
+      laya_eligibility:
+        type: LayaEligibility
+        description: >-
+          The per-host laya eligibility verdict (laya-serving-and-packs-01MSK2SP
+          WP03): the one field that mission adds to this schema. An ineligible
+          host refuses laya-bearing kinds; the client falls back.
+
+  # ---------- /v1/clients/lease and /v1/admin/shutdown (local mode) ----------
+  LeaseRequest:
+    fields:
+      client: {type: string, min_length: 1}
+      pid: {type: int, gt: 0}
+      client_version: string
+      min_contracts:
+        type: "map<string>"
+        default: {}
+        description: >-
+          Per kind, the feature_contract_version this client requires. Only
+          reported back (incompatible_kinds); never stops the engine serving
+          other clients.
+  LeaseResponse:
+    fields:
+      lifecycle_protocol: int
+      sidecar_version: string
+      contract_versions: "map<list<string>>"
+      incompatible_kinds:
+        type: "map<string>"
+        description: kind -> why this client's min_contracts is unmet.
+      client: string
+      pid: int
+      live_leases: int
+      implicit_lease_sec: float
+      idle_exit_sec: float
+      managed:
+        type: bool
+        description: True when the install root's lease/ directory exists.
+  ShutdownResponse:
+    fields:
+      status: string
+
+  # ---------- /introspect ----------
+  ModelIntrospection:
+    description: |
+      Per-model metadata for the /introspect endpoint.
+
+      Honesty contract (kenaz spec 060): fields the sidecar does not track
+      today are returned as null/zero — never invented.
+    fields:
+      name: string
+      display_name: string
+      prediction_model:
+        type: string
+        nullable: true
+        default: null
+        comment: >-
+          ml_predictions.model value this model's predictions are written under
+          (per the WAL contract: "stuck"|"suggest"|"duration"|"quality"|"profile"),
+          or null for models that never write predictions directly.
+      algorithm:
+        type: string
+        nullable: true
+        default: null
+        comment: >-
+          Underlying sklearn estimator class name, "rules" for rule-based
+          models, or null when the model object is not loaded.
+      status:
+        type: string
+        comment: 'Mirrors /health: "ready" | "untrained" | "not_loaded".'
+      trained: bool
+      last_trained:
+        type: string
+        nullable: true
+        default: null
+        comment: >-
+          ISO-8601 UTC timestamp of the last persisted weights write (file mtime
+          via LocalModelStore), or null when untracked/never trained.
+      sample_count:
+        type: int
+        nullable: true
+        default: null
+        comment: Training sample count is not tracked per-model today — always null.
+      recent_predictions:
+        type: int
+        default: 0
+        comment: Count of this model's non-expired ml_predictions rows from the last 24h.
+      enabled:
+        type: bool
+        comment: >-
+          No per-predictor toggle exists today (capabilities.toggle=false);
+          reflects whether the model is loaded and will serve predictions.
+      serving_slot:
+        type: string
+        nullable: true
+        default: null
+        comment: >-
+          Registry provenance (two-client-engine-01MSK2EN WP01, additive). Which
+          registry slot served this model: "local" | "base" | "cold_start", or
+          null when the model is not resolved through the registry (quality,
+          whose JSON weights the registry cannot govern; or a non-filesystem
+          store).
+      training_source:
+        type: string
+        nullable: true
+        default: null
+        comment: >-
+          The serving manifest's provenance.training_source ("local" | "base" |
+          ...), or null when no manifest served (cold start / not
+          registry-resolved).
+      manifest_version:
+        type: string
+        nullable: true
+        default: null
+        comment: The serving manifest's version (Manifest.version), or null.
+      refusal:
+        type: string
+        nullable: true
+        default: null
+        comment: >-
+          Registry refusal text collected while resolving ("<model> [<slot>]
+          <check>/<reason>: <detail>"; empty-slot misses omitted), or null when
+          nothing was refused.
+  IntrospectResponse:
+    fields:
+      service: string
+      version: string
+      mode: string
+      uptime_sec: float
+      models: "list<ModelIntrospection>"
+      capabilities:
+        type: "map<bool>"
+        comment: >-
+          Capability discovery for kenaz (spec 060 FR-008): controls are hidden
+          in the UI when the capability is absent, rather than erroring.
+
+  # ---------- /v1/recommend/{kind} and /v1/contracts ----------
+  RecommendRequest:
+    description: |
+      ``POST /v1/recommend/{kind}`` body (design doc §3.2).
+    fields:
+      features:
+        type: "map<float>"
+        description: Feature values keyed by name; must match the kind's contract.
+      feature_contract_version:
+        type: string
+        description: The contract version the client computed features under.
+      session_id:
+        type: string
+        nullable: true
+        default: null
+        description: Opaque client session id; not interpreted by the engine.
+      kind_id:
+        type: string
+        nullable: true
+        default: null
+        description: Optional; when present it must equal the path's kind.
+      features_hash:
+        type: string
+        nullable: true
+        default: null
+        min_length: 1
+        description: "Optional: the label row's features_hash for this decision (exact shadow join)."
+        comment: >-
+          Exact shadow-join key (ruled 2026-09-30): the same (features_hash, ts)
+          the client later pushes on the label row. Optional and
+          absent-tolerated; the engine never interprets them for serving.
+      ts:
+        type: int
+        nullable: true
+        default: null
+        gt: 0
+        description: "Optional: the label row's ts (decision time, epoch ms) for this decision."
+  RecommendResponse:
+    description: |
+      A served recommendation (FR-004). Exactly one of ``decision``/``score``.
+
+      Field semantics for values the specs leave open:
+
+      * ``rung`` — the serving manifest's ``metrics["rung"]`` when present,
+        otherwise the backend name (a test fixture reports ``"heuristic"``).
+      * ``checkpoint_provenance`` — the registry slot that served the artifact
+        (``local`` / ``base``); ``org`` is reserved for an org-distributed pack.
+        A test fixture has no checkpoint and reports ``local`` (in-process).
+      * ``model_id_sha8`` — first eight hex characters of the serving artifact's
+        ``artifact_sha256``; ``null`` when there is no artifact (a fixture).
+      * ``generation`` — the serving manifest's ``Manifest.version``; ``"0"`` when
+        there is no artifact.
+      * ``unbenchmarked`` — ``true`` unless the manifest records
+        ``metrics["benchmarked"] is True``; always ``true`` for a fixture.
+    exactly_one_of: [decision, score]
+    fields:
+      decision: {type: bool, nullable: true, default: null}
+      score: {type: int, nullable: true, default: null}
+      confidence:
+        type: int
+        ge: 0
+        le: 100
+        description: 0-100, validated, never clamped.
+      kind_id: string
+      feature_contract_version: string
+      model: string
+      rung: string
+      backend: Backend
+      model_id_sha8: {type: string, nullable: true}
+      checkpoint_provenance: CheckpointProvenance
+      generation: string
+      unbenchmarked: bool
+  RefusalBody:
+    fields:
+      kind_id: string
+      reason:
+        type: string
+        vocabulary: RecommendRefusalReason
+        description: Stable machine reason, e.g. kind_not_served, contract_mismatch.
+      detail:
+        type: string
+        description: "Human-readable diagnostic, e.g. 'kind unavailable: contract v3 != v2'."
+  RecommendRefusal:
+    description: |
+      Every typed refusal: HTTP :data:`REFUSAL_STATUS_CODE`, this body.
+
+      ``error`` is the stable machine code at the top level — the envelope the
+      harness's ``mlsidecar`` client parses (``{"error": "<code>"}``; a code of
+      ``kind_not_served`` satisfies its ``ErrKindNotServed``). ``refusal`` repeats
+      it with the kind and a human-readable detail.
+    fields:
+      error:
+        type: string
+        vocabulary: RecommendRefusalReason
+        description: Stable typed code, e.g. kind_not_served, contract_mismatch.
+      refusal: RefusalBody
+  ContractEntry:
+    description: |
+      One kind in ``GET /v1/contracts``, keyed by kind id in :class:`ContractsResponse`.
+
+      ``features``/``backend``/``available`` are the fields the harness's
+      ``KindContract`` reads; ``available`` is true only when a backend actually
+      serves the kind (the harness gates routing on it). ``version`` is the
+      kind's 16-hex contract version (D-A4).
+    fields:
+      features:
+        type: "list<string>"
+        description: Ordered feature names (the vector layout).
+      dtypes: "list<string>"
+      version: string
+      supported_versions:
+        type: "list<string>"
+        description: Versions accepted by /v1/recommend. Only the current one today (no N-1 defined).
+      available: bool
+      backend: {type: string, nullable: true, default: null, vocabulary: Backend}
+      reason: {type: string, nullable: true, default: null}
+      detail: {type: string, nullable: true, default: null}
+  ContractsResponse:
+    fields:
+      kinds:
+        type: "map<ContractEntry>"
+        description: Every registered kind, keyed by kind id.
+
+  # ---------- /v1/labels/{kind} — frozen ingest contract (Amendment A3.3) ----------
+  LabelCursor:
+    description: |
+      The ack cursor: a position over ``(ts, revision)``.
+    fields:
+      ts: int
+      revision: int
+  LabelRow:
+    description: |
+      One ``advice_labels`` row, in the harness's wire shape (``mlsidecar.LabelWireRow``).
+
+      Frozen contract (Amendment A3.3): idempotency key
+      ``(client, kind, features_hash, ts)``; ``ts`` is the row's original
+      creation time and never changes across revisions; ``revision`` is the
+      harness's table-global monotonic change counter, and a higher one replaces
+      the stored row (equal or lower is stale). Propensity fields are kept
+      verbatim in the kind's label log; only ``accepted`` / ``auto_acted`` (y=1)
+      and ``dismissed`` (y=0) rows with ``features_complete=true`` reach the
+      retained training set. There is deliberately no ``session_id``.
+    fields:
+      kind: string
+      features_hash: string
+      ts:
+        type: int
+        description: The row's original created_at (ms); part of the key, never changes.
+      revision:
+        type: int
+        ge: 0
+        description: Table-global monotonic change counter; higher replaces.
+      features:
+        type: "object | string"
+        default: {}
+        description: Feature values keyed by name (a JSON object, or its JSON text).
+      features_complete: bool
+      shown: bool
+      decision: {type: bool, nullable: true, default: null}
+      confidence:
+        type: int
+        nullable: true
+        default: null
+        description: Confidence at decision time (0-100).
+      model:
+        type: string
+        nullable: true
+        default: null
+        description: The model that answered (the harness's model_id).
+      rung: {type: string, nullable: true, default: null}
+      prompt_version: {type: string, nullable: true, default: null}
+      user_action:
+        type: string
+        vocabulary: UserAction
+        description: accepted | dismissed | ignored | auto_acted
+      latency_ms: {type: float, nullable: true, default: null}
+      client:
+        type: string
+        nullable: true
+        default: null
+        description: Optional; defaults to the batch's client.
+      feature_contract_version:
+        type: string
+        nullable: true
+        default: null
+        description: Optional; when present it must equal the kind's published contract version.
+      snapshot_ms:
+        type: int
+        nullable: true
+        default: null
+        description: Optional feature snapshot time (ms); ts is used when absent. Carried, never recomputed.
+  LabelBatchRequest:
+    fields:
+      client: string
+      rows: "list<LabelRow>"
+  LabelRowRefusal:
+    fields:
+      index: int
+      features_hash: string
+      ts: int
+      revision: int
+      reason: {type: string, vocabulary: LabelRowRefusalReason}
+  LabelBatchResponse:
+    description: |
+      ``applied`` = new keys, ``replaced`` = higher-revision upserts, ``stale`` = not newer.
+
+      ``acked`` is the ``(ts, revision)`` of the last row of the batch, in the
+      order sent — always a row of this batch (never beyond the pushed window).
+      Per-row refusals are permanent (no re-send can fix them), so the ack
+      advances past them; each is listed in ``refusals`` (Amendment A4). A
+      batch-level failure (409 / 413 / 503) acks nothing. ``null`` only for an
+      empty batch.
+    fields:
+      acked: {type: LabelCursor, nullable: true}
+      applied: int
+      replaced: int
+      stale: int
+      refused: int
+      refusals: "list<LabelRowRefusal>"
+      retained_appended: int
+      retained_rebuilt: bool
+      retained_generation: {type: string, nullable: true, default: null}
+
+  # ---------- /v1/features — stateless push lane (WP09, FR-023) ----------
+  FeatureEvent:
+    description: |
+      One pushed feature event. Validated per event by ``features_push`` so a bad
+      event never fails its batch; the loose types here are deliberate.
+    fields:
+      event_class:
+        type: any
+        description: >-
+          Closed registry: "commit" (specified); egress_deny, run_outcome,
+          budget_pressure, lifecycle (schema-deferred, refused).
+      ts_ms:
+        type: any
+        description: "Event time, positive integer milliseconds (for commit: the commit time)."
+      session_id:
+        type: any
+        default: null
+        description: Scopes the event; omitted = global.
+      fields:
+        type: any
+        default: {}
+        description: Class-specific fields; must be empty for commit.
+  FeaturesPushRequest:
+    fields:
+      client: string
+      events: "list<FeatureEvent>"
+  FeatureEventRefusal:
+    fields:
+      index: int
+      reason: {type: string, vocabulary: FeaturesRefusalReason}
+      detail: string
+  FeaturesPushResponse:
+    fields:
+      accepted: int
+      refused: int
+      refusals: "list<FeatureEventRefusal>"
+  LaneRefusalBody:
+    fields:
+      reason: {type: string, vocabulary: FeaturesRefusalReason}
+      detail: string
+  LaneRefusal:
+    fields:
+      error: {type: string, vocabulary: FeaturesRefusalReason}
+      refusal: LaneRefusalBody

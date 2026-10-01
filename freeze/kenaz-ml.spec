@@ -423,6 +423,21 @@ try:
 except Exception:  # noqa: BLE001 — absence is the expected case
     pass
 
+# --- ONNX Runtime (laya-serving-and-packs-01MSK2SP WP01, NFR-001) -------------
+# The runtime the laya `ONNXAgent` path and the per-host eligibility benchmark
+# (src/kenaz_ml/laya/) run on. Collected explicitly: its provider bindings are
+# native extension modules resolved at session-creation time, and the real
+# guard is a session run in the frozen binary (`onnx-selfcheck`,
+# tests/test_onnx_freeze_no_weights.py), not a clean build.
+#
+# NO checkpoint weights enter the bundle (spec C-001/FR-003): the datas filter
+# below refuses any `.onnx`, tokenizer or `rl_agent_config.json` entry no matter
+# which package contributed it, and `torch`/`transformers` are excluded so the
+# `laya` package -- which hard-requires torch -- can never be smuggled in (C-004).
+# `laya` itself is deliberately NOT collected: it is not a declared dependency
+# (see src/kenaz_ml/laya/systemone_mount.py for the PyPI finding).
+hiddenimports += collect_submodules("onnxruntime")
+
 
 # ===========================================================================
 # Data files and native libraries
@@ -451,6 +466,7 @@ datas += collect_data_files("scipy")
 datas += collect_data_files("feast", include_py_files=True)
 datas += collect_data_files("dask")
 datas += collect_data_files("pyarrow")
+datas += collect_data_files("onnxruntime")
 
 # Distribution metadata (`*.dist-info`), which PyInstaller does not collect by
 # default. Feast's dependency tree gates optional imports on
@@ -464,6 +480,7 @@ datas += collect_data_files("pyarrow")
 datas += copy_metadata("feast", recursive=True)
 datas += copy_metadata("pandas")
 datas += copy_metadata("dask")
+datas += copy_metadata("onnxruntime")
 
 # The shipped feature-store assets, all three landing at the one path
 # `bundle_dir()` resolves to. The YAML pair is the configuration surface; the
@@ -475,16 +492,51 @@ datas += [
     (str(_registry_marker_path), BUNDLE_FEATURE_STORE_DIR),
 ]
 
+# The engine version (Amendment A5): pyproject.toml is the single source.
+# Stamped into a VERSION file that lands at `<_MEIPASS>/kenaz_ml/VERSION`, where
+# `kenaz_ml._version` reads it when frozen, and is copied to the onedir root
+# after COLLECT (below) so a client can read it without executing the binary.
+from kenaz_ml._version import VERSION_FILENAME, pyproject_version  # noqa: E402
+
+ENGINE_VERSION = pyproject_version(REPO_ROOT / "pyproject.toml")
+if not ENGINE_VERSION:
+    raise SystemExit("freeze: cannot read [project].version for kenaz-ml from pyproject.toml")
+_version_file = REPO_ROOT / "build" / "version" / VERSION_FILENAME
+_version_file.parent.mkdir(parents=True, exist_ok=True)
+_version_file.write_text(ENGINE_VERSION + "\n", encoding="utf-8")
+datas += [(str(_version_file), "kenaz_ml")]
+print(f"freeze: stamping engine version {ENGINE_VERSION}")
+
 # Native extensions that `collect_submodules` alone does not bring: pyarrow
 # ships `libarrow*.dylib` / `libparquet*.dylib` alongside its extension modules
 # and loads them through its own loader, and grpcio (when present) carries a
 # statically-linked `cygrpc` extension.
 binaries = []
 binaries += collect_dynamic_libs("pyarrow")
+binaries += collect_dynamic_libs("onnxruntime")
 try:
     binaries += collect_dynamic_libs("grpc")
 except Exception:  # noqa: BLE001 — see the grpc note above
     pass
+
+# Zero laya weights ship, enforced rather than assumed (spec C-001 / FR-003):
+# drop any data or binary entry that is, or lives beside, a laya checkpoint
+# artifact -- an ONNX graph, a tokenizer, or an agent config -- whichever
+# package contributed it. The bundled eligibility fixture is generated in
+# memory (src/kenaz_ml/laya/eligibility.py) and is never a file, so nothing
+# legitimate needs an exemption here.
+_CHECKPOINT_MARKERS = ("rl_agent_config.json", "tokenizer.json", "tokenizer_config.json")
+
+
+def _is_checkpoint_artifact(entry):
+    target = str(entry[0]).replace("\\", "/").lower()
+    dest = str(entry[1]).replace("\\", "/").lower()
+    name = target.rsplit("/", 1)[-1]
+    return name.endswith(".onnx") or name in _CHECKPOINT_MARKERS or "/tokenizer/" in f"/{dest}/"
+
+
+datas = [d for d in datas if not _is_checkpoint_artifact(d)]
+binaries = [b for b in binaries if not _is_checkpoint_artifact(b)]
 
 block_cipher = None
 
@@ -508,6 +560,10 @@ a = Analysis(
         "IPython",
         "tkinter",
         "pytest",
+        # C-004: torch is never in the notarized serving bundle. `laya` needs it,
+        # which is exactly why laya is not bundled (see the ONNX Runtime block).
+        "torch",
+        "transformers",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -556,3 +612,8 @@ coll = COLLECT(
     upx_exclude=[],
     name=ARTIFACT_NAME,
 )
+
+# Second carrier of the engine version: `<onedir>/VERSION`, beside the launcher.
+# A plain text file — not a Mach-O, so it needs no signature — that the
+# spawning client can read to name `versions/<semver>/` without running it.
+shutil.copyfile(_version_file, Path(DISTPATH) / ARTIFACT_NAME / VERSION_FILENAME)  # noqa: F821 — DISTPATH is injected

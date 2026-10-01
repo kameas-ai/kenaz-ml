@@ -140,7 +140,7 @@ class SqliteStore:
             if isinstance(row.get("payload"), str):
                 try:
                     row["payload"] = json.loads(row["payload"])
-                except (json.JSONDecodeError, TypeError):
+                except json.JSONDecodeError, TypeError:
                     pass
         return rows
 

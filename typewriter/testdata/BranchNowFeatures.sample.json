@@ -1,0 +1,10 @@
+{
+  "edit_resend_precursor": 3.0,
+  "heuristic_noise_count": 5.0,
+  "heuristic_signal_count": 4.0,
+  "last_user_msg_len": 6.0,
+  "prior_branch_count": 2.0,
+  "tool_call_density_window": 7.0,
+  "turns_since_last_branch": 1.0,
+  "turns_since_session_start": 0.0
+}

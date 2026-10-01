@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from datetime import UTC
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -152,9 +153,9 @@ class S3ModelStore:
 
     def save(self, model_name: str, data: bytes) -> None:
         """Save model weights to S3 with a timestamped version and update the latest pointer."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        version = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        version = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
         # Save versioned model
         self._s3.put_object(

@@ -86,7 +86,7 @@ BASE_MODELS_DIRNAME = "ml-base"
 RETAINED_DIRNAME = "retained"
 
 
-class ServingMode(str, enum.Enum):
+class ServingMode(str, enum.Enum):  # noqa: UP042 - StrEnum would change str(mode)
     """Operating mode for the kenaz-ml service.
 
     LOCAL: Default. Poller, SQLite, local models. Current behavior.
@@ -176,6 +176,52 @@ def retained_data_dir() -> Path:
     d = models_dir() / RETAINED_DIRNAME
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+# ---------------------------------------------------------------------------
+# Shared install root (two-client-engine-01MSK2EN WP05, plan D-A1)
+# ---------------------------------------------------------------------------
+
+#: Environment variable the spawning client sets to name the shared install
+#: root (owner-ruled D-A1). Read through :func:`env`, so the legacy
+#: ``SIGIL_ML_INSTALL_ROOT`` spelling is honoured with a deprecation warning.
+INSTALL_ROOT_ENV = "KENAZ_ML_INSTALL_ROOT"
+
+#: The client-owned lease directory under the install root.
+LEASE_DIRNAME = "lease"
+
+#: The admin-shutdown token file inside ``lease/``. A cross-repo interface: the
+#: spawning client (kenaz-harness ``laya-advisors-01LAYA001`` WP12) writes it,
+#: user-read-only; kenaz-ml only ever reads it.
+SHUTDOWN_TOKEN_FILENAME = "shutdown.token"
+
+
+def install_root() -> Path:
+    """Return the shared engine install root. **Never creates anything.**
+
+    ``KENAZ_ML_INSTALL_ROOT`` when set; otherwise the design doc's stated path —
+    ``~/Library/Application Support/kameas/ml`` on macOS,
+    ``$XDG_DATA_HOME/kameas/ml`` (``~/.local/share/kameas/ml``) elsewhere. The
+    tree belongs to the client (C-004): it creates, verifies and swaps it. A
+    developer's standalone ``kenaz-ml serve`` must not litter one, so unlike
+    :func:`models_dir` this function does not ``mkdir``.
+    """
+    override = env(INSTALL_ROOT_ENV)
+    if override:
+        return Path(override).expanduser()
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "kameas" / "ml"
+    return Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share")) / "kameas" / "ml"
+
+
+def lease_dir() -> Path:
+    """``<install_root>/lease`` — read-only from this process; never created here."""
+    return install_root() / LEASE_DIRNAME
+
+
+def shutdown_token_path() -> Path:
+    """``<install_root>/lease/<SHUTDOWN_TOKEN_FILENAME>`` — read, never written, by kenaz-ml."""
+    return lease_dir() / SHUTDOWN_TOKEN_FILENAME
 
 
 def sigild_plugin_url() -> str:

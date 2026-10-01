@@ -623,3 +623,342 @@ class TestCloudConfigShape:
         monkeypatch.setenv("KENAZ_MODE", "cloud")
         with pytest.raises(fsc.UnknownOperatingModeError):
             fsc.load_repo_config(bundle=tmp_path)
+
+
+# ===========================================================================
+# two-client-engine-01MSK2EN WP06 — the fence grows with the new surface
+# ===========================================================================
+#
+# New tests only; everything above is unchanged. Two things are added:
+#
+# * FR-018 clause 1 (T027): the loopback bind is an *enforced* invariant. The
+#   enforcement lives in ``kenaz_ml.cli`` (``is_loopback_host`` guarding the
+#   ``serve`` branch, WP05 T041); these tests prove (a) the default host is
+#   127.0.0.1, (b) the guard refuses non-loopback hosts without
+#   ``--dev-allow-remote``, and (c) no source path hands the server a host
+#   except through that guard (AST scan, with a planted-violation self-test).
+# * FR-018 clause 2 (T028): a full request cycle through every new route, plus
+#   one lease sweep and the token read, opens zero sockets.
+#
+# The event-loop trap: asyncio's selector loop builds an AF_UNIX socketpair for
+# its self-pipe. It is handled by *ordering*, not by exempting anything: the
+# TestClient (and so its loop and self-pipe) is entered before the guard is
+# armed, and requests are then driven through that already-running loop. The
+# guard itself is unchanged — every AF_INET/AF_INET6/AF_UNIX construction
+# inside the block still raises, which ``TestNewSurfaceGuardIsNotVacuous``
+# proves by planting violations on a live request path.
+
+import os as _os  # noqa: E402
+
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+_KENAZ_SRC = Path(__file__).resolve().parents[1] / "src" / "kenaz_ml"
+
+
+def bind_host_violations(source: str, filename: str) -> list[str]:
+    """AST scan: every server-start call must take its host from the guarded CLI arg.
+
+    Flags (1) any ``uvicorn.run``/``uvicorn.Config``/``uvicorn.Server`` call
+    whose ``host=`` is anything but ``args.host``, (2) a ``host=`` literal that
+    is not a loopback address anywhere in a call, and (3) a ``uvicorn.run``
+    call in a function that never calls ``is_loopback_host``.
+    """
+    tree = ast.parse(source)
+    problems: list[str] = []
+    for func in [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))] + [tree]:
+        body_nodes = list(ast.walk(func))
+        guarded = any(
+            isinstance(n, ast.Call) and getattr(n.func, "id", getattr(n.func, "attr", None)) == "is_loopback_host"
+            for n in body_nodes
+        )
+        for node in body_nodes:
+            if not isinstance(node, ast.Call):
+                continue
+            name = ast.unparse(node.func)
+            host_kw = next((k for k in node.keywords if k.arg == "host"), None)
+            if host_kw is not None and isinstance(host_kw.value, ast.Constant):
+                if host_kw.value.value not in ("127.0.0.1", "::1", "localhost"):
+                    problems.append(f"{filename}:{node.lineno}: {name}(host={host_kw.value.value!r})")
+            if name in ("uvicorn.run", "uvicorn.Config", "uvicorn.Server", "run", "Config"):
+                if host_kw is None or ast.unparse(host_kw.value) != "args.host":
+                    if name.startswith("uvicorn") or host_kw is not None:
+                        problems.append(f"{filename}:{node.lineno}: {name} host not taken from guarded args.host")
+                if name == "uvicorn.run" and isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)) and not guarded:
+                    problems.append(f"{filename}:{node.lineno}: {name} in {func.name}() without is_loopback_host")
+    return problems
+
+
+def uvicorn_importers(source: str) -> bool:
+    """True when ``source`` imports ``uvicorn`` (or a submodule) under any spelling."""
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import) and any(a.name.split(".")[0] == "uvicorn" for a in node.names):
+            return True
+        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "uvicorn":
+            return True
+    return False
+
+
+class TestLoopbackBindIsEnforced:
+    """FR-018 clause 1. The guard in cli.py enforces; these tests prove it."""
+
+    def _serve(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *args: str) -> list[dict]:
+        import uvicorn
+
+        from kenaz_ml import cli
+
+        calls: list[dict] = []
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+        monkeypatch.setenv("KENAZ_ML_MODE", "local")
+        monkeypatch.setattr(uvicorn, "run", lambda *a, **kw: calls.append(kw))
+        monkeypatch.setattr(sys, "argv", ["kenaz-ml", "serve", *args])
+        cli.main()
+        return calls
+
+    def test_default_host_is_loopback(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        calls = self._serve(monkeypatch, tmp_path)
+        assert calls and calls[0]["host"] == "127.0.0.1"
+
+    @pytest.mark.parametrize("host", ["0.0.0.0", "::", ""])
+    def test_non_loopback_is_refused_without_the_flag(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, host: str
+    ) -> None:
+        with pytest.raises(SystemExit) as excinfo:
+            self._serve(monkeypatch, tmp_path, "--host", host)
+        assert excinfo.value.code != 0
+
+    def test_non_loopback_only_with_the_explicit_flag(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        calls = self._serve(monkeypatch, tmp_path, "--host", "0.0.0.0", "--dev-allow-remote")
+        assert calls[0]["host"] == "0.0.0.0"
+
+    def test_no_source_path_hands_the_server_an_unguarded_host(self) -> None:
+        problems: list[str] = []
+        for path in sorted(_KENAZ_SRC.rglob("*.py")):
+            problems += bind_host_violations(path.read_text(encoding="utf-8"), str(path.relative_to(_KENAZ_SRC)))
+        assert problems == [], "\n".join(problems)
+
+    def test_the_serve_branch_is_guarded(self) -> None:
+        source = (_KENAZ_SRC / "cli.py").read_text(encoding="utf-8")
+        assert "is_loopback_host(args.host)" in source
+        assert source.index("is_loopback_host(args.host)") < source.index("uvicorn.run(")
+
+    def test_only_the_guarded_cli_imports_uvicorn(self) -> None:
+        # Review addition: the call-site scan above matches ``uvicorn.run`` by
+        # spelling, so ``from uvicorn import run as go`` or ``import uvicorn as u``
+        # would evade it. Confining the import to cli.py closes that class.
+        importers = [
+            str(path.relative_to(_KENAZ_SRC))
+            for path in sorted(_KENAZ_SRC.rglob("*.py"))
+            if uvicorn_importers(path.read_text(encoding="utf-8"))
+        ]
+        assert importers == ["cli.py"], importers
+
+    @pytest.mark.parametrize(
+        "planted",
+        ["import uvicorn as u\n", "from uvicorn import run as go\n", "def f():\n    import uvicorn.server\n"],
+    )
+    def test_the_import_scan_catches_a_planted_violation(self, planted: str) -> None:
+        assert uvicorn_importers(planted)
+
+    @pytest.mark.parametrize(
+        "planted",
+        [
+            'import uvicorn\ndef serve(args):\n    uvicorn.run("kenaz_ml.app:app", host="0.0.0.0", port=1)\n',
+            'import uvicorn\ndef serve(args):\n    uvicorn.run("kenaz_ml.app:app", host=args.host, port=1)\n',
+            "import uvicorn\ndef serve(args, h):\n    if is_loopback_host(args.host):\n        uvicorn.run('a:b', host=h)\n",
+        ],
+    )
+    def test_the_scan_catches_a_planted_violation(self, planted: str) -> None:
+        assert bind_host_violations(planted, "planted.py")
+
+
+@pytest.fixture
+def engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, Any]]:
+    """A local engine over tmp dirs, its TestClient (and loop) entered *before* any guard."""
+    from kenaz_ml import config as kconfig
+    from kenaz_ml.app import AppState
+    from kenaz_ml.routes import register_routes
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    root = tmp_path / "install"
+    monkeypatch.setenv("KENAZ_ML_INSTALL_ROOT", str(root))
+    base = tmp_path / "base"
+    monkeypatch.setattr(kconfig, "base_models_dir", lambda: base)
+    lease = root / "lease"
+    lease.mkdir(parents=True)
+    token = "egress-fence-token"
+    (lease / kconfig.SHUTDOWN_TOKEN_FILENAME).write_text(token + "\n")
+    (lease / kconfig.SHUTDOWN_TOKEN_FILENAME).chmod(0o600)
+
+    state = AppState()
+    exits: list[str] = []
+    state.exit_fn = lambda: exits.append("exit")
+    app = FastAPI()
+    register_routes(app, state)
+    with TestClient(app) as client:
+        yield {"client": client, "state": state, "exits": exits, "token": token, "app": app, "base": base}
+
+
+def _drive_new_surface(engine: dict[str, Any]) -> None:
+    """Every new route, one lease sweep, and both shutdown outcomes."""
+    from kenaz_ml.advice.contracts import contract_for
+    from kenaz_ml.advice.dispatch import build_table
+    from kenaz_ml.lifecycle.leases import is_managed
+    from tests.fixtures.advice_backends import FIXTURE_KIND, fixture_contract, fixture_features, register_fixtures
+
+    client, state = engine["client"], engine["state"]
+    state.dispatch_table = build_table(None, engine["base"])
+    register_fixtures(state.dispatch_table)
+
+    routes = {getattr(r, "path", None) for r in engine["app"].routes}
+    for path in (
+        "/v1/recommend/{kind}",
+        "/v1/labels/{kind}",
+        "/v1/features",
+        "/v1/contracts",
+        "/v1/clients/lease",
+        "/v1/admin/shutdown",
+    ):
+        assert path in routes, f"{path} is not registered; the fence would pass vacuously"
+
+    served = client.post(
+        f"/v1/recommend/{FIXTURE_KIND}",
+        json={"features": fixture_features(), "feature_contract_version": fixture_contract().service_version},
+    )
+    assert served.status_code == 200
+    compact = contract_for("compact_now")
+    refused = client.post(
+        "/v1/recommend/compact_now",
+        json={"features": dict.fromkeys(compact.names, 0.0), "feature_contract_version": compact.service_version},
+    )
+    assert refused.json()["refusal"]["reason"] == "kind_not_served"
+
+    row = {
+        "client": "harness",
+        "kind": "compact_now",
+        "features_hash": "h1",
+        "ts": 1000,
+        "revision": 1,
+        "feature_contract_version": compact.service_version,
+        "features": dict.fromkeys(compact.names, 1.0),
+        "features_complete": True,
+        "shown": False,
+        "confidence": 40,
+        "user_action": "dismissed",
+    }
+    for _ in range(2):  # a batch, then the same batch again
+        assert client.post("/v1/labels/compact_now", json={"client": "harness", "rows": [row]}).status_code == 200
+
+    feats = client.post(
+        "/v1/features",
+        json={
+            "client": "kenaz",
+            "events": [
+                {"event_class": "commit", "ts_ms": 1_700_000_000_000, "session_id": "s"},
+                {"event_class": "teleport", "ts_ms": 1},
+            ],
+        },
+    )
+    assert feats.status_code == 200 and feats.json()["accepted"] == 1 and feats.json()["refused"] == 1
+
+    assert client.get("/v1/contracts").status_code == 200
+    assert (
+        client.post(
+            "/v1/clients/lease", json={"client": "harness", "pid": _os.getpid(), "client_version": "1"}
+        ).status_code
+        == 200
+    )
+    assert client.get("/health").status_code == 200
+
+    state.leases.sweep()  # one sweep iteration (pid liveness via signal 0)
+    state.leases.should_exit(is_managed())
+
+    wrong = client.post("/v1/admin/shutdown", headers={"Authorization": "Bearer nope"})
+    assert wrong.status_code == 403
+    ok = client.post("/v1/admin/shutdown", headers={"Authorization": f"Bearer {engine['token']}"})
+    assert ok.status_code == 202
+
+
+class TestNewSurfaceOpensNoSocket:
+    """FR-018 clause 2 / SC-010."""
+
+    def test_full_request_cycle_through_every_new_route(self, engine: dict[str, Any]) -> None:
+        with no_network() as recorder:
+            _drive_new_surface(engine)
+        assert recorder.socket_attempts == [], "The new surface attempted network access:\n  " + "\n  ".join(
+            recorder.socket_attempts
+        )
+        assert engine["exits"] == ["exit"], "the accepted shutdown never reached the (stubbed) exit hook"
+
+    def test_the_lease_sweep_and_token_read_open_no_socket(self, engine: dict[str, Any]) -> None:
+        from kenaz_ml import config as kconfig
+        from kenaz_ml.lifecycle.shutdown import check_token
+
+        with no_network() as recorder:
+            engine["state"].leases.renew("harness", _os.getpid(), "1")
+            engine["state"].leases.sweep()
+            assert check_token(engine["token"], kconfig.shutdown_token_path()).ok
+            assert not check_token("wrong", kconfig.shutdown_token_path()).ok
+        assert recorder.socket_attempts == []
+
+
+class TestNewSurfaceGuardIsNotVacuous:
+    """Planted violations on live new paths must be caught — with the loop already running."""
+
+    def test_an_af_inet_socket_is_still_caught_while_the_loop_runs(self, engine: dict[str, Any]) -> None:
+        with no_network() as recorder, pytest.raises(EgressAttempted):
+            socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        assert recorder.socket_attempts
+
+    def test_an_af_unix_socketpair_is_still_caught_too(self, engine: dict[str, Any]) -> None:
+        # Nothing is exempted for the loop's benefit: a *new* socketpair is caught.
+        with no_network() as recorder, pytest.raises(EgressAttempted):
+            socket.socketpair()
+        assert recorder.socket_attempts
+
+    def test_a_planted_lookup_in_the_features_lane_fails_the_fence(
+        self, engine: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from kenaz_ml import features_push
+
+        real = features_push.validate_event
+
+        def leaky(event: Any) -> Any:
+            socket.getaddrinfo("telemetry.example.invalid", 443)
+            return real(event)
+
+        monkeypatch.setattr(features_push, "validate_event", leaky)
+        with no_network() as recorder, pytest.raises(EgressAttempted):
+            engine["client"].post(
+                "/v1/features", json={"client": "k", "events": [{"event_class": "commit", "ts_ms": 1}]}
+            )
+        assert any("getaddrinfo" in a for a in recorder.socket_attempts)
+
+    def test_a_planted_connection_in_a_new_route_fails_the_fence(self, engine: dict[str, Any]) -> None:
+        @engine["app"].post("/v1/planted-leak")
+        async def leak() -> dict:
+            socket.create_connection(("127.0.0.1", 9), timeout=0.01)
+            return {}
+
+        with no_network() as recorder, pytest.raises(EgressAttempted):
+            engine["client"].post("/v1/planted-leak")
+        assert recorder.socket_attempts
+
+    def test_a_planted_socket_in_label_ingest_fails_the_fence(
+        self, engine: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from kenaz_ml.advice import label_log
+
+        real = label_log.ingest
+
+        def leaky(*args: Any, **kwargs: Any) -> Any:
+            _socket.socket()
+            return real(*args, **kwargs)
+
+        from kenaz_ml.advice.dispatch import build_table
+
+        engine["state"].dispatch_table = build_table(None, engine["base"])
+        monkeypatch.setattr(label_log, "ingest", leaky)
+        with no_network() as recorder, pytest.raises(EgressAttempted):
+            engine["client"].post("/v1/labels/compact_now", json={"client": "h", "rows": []})
+        assert recorder.socket_attempts

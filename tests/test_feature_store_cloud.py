@@ -31,7 +31,7 @@ from __future__ import annotations
 import inspect
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -81,11 +81,11 @@ pd = pytest.importorskip("pandas")
 # away from the task it describes, not a few milliseconds that could be waved
 # through as clock skew.
 
-T0 = datetime(2026, 1, 15, 9, 0, 0, tzinfo=timezone.utc)
+T0 = datetime(2026, 1, 15, 9, 0, 0, tzinfo=UTC)
 T0_MS = int(T0.timestamp() * 1000)
 HOUR_MS = 3_600_000
 
-FROZEN_NOW = datetime(2026, 7, 30, 12, 0, 0, tzinfo=timezone.utc)
+FROZEN_NOW = datetime(2026, 7, 30, 12, 0, 0, tzinfo=UTC)
 FROZEN_NOW_MS = int(FROZEN_NOW.timestamp() * 1000)
 
 
@@ -504,11 +504,11 @@ def test_materialize_tasks_is_tenant_scoped():
 def test_materialize_tasks_defaults_the_write_clock_to_now():
     store = FakeDataStore(tasks_per_tenant={"acme": [_task("t1", completed_at=T0_MS)]})
     sink = RecordingSink()
-    before_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+    before_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
 
     materialize_tasks(store, sink, tenant_id="acme")
 
-    after_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+    after_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
     for row in sink.rows:
         assert row.event_timestamp_ms == T0_MS
         assert before_ms <= row.created_at_ms <= after_ms

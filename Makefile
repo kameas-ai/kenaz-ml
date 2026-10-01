@@ -1,4 +1,4 @@
-.PHONY: openapi openapi-check install lint format test build clean freeze freeze-smoke
+.PHONY: openapi openapi-check typewriter typewriter-check typewriter-test install lint format test build clean freeze freeze-smoke
 
 # Generate the OpenAPI spec from the FastAPI app
 openapi:
@@ -7,6 +7,18 @@ openapi:
 # Verify the committed spec matches the code (used by CI)
 openapi-check:
 	python scripts/gen_openapi.py --check
+
+# Generate the Python models and the Go module from typewriter/spec.yaml
+typewriter:
+	python scripts/gen_typewriter.py
+
+# Verify the generated files match the spec (used by CI; needs gofmt)
+typewriter-check:
+	python scripts/gen_typewriter.py --check --strict
+
+# Run the Go module's conformance tests against the shared fixtures
+typewriter-test:
+	cd typewriter && go vet ./... && go test ./...
 
 install:
 	pip install -e ".[dev]"

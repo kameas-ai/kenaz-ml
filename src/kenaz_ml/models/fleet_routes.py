@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, HTTPException
@@ -87,7 +87,7 @@ def register_fleet_routes(fastapi_app: FastAPI, state: AppState) -> None:
             model=result["model"],
             team_id=result["team_id"],
             samples=result["samples"],
-            trained_at=datetime.now(timezone.utc).isoformat(),
+            trained_at=datetime.now(UTC).isoformat(),
             metrics=result["metrics"],
         )
 

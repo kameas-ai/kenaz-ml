@@ -1,0 +1,94 @@
+{
+  "kinds": {
+    "branch_now": {
+      "available": false,
+      "backend": null,
+      "detail": "kind unavailable: no backend serves 'branch_now' (the client's heuristic answers)",
+      "dtypes": [
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64"
+      ],
+      "features": [
+        "turns_since_session_start",
+        "turns_since_last_branch",
+        "prior_branch_count",
+        "edit_resend_precursor",
+        "heuristic_signal_count",
+        "heuristic_noise_count",
+        "last_user_msg_len",
+        "tool_call_density_window"
+      ],
+      "reason": "kind_not_served",
+      "supported_versions": [
+        "20e0d23994daee80"
+      ],
+      "version": "20e0d23994daee80"
+    },
+    "compact_now": {
+      "available": false,
+      "backend": null,
+      "detail": "kind unavailable: no backend serves 'compact_now' (the client's heuristic answers)",
+      "dtypes": [
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64"
+      ],
+      "features": [
+        "context_fill_fraction",
+        "tokens_in_span",
+        "turns_since_last_compaction",
+        "tool_result_token_fraction",
+        "model_context_limit",
+        "historical_compression_ratio"
+      ],
+      "reason": "kind_not_served",
+      "supported_versions": [
+        "3ad8b0c1fa514476"
+      ],
+      "version": "3ad8b0c1fa514476"
+    },
+    "escalate_model": {
+      "available": false,
+      "backend": null,
+      "detail": "kind unavailable: no backend serves 'escalate_model' (the client's heuristic answers)",
+      "dtypes": [
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64"
+      ],
+      "features": [
+        "consecutive_tool_failures",
+        "retries_in_window",
+        "turn_latency_trend",
+        "current_rung",
+        "error_kind_auth",
+        "error_kind_transient",
+        "error_kind_cancelled",
+        "error_kind_budget",
+        "error_kind_unknown",
+        "budget_remaining_fraction"
+      ],
+      "reason": "kind_not_served",
+      "supported_versions": [
+        "57d4bdc1bd6a71be"
+      ],
+      "version": "57d4bdc1bd6a71be"
+    }
+  }
+}

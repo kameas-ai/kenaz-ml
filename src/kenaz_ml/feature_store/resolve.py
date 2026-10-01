@@ -73,6 +73,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from kenaz_ml import features_push
 from kenaz_ml.features import (
     extract_duration_features,
     extract_features_from_buffer,
@@ -249,6 +250,31 @@ _active_resolution: contextvars.ContextVar[bool] = contextvars.ContextVar("kenaz
 # ---------------------------------------------------------------------------
 
 
+def _pushed_commit_ts_ms(session_id: str | None) -> int | None:
+    """Latest commit timestamp pushed through ``POST /v1/features``, or None.
+
+    Reads the in-process accessor of ``two-client-engine-01MSK2EN`` WP09
+    (``kenaz_ml.features_push.commit_ts_ms``). Guarded and additive: any failure
+    or an absent lane yields None, which is exactly today's behaviour. Live
+    callers only; replay and materialization never call this (no as-of history
+    exists for pushes). The session-scoped value and the global (unscoped)
+    value are both candidates; the later wins.
+    """
+    # No lane installed is the common case and sits on the serving hot path
+    # (NFR-002): answer it without touching the store's lock.
+    store = features_push.current_store()
+    if store is None:
+        return None
+    try:
+        candidates = [store.commit_ts_ms(None)]
+        if session_id is not None:
+            candidates.append(store.commit_ts_ms(session_id))
+        found = [c for c in candidates if isinstance(c, int) and not isinstance(c, bool)]
+        return max(found) if found else None
+    except Exception:  # never let an optional hint break live resolution
+        return None
+
+
 def resolve_stuck_features(store: DataStore, task_id: str) -> dict[str, float]:
     """Resolve the stuck vector for the task the developer is working on now.
 
@@ -270,7 +296,12 @@ def resolve_stuck_features(store: DataStore, task_id: str) -> dict[str, float]:
     """
     token = _active_resolution.set(True)
     try:
-        features = extract_stuck_features(store, task_id)
+        # With no push lane installed (the common case) skip even the call:
+        # this line is on the serving hot path NFR-002 budgets.
+        if features_push.current_store() is None:
+            features = extract_stuck_features(store, task_id)
+        else:
+            features = extract_stuck_features(store, task_id, pushed_commit_ts_ms=_pushed_commit_ts_ms(task_id))
         _enqueue_push(STUCK, task_id, features)
     finally:
         _active_resolution.reset(token)
@@ -302,7 +333,7 @@ def resolve_stuck_features_from_buffer(events: list[dict]) -> dict[str, float]:
     """
     token = _active_resolution.set(True)
     try:
-        return extract_features_from_buffer(events)
+        return extract_features_from_buffer(events, pushed_commit_ts_ms=_pushed_commit_ts_ms(None))
     finally:
         _active_resolution.reset(token)
 

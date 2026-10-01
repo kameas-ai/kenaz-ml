@@ -9,7 +9,7 @@
   <a href="https://github.com/kameas-ai/kenaz-ml/actions/workflows/ci.yml"><img src="https://github.com/kameas-ai/kenaz-ml/actions/workflows/ci.yml/badge.svg" alt="Tests" /></a>
   <a href="https://github.com/kameas-ai/kenaz-ml/actions/workflows/release.yml"><img src="https://github.com/kameas-ai/kenaz-ml/actions/workflows/release.yml/badge.svg" alt="Release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
-  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+" /></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.14+-blue.svg" alt="Python 3.14+" /></a>
 </p>
 
 ---
@@ -72,7 +72,7 @@ brew install kenaz-ml
 
 ### From source
 
-Requires Python 3.10+.
+Requires Python 3.14+.
 
 ```bash
 git clone https://github.com/kameas-ai/kenaz-ml.git && cd kenaz-ml

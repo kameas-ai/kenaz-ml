@@ -1259,3 +1259,54 @@ class TestRosterAndReporting:
         assert all(r.ok for r in results)
         assert all(r.change.reason == REASON_NO_BASE for r in results)
         assert list(local.iterdir()) == []
+
+
+# ---------------------------------------------------------------------------
+# harness-recommendation-models-01MSK2RM review guard (2026-09-30): the advice
+# kinds never take the generic base rebuild (it would refit whatever the base
+# shipped and write a manifest with empty metrics, silently un-flipping a kind).
+# ---------------------------------------------------------------------------
+
+
+def test_an_advice_kind_never_takes_the_generic_rebuild(slots: dict[str, Path]) -> None:
+    from kenaz_ml.advice.contracts import contract_for
+
+    kind = "compact_now"
+    contract = contract_for(kind)
+    assert contract is not None
+    rng = _rng(3)
+    x = rng.normal(size=(120, len(contract.names)))
+    y = (x[:, 0] > 0).astype(float)
+    base_v1 = _install(slots["base"], name=kind, payload=_dump(_fit(x, y, seed=1)), version="1", contract=contract)
+    _install(
+        slots["local"],
+        name=kind,
+        payload=_dump(_fit(x, y, seed=7)),
+        version="1",
+        contract=contract,
+        provenance=Provenance(
+            base_version="1",
+            base_sha256=base_v1.artifact_sha256,
+            n_local_extensions=1,
+            training_source=TRAINING_SOURCE_LOCAL,
+        ),
+        training=Training(n_samples=len(x), retained_generation="1"),
+        metrics={"serving_backend": "classic", "calibration_fitted": True},
+    )
+    examples = [Example(x=tuple(float(v) for v in row), y=float(label)) for row, label in zip(x, y)]
+    assert append_examples(kind, examples, contract, directory=slots["retained"], generation="1").ok
+    _install(slots["base"], name=kind, payload=_dump(_fit(x, y, seed=2)), version="2", contract=contract)
+    before = _snapshot(slots["local"], kind)
+
+    result = refresh_model(
+        kind,
+        local_dir=slots["local"],
+        base_dir=slots["base"],
+        retained_dir=slots["retained"],
+        expected_contract=contract,
+    )
+
+    assert result.change.due  # the rebuild path was genuinely reached...
+    assert not result.ok and result.refusal is not None
+    assert result.refusal.reason == "advice_kind_rebuild_refused"  # ...and declined
+    assert _snapshot(slots["local"], kind) == before  # the flipped local pair is untouched

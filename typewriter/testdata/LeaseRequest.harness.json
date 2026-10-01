@@ -1,0 +1,8 @@
+{
+  "client": "harness",
+  "client_version": "0.85.0",
+  "min_contracts": {
+    "branch_now": "20e0d23994daee80"
+  },
+  "pid": 4242
+}

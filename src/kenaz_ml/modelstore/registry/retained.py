@@ -718,7 +718,7 @@ def next_generation(current: str | None) -> str:
     """
     try:
         return str(int(str(current)) + 1)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return INITIAL_GENERATION
 
 

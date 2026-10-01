@@ -32,7 +32,7 @@ import random
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import joblib
@@ -206,7 +206,7 @@ class CloudTrainer:
         Flow: lock -> interval check -> threshold check -> train -> save -> audit.
         """
         start = time.time()
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
 
         # Lock check (if configured) -- before ANY other operation (WP04)
         if self.training_lock is not None:
@@ -216,7 +216,7 @@ class CloudTrainer:
                     status="skipped_locked",
                     duration_ms=int((time.time() - start) * 1000),
                     started_at=started_at,
-                    completed_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(UTC),
                 )
 
         try:
@@ -235,7 +235,7 @@ class CloudTrainer:
                 error=str(e)[:500],
                 duration_ms=int(elapsed * 1000),
                 started_at=started_at,
-                completed_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(UTC),
             )
             self._record_audit_event(tenant_id, run)
             return run
@@ -261,7 +261,7 @@ class CloudTrainer:
                     status="skipped",
                     duration_ms=int((time.time() - start) * 1000),
                     started_at=started_at,
-                    completed_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(UTC),
                 )
                 self._record_audit_event(tenant_id, run)
                 return run
@@ -287,7 +287,7 @@ class CloudTrainer:
                 models_trained=models_trained,
                 duration_ms=elapsed_ms,
                 started_at=started_at,
-                completed_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(UTC),
             )
             self._record_audit_event(tenant_id, run)
             return run
@@ -309,7 +309,7 @@ class CloudTrainer:
             models_trained=models_trained,
             duration_ms=elapsed_ms,
             started_at=started_at,
-            completed_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(UTC),
         )
         self._record_audit_event(tenant_id, run)
         return run
@@ -624,7 +624,7 @@ class CloudTrainer:
         tenants = self._discover_tenants()
 
         batch = TrainingBatch(
-            started_at=datetime.now(timezone.utc),
+            started_at=datetime.now(UTC),
         )
 
         for i, tenant_id in enumerate(tenants, 1):
@@ -633,7 +633,7 @@ class CloudTrainer:
             batch.runs.append(run)
 
         batch.total_duration_ms = int((time.time() - start) * 1000)
-        batch.completed_at = datetime.now(timezone.utc)
+        batch.completed_at = datetime.now(UTC)
 
         logger.info(
             "Batch complete: %d trained, %d skipped, %d failed (of %d total) in %dms",
@@ -696,7 +696,7 @@ class CloudTrainer:
         Returns a TrainingRun with tenant_id="__aggregate__".
         """
         start = time.time()
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
 
         try:
             return self._train_aggregate_inner(start, started_at)
@@ -709,7 +709,7 @@ class CloudTrainer:
                 error=str(e)[:500],
                 duration_ms=int(elapsed * 1000),
                 started_at=started_at,
-                completed_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(UTC),
             )
             self._record_audit_event(AGGREGATE_TENANT_ID, run)
             return run
@@ -736,7 +736,7 @@ class CloudTrainer:
                 error="No opted-in tenants found",
                 duration_ms=int((time.time() - start) * 1000),
                 started_at=started_at,
-                completed_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(UTC),
             )
             self._record_audit_event(AGGREGATE_TENANT_ID, run)
             return run
@@ -755,7 +755,7 @@ class CloudTrainer:
                 error="No tasks found across opted-in tenants",
                 duration_ms=int((time.time() - start) * 1000),
                 started_at=started_at,
-                completed_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(UTC),
             )
             self._record_audit_event(AGGREGATE_TENANT_ID, run)
             return run
@@ -777,7 +777,7 @@ class CloudTrainer:
             duration_ms=elapsed_ms,
             error=warning_msg,  # Non-fatal warning included in output
             started_at=started_at,
-            completed_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(UTC),
         )
         self._record_audit_event(AGGREGATE_TENANT_ID, run)
         return run
@@ -889,7 +889,7 @@ class CloudTrainer:
                 skipped += 1
                 continue
             task_ids.append(task["id"])
-            timestamps.append(datetime.fromtimestamp(as_of / 1000.0, tz=timezone.utc))
+            timestamps.append(datetime.fromtimestamp(as_of / 1000.0, tz=UTC))
 
         if skipped:
             logger.info(

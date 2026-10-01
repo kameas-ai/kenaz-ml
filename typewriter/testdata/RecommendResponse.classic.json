@@ -1,0 +1,14 @@
+{
+  "backend": "classic",
+  "checkpoint_provenance": "local",
+  "confidence": 83,
+  "decision": true,
+  "feature_contract_version": "20e0d23994daee80",
+  "generation": "3",
+  "kind_id": "branch_now",
+  "model": "branch_now",
+  "model_id_sha8": "9f2c4a71",
+  "rung": "R2",
+  "score": null,
+  "unbenchmarked": true
+}

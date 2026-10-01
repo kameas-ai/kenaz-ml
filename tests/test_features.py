@@ -313,10 +313,12 @@ def make_events() -> list[dict[str, Any]]:
     """Events in the *task-window* vocabulary that the task extractors read.
 
     Note the commit events use `kind == "commit"` (with `source == "git"`).
-    That is what `extract_stuck_features_from_data` looks for, and it differs
-    from the raw daemon-stream vocabulary that `extract_features_from_buffer`
-    reads, where commits arrive as `kind == "git"`. Both vocabularies are
-    genuine; neither is a typo.
+    Raw `git` and `commit` are ONE signal: `features._normalise_kind` maps
+    `git` -> `commit` in exactly one place and both extractors share
+    `_time_since_last_commit_sec`, so the two spellings are interchangeable
+    (moved by feature-vocabulary-refresh R7f: the earlier "two genuine
+    vocabularies" reading is retracted -- the buffer fixture below keeps raw
+    `git` on purpose, to pin that the normalisation preserves its values).
 
     Caveat for future readers: production data currently contains *no* events
     of kind "commit" or "git" at all -- the local sigild database only ever
@@ -353,7 +355,11 @@ B_NOW = T0 + 100_000
 
 
 def make_buffer_events() -> list[dict[str, Any]]:
-    """Events as the poller buffers them: kind "file"/"git"/"terminal"."""
+    """Events as the poller buffers them: kind "file"/"git"/"terminal".
+
+    Raw `git` is deliberate: it is normalised to `commit` (feature-vocabulary-refresh R7),
+    so the pinned commit-recency values here did not move.
+    """
     return [
         {"id": 1, "kind": "file", "source": "fswatch", "payload": {"path": "/repo/a.py"}, "ts": B_FILE_1},
         {"id": 2, "kind": "file", "source": "fswatch", "payload": {"path": "/repo/b.py"}, "ts": B_FILE_2},
