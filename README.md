@@ -72,12 +72,14 @@ brew install kenaz-ml
 
 ### From source
 
-Requires Python 3.14+.
+Requires [uv](https://docs.astral.sh/uv/), which installs the pinned Python (3.14) and the locked dependencies for you.
 
 ```bash
 git clone https://github.com/kameas-ai/kenaz-ml.git && cd kenaz-ml
-pip install -e ".[dev]"
+uv sync
 ```
+
+Without uv, `pip install -e . --group dev` (pip 25.1+, Python 3.14+) works too, but resolves its own versions rather than the committed `uv.lock`.
 
 ## Usage
 
@@ -101,7 +103,6 @@ health-check, bounded restart), so the app never silently drops to a fake ML
 backend. See `.specify/decisions/ADR-ml-packaging.md`.
 
 ```bash
-pip install -e ".[freeze]"
 make freeze            # → dist/kameas-ml/ (onedir bundle: kameas-ml exe + _internal/; current host platform)
 make freeze-smoke      # boots the frozen binary, asserts /predict/stuck returns a real prediction
 ```
@@ -174,8 +175,8 @@ When fewer than 10 completed tasks exist, models train on synthetic data with re
 ## Development
 
 ```bash
-pip install -e ".[dev]"
-pytest tests/ -v
+uv sync
+uv run pytest tests/ -v
 ```
 
 Tests use temporary SQLite databases and isolated model directories — no sigild dependency required.

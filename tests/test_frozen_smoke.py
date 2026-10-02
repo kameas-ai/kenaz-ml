@@ -33,9 +33,8 @@ only considered correct once this passes against the baked binary.
 
 Run them explicitly after a freeze build:
 
-    pip install -e ".[freeze]"
-    pyinstaller freeze/kenaz-ml.spec --noconfirm
-    KENAZ_ML_FROZEN_BIN=$PWD/dist/kameas-ml/kameas-ml pytest tests/test_frozen_smoke.py -v
+    make freeze
+    make freeze-smoke
 """
 
 from __future__ import annotations

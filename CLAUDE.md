@@ -97,14 +97,19 @@ Verify against live data before treating any event-kind branch as exercised.
 
 ## Build & Test
 
+The project is managed with [uv](https://docs.astral.sh/uv/). `uv.lock` is committed and binding for development, CI and the frozen bundle; `.python-version` pins the interpreter.
+
 ```bash
-pip install -e ".[dev]"          # local development
-pip install -e ".[dev,cloud]"    # includes psycopg2, boto3 — needed for cloud-path tests
-kenaz-ml serve                   # start server with poller
-pytest tests/                    # run tests
+uv sync                          # create .venv on the pinned Python, install locked deps + the dev group
+uv sync --extra cloud            # adds psycopg2, boto3 — needed for cloud-path tests
+uv run kenaz-ml serve            # start server with poller
+uv run pytest tests/             # run tests
+uv add <pkg> / uv lock --upgrade-package <pkg>   # change a dependency; commit uv.lock with it
 ```
 
-The repo carries **no checked-in virtualenv**, and `pytest` is not on the system interpreter. Create one before running tests (`uv venv` works).
+- Never `pip install` into the environment: anything not in `uv.lock` is invisible to CI and to the frozen bundle.
+- CI runs `uv sync --locked`, which fails when `pyproject.toml` and `uv.lock` disagree. After editing dependencies, run `uv lock` and commit the result.
+- `dev` and `freeze` are dependency groups, not extras. `cloud` is the only extra.
 
 ## Spec-Driven Workflow
 

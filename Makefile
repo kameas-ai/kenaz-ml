@@ -2,38 +2,39 @@
 
 # Generate the OpenAPI spec from the FastAPI app
 openapi:
-	python scripts/gen_openapi.py
+	uv run python scripts/gen_openapi.py
 
 # Verify the committed spec matches the code (used by CI)
 openapi-check:
-	python scripts/gen_openapi.py --check
+	uv run python scripts/gen_openapi.py --check
 
 # Generate the Python models and the Go module from typewriter/spec.yaml
 typewriter:
-	python scripts/gen_typewriter.py
+	uv run python scripts/gen_typewriter.py
 
 # Verify the generated files match the spec (used by CI; needs gofmt)
 typewriter-check:
-	python scripts/gen_typewriter.py --check --strict
+	uv run python scripts/gen_typewriter.py --check --strict
 
 # Run the Go module's conformance tests against the shared fixtures
 typewriter-test:
 	cd typewriter && go vet ./... && go test ./...
 
+# Create .venv on the pinned Python and install the locked dependencies
 install:
-	pip install -e ".[dev]"
+	uv sync
 
 lint:
-	ruff check src/ tests/
+	uv run ruff check src/ tests/
 
 format:
-	ruff format src/ tests/
+	uv run ruff format src/ tests/
 
 test:
-	pytest tests/ -v
+	uv run pytest tests/ -v
 
 build:
-	python -m build
+	uv build
 
 clean:
 	rm -rf dist/ build/ *.egg-info src/*.egg-info
@@ -47,13 +48,13 @@ clean:
 # interface, not branding — read the freeze spec's header before "fixing" it.
 # Onedir (not onefile) because notarization rejects onefile's runtime
 # self-extraction of unsigned dylibs — see freeze/kenaz-ml.spec header.
-# Requires the build-time freeze extra (`pip install -e ".[freeze]"`).
+# Needs only uv on PATH: the recipe requests the build-time `freeze` group itself.
 freeze:
-	pyinstaller freeze/kenaz-ml.spec --noconfirm --clean
+	uv run --group freeze pyinstaller freeze/kenaz-ml.spec --noconfirm --clean
 
 # Run the freeze smoke test against a built artifact. Boots the onedir
 # executable on an ephemeral port and asserts /predict/stuck returns a real
 # sklearn prediction — the guard for the known sklearn/numpy/uvicorn
 # hidden-import breakage. Run `make freeze` first.
 freeze-smoke:
-	KENAZ_ML_FROZEN_BIN=$(PWD)/dist/kameas-ml/kameas-ml pytest tests/test_frozen_smoke.py -v
+	KENAZ_ML_FROZEN_BIN=$(PWD)/dist/kameas-ml/kameas-ml uv run pytest tests/test_frozen_smoke.py -v

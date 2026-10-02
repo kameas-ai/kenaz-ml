@@ -8,8 +8,7 @@
 # `pip install` on the user's machine.
 #
 # Build (from the kenaz-ml repo root):
-#     pip install -e ".[freeze]"
-#     pyinstaller freeze/kenaz-ml.spec --noconfirm
+#     make freeze        # = uv run --group freeze pyinstaller freeze/kenaz-ml.spec --noconfirm --clean
 #     # → dist/kameas-ml/  (ONEDIR bundle: dist/kameas-ml/kameas-ml + _internal/)
 #
 # ---------------------------------------------------------------------------

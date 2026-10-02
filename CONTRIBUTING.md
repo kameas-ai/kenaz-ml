@@ -21,11 +21,12 @@ Thanks for your interest in contributing to kenaz-ml.
 ```bash
 git clone https://github.com/kameas-ai/kenaz-ml.git
 cd kenaz-ml
-pip install -e ".[dev]"
-pytest tests/ -v          # must pass before submitting
+uv sync                   # installs the pinned Python and the locked dependencies
+uv run pytest tests/ -v   # must pass before submitting
 ```
 
-Requires Python 3.14+. No native extensions — pure Python + scikit-learn.
+Requires [uv](https://docs.astral.sh/uv/). If you change a dependency, run `uv lock`
+and commit `uv.lock` in the same PR; CI fails on a stale lock.
 
 ## Code Standards
 
@@ -37,7 +38,7 @@ Requires Python 3.14+. No native extensions — pure Python + scikit-learn.
   fixtures with temporary SQLite databases — no sigild dependency in tests.
 - **No network calls.** kenaz-ml is local-only. Feature extraction and
   prediction must never contact external services.
-- `pytest tests/ -v` must pass. No exceptions.
+- `uv run pytest tests/ -v` must pass. No exceptions.
 
 ## Database Contract
 

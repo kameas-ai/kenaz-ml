@@ -48,6 +48,8 @@ def test_torch_is_never_a_declared_dependency() -> None:
     everything = list(project["dependencies"])
     for extra in project.get("optional-dependencies", {}).values():
         everything += extra
+    for group in _pyproject().get("dependency-groups", {}).values():
+        everything += [d for d in group if isinstance(d, str)]
     declared = _names(everything)
     # C-004, plus the packages that would drag torch in (laya requires torch + transformers).
     assert not declared & {"torch", "transformers", "laya", "laya-serve", "pytorch"}
