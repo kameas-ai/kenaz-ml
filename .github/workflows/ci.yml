@@ -25,13 +25,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up uv
+        # uv installs the Python pinned in .python-version and the exact
+        # dependency set in uv.lock; --locked fails if the lock is stale.
+        uses: astral-sh/setup-uv@v6
         with:
-          python-version: '3.14'
+          enable-cache: true
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: |
+          uv sync --locked
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Lint with ruff
         run: ruff check src/ tests/
@@ -44,13 +48,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up uv
+        # uv installs the Python pinned in .python-version and the exact
+        # dependency set in uv.lock; --locked fails if the lock is stale.
+        uses: astral-sh/setup-uv@v6
         with:
-          python-version: '3.14'
+          enable-cache: true
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: |
+          uv sync --locked
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Pyre type check
         run: pyre check 2>&1 | tee pyre-output.txt; echo "Pyre exited with $?"
@@ -93,18 +101,21 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: ['3.14']
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Set up uv
+        # uv installs the Python pinned in .python-version and the exact
+        # dependency set in uv.lock; --locked fails if the lock is stale.
+        uses: astral-sh/setup-uv@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          enable-cache: true
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: |
+          uv sync --locked
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Run tests
         run: pytest tests/ -v
@@ -178,13 +189,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up uv
+        # uv installs the Python pinned in .python-version and the exact
+        # dependency set in uv.lock; --locked fails if the lock is stale.
+        uses: astral-sh/setup-uv@v6
         with:
-          python-version: '3.14'
+          enable-cache: true
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: |
+          uv sync --locked
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Verify OpenAPI spec is up to date
         run: make openapi-check
@@ -195,18 +210,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.14'
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: typewriter/go.mod
 
+      - name: Set up uv
+        # uv installs the Python pinned in .python-version and the exact
+        # dependency set in uv.lock; --locked fails if the lock is stale.
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: |
+          uv sync --locked
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Verify generated types match typewriter/spec.yaml
         run: make typewriter-check
@@ -219,19 +238,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
         with:
-          python-version: '3.14'
-
-      - name: Install build tools
-        run: pip install build
+          enable-cache: true
 
       - name: Build sdist and wheel
-        run: python -m build
+        run: uv build
 
       - name: Install from wheel
-        run: pip install dist/*.whl
+        # Deliberately NOT the lock: this is what an outside `pip install
+        # kenaz-ml` gets, resolved from the wheel's own version ranges.
+        run: |
+          uv venv "$RUNNER_TEMP/wheel-venv"
+          uv pip install --python "$RUNNER_TEMP/wheel-venv" dist/*.whl
+          echo "$RUNNER_TEMP/wheel-venv/bin" >> "$GITHUB_PATH"
 
       - name: Verify server starts from installed wheel
         run: |
@@ -287,13 +308,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up uv
+        # uv installs the Python pinned in .python-version and the exact
+        # dependency set in uv.lock; --locked fails if the lock is stale.
+        uses: astral-sh/setup-uv@v6
         with:
-          python-version: '3.14'
+          enable-cache: true
 
       - name: Install dependencies
-        run: pip install -e ".[dev,freeze]"
+        run: |
+          uv sync --locked --group freeze
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Release tag must match the pyproject version (A5)
         # pyproject.toml is the engine's single version source; the freeze
@@ -310,7 +335,7 @@ jobs:
           fi
 
       - name: Build frozen bundle
-        # `make freeze` runs `pyinstaller freeze/kenaz-ml.spec`, which applies
+        # `make freeze` runs `pyinstaller freeze/kenaz-ml.spec` under uv, which applies
         # the Feast registry at build time and fails the build if the apply
         # fails (D-001 / T019). A bundle without a registry would start fine and
         # fail at the first feature call on a user's machine, so this must never
@@ -326,6 +351,7 @@ jobs:
           #   git archive ef67e05 | tar -x -C /tmp/baseline
           #   cd /tmp/baseline && pip install -e ".[freeze]" \
           #     && pyinstaller freeze/kenaz-ml.spec --noconfirm --clean
+          #   (that commit predates uv; today the equivalent is `make freeze`)
           #   du -sm dist/kameas-ml
           #
           # 126 MB / 210 native libraries. Update this only alongside a recorded
@@ -574,6 +600,12 @@ jobs:
           spctl --assess --type open --context context:primary-signature -vv /tmp/kenaz-ml.dmg
           echo "### Notarization gate: PASSED" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Set up uv
+        if: steps.creds.outputs.configured == 'true'
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
       - name: Verify the notarized artifact serves a real feature call
         if: steps.creds.outputs.configured == 'true'
         # US4 acceptance scenario 3: it is not enough that the notarized artifact
@@ -583,7 +615,8 @@ jobs:
         # closest thing CI has to a clean-machine install.
         run: |
           set -euo pipefail
-          pip install -e ".[dev]"
+          uv sync --locked
+          export PATH="$PWD/.venv/bin:$PATH"
           MOUNT=$(hdiutil attach /tmp/kenaz-ml.dmg -nobrowse -readonly | tail -1 | awk '{print $NF}')
           # `serves_health` (added by WP08) reuses test_frozen_binary_serves_health
           # and its launcher against the MOUNTED, notarized binary.
