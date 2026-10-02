@@ -60,41 +60,10 @@ jobs:
           uv sync --locked
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
-      - name: Pyre type check
-        run: pyre check 2>&1 | tee pyre-output.txt; echo "Pyre exited with $?"
-
-      - name: Fail on real type errors (exclude Pydantic false positives)
-        run: |
-          # Filter out known false positives from Pydantic BaseModel and numpy stubs.
-          grep -E "^src/" pyre-output.txt \
-            | grep -v "Uninitialized attribute" \
-            | grep -v "Unexpected keyword" \
-            | grep -v "Undefined import.*numpy" \
-            | grep -v "Undefined or invalid type.*ndarray" \
-            | grep -v "Undefined or invalid type.*FastAPI" \
-            | grep -v "Undefined or invalid type.*BackgroundTasks" \
-            > pyre-errors.txt || true
-
-          if [ -s pyre-errors.txt ]; then
-            echo "::error::Pyre found real type errors:"
-            cat pyre-errors.txt
-            exit 1
-          else
-            echo "Pyre: no actionable errors (Pydantic/numpy false positives filtered)"
-          fi
-
-      - name: Pysa security analysis
-        run: pyre analyze 2>&1 | tee pysa-output.txt; echo "Pysa exited with $?"
-
-      - name: Report Pysa findings
-        if: always()
-        run: |
-          if grep -q "Found [1-9]" pysa-output.txt 2>/dev/null; then
-            echo "::warning::Pysa found potential security issues — review pysa-output.txt"
-            grep -A2 "Issue" pysa-output.txt || true
-          else
-            echo "Pysa: no security issues found"
-          fi
+      - name: Type check (pyrefly)
+        # Zero findings is the bar: a real error fails this job. The cloud
+        # extra is synced so the optional psycopg2/boto3 imports resolve.
+        run: make typecheck
 
   test:
     runs-on: ${{ matrix.os }}

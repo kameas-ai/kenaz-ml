@@ -132,7 +132,7 @@ class FileRecommender:
         Returns:
             List of (file_path, score) tuples, sorted by score descending.
         """
-        candidates: Counter = Counter()
+        candidates: dict[str, float] = {}
 
         for f in current_files:
             co = self._cooccurrence.get(f)
@@ -150,9 +150,11 @@ class FileRecommender:
                 # Conditional probability: P(other | f)
                 prob = count / f_count
                 if prob >= MIN_COOCCURRENCE_PROB:
-                    candidates[other] = max(candidates[other], prob)
+                    candidates[other] = max(candidates.get(other, 0.0), prob)
 
-        return candidates.most_common(MAX_RECOMMENDATIONS)
+        # Highest probability first; ties keep first-seen order (as Counter.most_common did).
+        ranked = sorted(candidates.items(), key=lambda item: item[1], reverse=True)
+        return ranked[:MAX_RECOMMENDATIONS]
 
     # --- Helper methods ---
 

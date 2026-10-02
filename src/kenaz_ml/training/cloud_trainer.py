@@ -952,15 +952,18 @@ class CloudTrainer:
         tenant_id: str,
     ) -> _RetrievedFeatures:
         """Retrieve one model's feature set and verify it is complete."""
+        feature_store = self.feature_store
+        if feature_store is None:
+            raise OfflineStoreUnavailableError(f"No feature store is configured; cannot retrieve {model_name!r}")
         try:
-            service = self.feature_store.get_feature_service(model_name)
+            service = feature_store.get_feature_service(model_name)
         except Exception as exc:  # noqa: BLE001 - normalized to the retrieval contract
             raise OfflineStoreUnavailableError(
                 f"Feature service {model_name!r} could not be resolved from the registry: {exc}"
             ) from exc
 
         try:
-            frame = self.feature_store.get_historical_features(
+            frame = feature_store.get_historical_features(
                 entity_df=entity_df,
                 features=service,
             ).to_df()

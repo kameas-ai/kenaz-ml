@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import sys
+from typing import TYPE_CHECKING
 
 import uvicorn
 
@@ -17,6 +18,11 @@ from kenaz_ml.datastore.sqlite import SqliteStore
 from kenaz_ml.logging_config import setup_logging
 from kenaz_ml.modelstore import model_store_factory
 from kenaz_ml.training.trainer import Trainer
+
+if TYPE_CHECKING:
+    from kenaz_ml.datastore import DataStore
+    from kenaz_ml.modelstore import ModelStore
+    from kenaz_ml.training.models import CloudTrainingConfig
 
 
 def is_loopback_host(host: str | None) -> bool:
@@ -285,7 +291,7 @@ def _handle_cloud_training(args: argparse.Namespace) -> None:
         sys.exit(0 if result.status != "failed" else 1)
 
 
-def _create_data_store(db_url: str) -> object:
+def _create_data_store(db_url: str) -> DataStore:
     """Create a DataStore from the Postgres URL."""
     try:
         from kenaz_ml import config
@@ -297,7 +303,7 @@ def _create_data_store(db_url: str) -> object:
         raise SystemExit("Error: PostgresStore not available. Install with: pip install kenaz-ml[cloud]") from None
 
 
-def _create_model_store(s3_bucket_name: str) -> object:
+def _create_model_store(s3_bucket_name: str) -> ModelStore:
     """Create a ModelStore from the S3 bucket config."""
     try:
         from kenaz_ml import config
@@ -317,7 +323,7 @@ def _build_cloud_training_config(
     min_interval: int | None = None,
     min_tasks: int | None = None,
     max_tasks_per_tenant: int | None = None,
-) -> object:
+) -> CloudTrainingConfig:
     """Build a CloudTrainingConfig from env vars with CLI overrides."""
     from kenaz_ml.training.models import CloudTrainingConfig
 

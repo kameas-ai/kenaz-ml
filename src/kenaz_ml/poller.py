@@ -144,7 +144,7 @@ class EventPoller:
             result = self.stuck.predict(feats)
         else:
             result = self._FALLBACK_STUCK
-        self.store.insert_prediction("stuck", result, result.get("probability", 0.5), PREDICTION_TTL_SEC)
+        self.store.insert_prediction("stuck", result, float(result.get("probability", 0.5)), PREDICTION_TTL_SEC)
 
         # Activity summary — classify and summarize the buffer.
         activity_result = self._activity_summary()

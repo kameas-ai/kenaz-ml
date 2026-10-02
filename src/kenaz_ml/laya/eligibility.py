@@ -337,7 +337,7 @@ class FixtureTarget:
 
         x = np.random.RandomState(index).standard_normal((1, _FIXTURE_IN)).astype(np.float32)
         (probs,) = self._session.run(None, {self._input: x})
-        return [float(v) for v in probs.reshape(-1)]
+        return [float(v) for v in np.asarray(probs).reshape(-1)]
 
 
 def validate_output(probs: Any) -> str | None:
@@ -602,7 +602,8 @@ def recompute(**kwargs: Any) -> Verdict:
             cache_path().unlink()
         except Exception:
             pass
-        verdict = evaluate(**{"use_cache": False, **kwargs})
+        options: dict[str, Any] = {"use_cache": False, **kwargs}
+        verdict = evaluate(**options)
         try:
             _verdict_stamp = environment_stamp()
         except Exception:  # pragma: no cover

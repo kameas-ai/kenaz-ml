@@ -201,9 +201,12 @@ class WorkflowStatePredictor:
         x = np.array([[features[f] for f in feature_names]])
 
         try:
-            predicted = self._ml_model.predict(x)[0]
-            proba = self._ml_model.predict_proba(x)[0]
-            classes = list(self._ml_model.classes_)
+            model = self._ml_model
+            if model is None:
+                raise RuntimeError("no trained workflow model is loaded")
+            predicted = model.predict(x)[0]
+            proba = model.predict_proba(x)[0]
+            classes = list(model.classes_)
 
             flow_state = {s: 0.0 for s in FLOW_STATES}
             for i, cls in enumerate(classes):

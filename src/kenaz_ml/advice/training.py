@@ -608,9 +608,10 @@ class AdviceTrainingScheduler:
         prior = previous_manifest(kind, self.models_dir)
         elapsed: float | None = None
         if prior is not None and prior.created_at is not None:
-            elapsed = (now - prior.created_at) / 1000.0
-            if elapsed < self.min_interval_sec:
-                return DueCheck(kind, False, "interval not elapsed", elapsed_sec=elapsed)
+            since_last = (now - prior.created_at) / 1000.0
+            elapsed = since_last
+            if since_last < self.min_interval_sec:
+                return DueCheck(kind, False, "interval not elapsed", elapsed_sec=since_last)
         new = count_new_labels(kind, prior, retained_dir=self.retained_dir)
         if new < self.min_new_labels:
             return DueCheck(kind, False, "not enough new labels", new_labels=new, elapsed_sec=elapsed)

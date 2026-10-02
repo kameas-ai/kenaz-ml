@@ -336,7 +336,8 @@ def default_agent_factory(ref: CheckpointRef) -> OnnxAgentLike:
     """Build laya's real ``ONNXAgent`` for ``ref`` -- or refuse truthfully if laya is absent."""
     _enforce_offline()
     try:
-        from laya.onnx_agent import ONNXAgent
+        # Optional by design: laya (and its torch stack) is never in the base install.
+        from laya.onnx_agent import ONNXAgent  # pyrefly: ignore[missing-import]
     except ImportError as exc:  # laya, torch or transformers not installed (the shipped state)
         raise LayaNotInstalledError(f"laya is not importable in this build: {exc}") from exc
     onnx_path = ref.path / ONNX_FILENAME

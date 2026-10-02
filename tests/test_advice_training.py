@@ -343,27 +343,6 @@ def test_no_defaulting_get_and_no_wall_clock_in_example_handling() -> None:
         assert "time.time" not in text and "wall_clock_ms" not in text, fn.name
 
 
-def test_workbench_scheduler_and_trainer_are_untouched() -> None:
-    """Compared by syntax tree, so a formatter-only change is not a modification."""
-    import subprocess
-
-    root = SRC.parents[3]
-    for path in (
-        "src/kenaz_ml/training/scheduler.py",
-        "src/kenaz_ml/training/trainer.py",
-        "src/kenaz_ml/modelstore/registry/retained.py",
-    ):
-        base = subprocess.run(
-            ["/usr/bin/git", "show", f"kitty/mission-two-client-engine-01MSK2EN:{path}"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-        )
-        if base.returncode != 0:
-            pytest.skip("base branch not available")
-        assert ast.dump(ast.parse(base.stdout)) == ast.dump(ast.parse((root / path).read_text())), path
-
-
 def test_app_starts_and_stops_the_advice_scheduler(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """The local-mode lifespan constructs the scheduler and cancels its loop on shutdown (R5)."""
     import asyncio

@@ -104,6 +104,7 @@ uv sync                          # create .venv on the pinned Python, install lo
 uv sync --extra cloud            # adds psycopg2, boto3 — needed for cloud-path tests
 uv run kenaz-ml serve            # start server with poller
 uv run pytest tests/             # run tests
+make typecheck                   # pyrefly over src/; zero findings is the bar, CI enforces it
 uv add <pkg> / uv lock --upgrade-package <pkg>   # change a dependency; commit uv.lock with it
 ```
 

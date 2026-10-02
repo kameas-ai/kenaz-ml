@@ -8,6 +8,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import overload
 
 _log = logging.getLogger(__name__)
 
@@ -30,6 +31,12 @@ def _legacy_env_name(name: str) -> str | None:
     return None
 
 
+@overload
+def env(name: str) -> str | None: ...
+@overload
+def env(name: str, default: str) -> str: ...
+@overload
+def env(name: str, default: None) -> str | None: ...
 def env(name: str, default: str | None = None) -> str | None:
     """Read environment variable ``name``, falling back to its pre-rebrand name.
 

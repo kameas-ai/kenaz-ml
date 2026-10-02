@@ -433,6 +433,12 @@ class Trainer:
         self.store = store
         self._model_store = model_store
 
+    def _require_model_store(self) -> ModelStore:
+        """The model store, for the signal models that cannot be saved without one."""
+        if self._model_store is None:
+            raise RuntimeError("signal models need a model store to be saved; this Trainer has none")
+        return self._model_store
+
     @contextmanager
     def _manifest_update(
         self,
@@ -707,7 +713,7 @@ class Trainer:
 
         detector = PatternDetector()
         detector.train(X)  # IsolationForest is unsupervised
-        detector.save(self._model_store)
+        detector.save(self._require_model_store())
 
         return len(X)
 
@@ -722,7 +728,7 @@ class Trainer:
         baseline_std = evidence.get("baseline_std")
         z_score = evidence.get("z_score")
 
-        if any(v is None for v in [observed, baseline_mean, baseline_std, z_score]):
+        if observed is None or baseline_mean is None or baseline_std is None or z_score is None:
             return None
 
         return [float(observed), float(baseline_mean), float(baseline_std), float(z_score)]
@@ -770,7 +776,7 @@ class Trainer:
             total_tokens += len(tokens)
 
         if total_tokens > 0:
-            predictor.save(self._model_store)
+            predictor.save(self._require_model_store())
 
         return total_tokens
 
@@ -792,5 +798,5 @@ class Trainer:
             )
             return 0
 
-        recommender.save(self._model_store)
+        recommender.save(self._require_model_store())
         return task_count
