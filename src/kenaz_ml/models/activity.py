@@ -351,8 +351,11 @@ class ActivityClassifier:
             features = extract_activity_features(event)
             # Positional and strict: the registered contract, not sorted(keys).
             x = np.array([[features[f] for f in ACTIVITY_FEATURE_NAMES]])
-            category = self._ml_model.predict(x)[0]
-            proba = self._ml_model.predict_proba(x)[0]
+            model = self._ml_model
+            if model is None:
+                raise RuntimeError("no trained activity model is loaded")
+            category = model.predict(x)[0]
+            proba = model.predict_proba(x)[0]
             confidence = float(max(proba))
         except Exception:
             logger.debug("ML classification failed, falling back to rules", exc_info=True)

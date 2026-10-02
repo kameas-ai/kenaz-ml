@@ -84,7 +84,7 @@ cloud = ["psycopg2-binary>=2.9", "boto3>=1.34", "feast[postgres]==0.65.0"]
 # pip 25.1+ the equivalent is `pip install -e . --group dev`.
 [dependency-groups]
 # pyyaml is build-time only: scripts/gen_typewriter.py reads typewriter/spec.yaml.
-dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.4", "pyyaml>=6.0"]
+dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.4", "pyyaml>=6.0", "pyrefly>=1.3"]
 # FR-3 (ADR-ml-packaging.md): build-time-only deps for producing the frozen,
 # self-contained `kenaz-ml` executable. NOT a runtime dependency — the frozen
 # artifact carries only the runtime deps above (the CLAUDE.md "no heavyweight
@@ -100,6 +100,13 @@ Issues = "https://github.com/kameas-ai/kenaz-ml/issues"
 
 [project.scripts]
 kenaz-ml = "kenaz_ml.cli:main"
+
+# Type checking (`make typecheck`, and the CI type-check job). Pyrefly's default
+# rule set, over the package only. The cloud extra must be installed so
+# psycopg2/boto3 resolve; `make typecheck` and CI both sync it.
+[tool.pyrefly]
+project-includes = ["src"]
+python-version = "3.14"
 
 [tool.ruff]
 target-version = "py314"

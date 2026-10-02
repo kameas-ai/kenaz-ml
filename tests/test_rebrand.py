@@ -361,7 +361,9 @@ def test_the_sigild_surface_did_not_shrink() -> None:
 # plus this file, which quotes the tokens it forbids -- the surface is exactly
 # equal on both trees. That is the assertion with teeth: it catches a ledger
 # reference being renamed anywhere the shim does not legitimately reach.
-LEDGER_STABLE_SURFACE = 153
+# 153 at the rebrand; 152 since the unused Pyre taint config (one comment naming
+# the daemon's plugin API) was deleted with the move to pyrefly.
+LEDGER_STABLE_SURFACE = 152
 _SHIM_AND_SELF = (
     ":!tests/test_rebrand.py",
     ":!src/kenaz_ml/config.py",

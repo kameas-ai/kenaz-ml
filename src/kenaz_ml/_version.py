@@ -79,9 +79,9 @@ def resolve_version() -> str:
     if found:
         return found
 
-    try:
-        from importlib.metadata import PackageNotFoundError, version
+    from importlib.metadata import PackageNotFoundError, version
 
+    try:
         return version(DIST_NAME)
     except PackageNotFoundError:
         return UNKNOWN_VERSION

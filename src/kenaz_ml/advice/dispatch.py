@@ -165,13 +165,20 @@ class BackendAnswer:
 class Backend(Protocol):
     """A serving backend. ``name`` must be one of :data:`BACKENDS`."""
 
-    name: str
-    model_label: str
-    rung: str
-    checkpoint_provenance: str
-    model_id_sha8: str | None
-    generation: str
-    unbenchmarked: bool
+    @property
+    def name(self) -> str: ...
+    @property
+    def model_label(self) -> str: ...
+    @property
+    def rung(self) -> str: ...
+    @property
+    def checkpoint_provenance(self) -> str: ...
+    @property
+    def model_id_sha8(self) -> str | None: ...
+    @property
+    def generation(self) -> str: ...
+    @property
+    def unbenchmarked(self) -> bool: ...
 
     def answer(self, vector: tuple[float, ...]) -> BackendAnswer: ...
 
@@ -486,7 +493,7 @@ def _entry_for(kind_id: str, local_dir: Path, base_dir: Path) -> DispatchEntry:
             return not_served(
                 kind_id,
                 contract,
-                f"kind unavailable: {kind_id!r} has a trained model (generation {manifest.version}) "
+                f"kind unavailable: {kind_id!r} has a trained model (generation {getattr(manifest, 'version', '?')}) "
                 "that has not graduated; the client's heuristic answers",
                 manifest=manifest,
                 shadow_model=resolution.model,
@@ -718,10 +725,13 @@ def dispatch(snapshot: Mapping[str, DispatchEntry], kind_id: str, request: Recom
             f"(supported: {list(entry.supported_versions)})",
         )
 
-    if entry.server is None:
+    server = entry.server
+    if server is None:
         if entry.shadow_model is not None and contract is not None:
             _record_shadow(entry, kind_id, contract, request)
         raise Refused(kind_id, entry.reason or REASON_KIND_NOT_SERVED, entry.detail or "kind unavailable")
+    if contract is None:  # a served entry always carries its contract; refuse rather than crash if not
+        raise Refused(kind_id, REASON_NO_CONTRACT, f"kind unavailable: {kind_id!r} has no published feature contract")
 
     names = tuple(contract.names)
     posted = set(request.features)
@@ -731,7 +741,6 @@ def dispatch(snapshot: Mapping[str, DispatchEntry], kind_id: str, request: Recom
     if not all(math.isfinite(v) for v in vector):
         raise Refused(kind_id, REASON_FEATURES_INVALID, "features must be finite numbers")
 
-    server = entry.server
     preflight = getattr(server, "preflight", None)
     if preflight is not None:
         preflight()  # a backend that can refuse before answering (laya: host eligibility); raises Refused

@@ -319,6 +319,8 @@ class PostgresStore:
                 (signal_type, round(confidence, 4), json.dumps(evidence), suggested_action, now_ms, expires_ms),
             )
             row = cur.fetchone()
+            if row is None:
+                raise RuntimeError("insert_signal: INSERT ... RETURNING id returned no row")
             return row[0]
 
     def get_signal_feedback(self, since_ms: int) -> list[dict]:

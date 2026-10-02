@@ -283,6 +283,8 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
 
         # Local mode: existing SQLite-based status (unchanged)
         try:
+            if state.store is None:
+                raise RuntimeError("the data store is not initialised")
             status_data = state.store.get_status_data()
             return {
                 "mode": "local",
@@ -420,7 +422,7 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
 
         if req.features is not None:
             features = req.features
-        elif req.task_id is not None:
+        elif req.task_id is not None and state.store is not None:
             features = resolve_stuck_features(state.store, req.task_id)
         else:
             return StuckResponse(probability=0.5, confidence="weak")
@@ -517,7 +519,7 @@ def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
 
         if req.features is not None:
             features = req.features
-        elif req.task_id is not None:
+        elif req.task_id is not None and state.store is not None:
             features = resolve_duration_features(state.store, req.task_id)
         else:
             return DurationResponse(estimated_minutes=60.0, confidence_interval=[30.0, 90.0])
@@ -825,6 +827,8 @@ def _run_training(state: AppState) -> None:
     """Run training in a background thread."""
     try:
         state.training_in_progress = True
+        if state.store is None:
+            raise RuntimeError("the data store is not initialised")
         trainer = Trainer(state.store, model_store=state.model_store)
         result = trainer.train_all()
         logger.info("Training complete: %s", result)

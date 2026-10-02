@@ -22,7 +22,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from sklearn.ensemble import GradientBoostingClassifier
@@ -96,8 +96,9 @@ def check_width(vector: Sequence[float], names: Sequence[str]) -> tuple[float, .
 #: D-B4: sigmoid (Platt) below this many labels **used by this fit**, isotonic
 #: at or above. One constant, one explicit branch in :func:`calibration_method`.
 ISOTONIC_MIN_LABELS = 1000
-METHOD_SIGMOID = "sigmoid"
-METHOD_ISOTONIC = "isotonic"
+CalibrationMethod = Literal["sigmoid", "isotonic"]
+METHOD_SIGMOID: CalibrationMethod = "sigmoid"
+METHOD_ISOTONIC: CalibrationMethod = "isotonic"
 
 #: Cross-validation folds for ``CalibratedClassifierCV``: as many as the data
 #: allows up to this cap. ``cv=k`` needs at least ``k`` examples of each class
@@ -163,7 +164,7 @@ class CalibratedFit:
         return out
 
 
-def calibration_method(n_labels: int) -> str:
+def calibration_method(n_labels: int) -> CalibrationMethod:
     """D-B4: ``sigmoid`` below :data:`ISOTONIC_MIN_LABELS` fit-time labels, ``isotonic`` at or above."""
     if n_labels < ISOTONIC_MIN_LABELS:
         return METHOD_SIGMOID
@@ -200,7 +201,7 @@ def _folds(y: np.ndarray) -> int:
     return max(CALIBRATION_MIN_FOLDS, min(CALIBRATION_MAX_FOLDS, minority))
 
 
-def _calibrated(kind: str, method: str, folds: int) -> Any:
+def _calibrated(kind: str, method: CalibrationMethod, folds: int) -> Any:
     from sklearn.calibration import CalibratedClassifierCV
 
     # A fresh, unfitted estimator every time: nothing from a prior generation,
@@ -209,7 +210,7 @@ def _calibrated(kind: str, method: str, folds: int) -> Any:
 
 
 def _holdout_ece(
-    kind: str, X: np.ndarray, y: np.ndarray, method: str
+    kind: str, X: np.ndarray, y: np.ndarray, method: CalibrationMethod
 ) -> tuple[float | None, float | None, int, str | None]:
     """ECE of the same fitting procedure, measured on rows it did not fit."""
     from sklearn.model_selection import train_test_split

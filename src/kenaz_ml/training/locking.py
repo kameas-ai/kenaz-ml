@@ -77,16 +77,17 @@ class DataStoreTrainingLock:
         Handles stale lock detection: if the existing lock is older
         than stale_timeout_sec, it is overridden with a warning.
         """
-        try:
-            acquired = self.data_store.acquire_training_lock(
-                tenant_id=tenant_id,
-                pid=self._pid,
-                stale_timeout_sec=self.stale_timeout_sec,
-            )
-        except AttributeError:
+        # Locking is an optional DataStore capability, not part of the protocol.
+        acquire_lock = getattr(self.data_store, "acquire_training_lock", None)
+        if acquire_lock is None:
             # DataStore doesn't support locking -- treat as acquired
             logger.debug("DataStore does not support training locks, proceeding without lock")
             return True
+        acquired = acquire_lock(
+            tenant_id=tenant_id,
+            pid=self._pid,
+            stale_timeout_sec=self.stale_timeout_sec,
+        )
 
         if acquired:
             logger.debug(
@@ -100,12 +101,13 @@ class DataStoreTrainingLock:
 
     def release(self, tenant_id: str) -> None:
         """Release the lock. No-op if not held."""
-        try:
-            self.data_store.release_training_lock(tenant_id)
-            logger.debug("Released training lock for tenant %s", tenant_id)
-        except AttributeError:
+        release_lock = getattr(self.data_store, "release_training_lock", None)
+        if release_lock is None:
             # DataStore doesn't support locking -- no-op
-            pass
+            return
+        try:
+            release_lock(tenant_id)
+            logger.debug("Released training lock for tenant %s", tenant_id)
         except Exception:
             logger.warning(
                 "Failed to release lock for tenant %s",

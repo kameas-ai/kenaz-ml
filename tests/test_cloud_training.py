@@ -65,12 +65,6 @@ class MockDataStore:
         self.recorded_events: list[dict] = []
         self._ml_events: list[dict] = []
 
-    def list_tenants(self) -> list[str]:
-        return list(self._tenants)
-
-    def list_opted_in_tenants(self) -> list[str]:
-        return list(self._opted_in_tenants)
-
     def get_last_training_ts(self, tenant_id: str) -> int | None:
         return self._last_training_ts.get(tenant_id)
 

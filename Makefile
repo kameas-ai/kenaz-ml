@@ -1,4 +1,4 @@
-.PHONY: openapi openapi-check typewriter typewriter-check typewriter-test install lint format test build clean freeze freeze-smoke
+.PHONY: openapi openapi-check typewriter typewriter-check typewriter-test install lint typecheck format test build clean freeze freeze-smoke
 
 # Generate the OpenAPI spec from the FastAPI app
 openapi:
@@ -26,6 +26,10 @@ install:
 
 lint:
 	uv run ruff check src/ tests/
+
+# Type-check the package (needs the cloud extra so psycopg2/boto3 resolve)
+typecheck:
+	uv run --extra cloud pyrefly check
 
 format:
 	uv run ruff format src/ tests/

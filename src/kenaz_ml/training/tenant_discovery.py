@@ -20,7 +20,7 @@ def discover_eligible_tenants(data_store: DataStore) -> list[str]:
     Returns:
         List of tenant ID strings.
     """
-    tenants = data_store.list_tenants()
+    tenants = data_store.get_all_tenant_ids()
     logger.info("Discovered %d tenants with synced data", len(tenants))
     return tenants
 
@@ -34,6 +34,6 @@ def discover_opted_in_tenants(data_store: DataStore) -> list[str]:
     Returns:
         List of opted-in tenant ID strings.
     """
-    tenants = data_store.list_opted_in_tenants()
+    tenants = data_store.get_opted_in_tenant_ids()
     logger.info("Found %d opted-in tenants for aggregate training", len(tenants))
     return tenants

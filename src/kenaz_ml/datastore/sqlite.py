@@ -276,7 +276,10 @@ class SqliteStore:
             "VALUES (?, ?, ?, ?, ?, ?)",
             (signal_type, round(confidence, 4), json.dumps(evidence), suggested_action, now_ms, expires_ms),
         )
-        return cur.lastrowid
+        signal_id = cur.lastrowid
+        if signal_id is None:
+            raise RuntimeError("insert_signal: the INSERT produced no row id")
+        return signal_id
 
     def get_signal_feedback(self, since_ms: int) -> list[dict]:
         """Read feedback linkages from suggestions table for training."""

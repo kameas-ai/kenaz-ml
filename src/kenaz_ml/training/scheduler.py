@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 
 from kenaz_ml.datastore import DataStore
 from kenaz_ml.modelstore import ModelStore
@@ -24,7 +25,12 @@ class TrainingScheduler:
                          model instances into the running poller.
     """
 
-    def __init__(self, store: DataStore, model_store: ModelStore | None = None, reload_callback=None) -> None:
+    def __init__(
+        self,
+        store: DataStore,
+        model_store: ModelStore | None = None,
+        reload_callback: Callable[[], None] | None = None,
+    ) -> None:
         self.store = store
         self._model_store = model_store
         self._reload = reload_callback
@@ -50,7 +56,8 @@ class TrainingScheduler:
             self._last_retrain = time.time()
             self._baseline_tasks = current
             self._log_retrain(result)
-            self._reload()
+            if self._reload is not None:
+                self._reload()
             logger.info("scheduler: retrain complete — %s", result)
         except Exception:
             logger.exception("scheduler: retrain failed")
