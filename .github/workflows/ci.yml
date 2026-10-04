@@ -718,15 +718,19 @@ jobs:
   # sha256 as "sha256:<lowercase hex>". The .dmg is bound through that hash.
   # The signature file is the raw 64-byte detached ed25519 signature.
   #
-  # Objects are immutable: a key that already exists fails the job rather
-  # than being overwritten. index.json is the one mutable object and is
-  # rewritten (newest first) and invalidated on the CDN.
+  # Objects are immutable: an upload refuses to overwrite (If-None-Match: *),
+  # and a key that already holds a DIFFERENT artifact fails the job. A re-run
+  # after a partial publish is idempotent: an existing object with the same
+  # sha256 is treated as already published. index.json is the one mutable
+  # object and is rewritten (newest first = publish order) and invalidated on
+  # the CDN; one publish runs at a time.
   #
   # Prerequisites that live outside this repository, each checked below and
   # reported as NOT RUN while absent (the release still succeeds — publication
   # is not yet part of the release gate; the notarized .dmg is still uploaded
   # as a workflow artifact):
-  #   secret KENAZ_ML_RELEASE_SIGNING_KEY    the ed25519 private key file contents
+  #   secret KENAZ_ML_RELEASE_SIGNING_KEY    the ed25519 private key file contents,
+  #                                          on the `release` GitHub environment
   #   var    KENAZ_ML_RELEASE_PUBLIC_KEY     its public key (for the post-sign self-check)
   #   var    KENAZ_ML_RELEASE_ROLE_ARN       AWS role assumed via GitHub OIDC
   #   var    KENAZ_ML_RELEASE_BUCKET         e.g. kameas-ai-<env>-releases-use2
@@ -738,6 +742,18 @@ jobs:
     needs: notarize
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    # The signing key is a GitHub ENVIRONMENT secret (owner decision 2026-10-03):
+    # without this declaration it is invisible to the job, and declaring it is
+    # also what makes the OIDC token's `sub` claim read
+    # `...:environment:release`, which the kameas-infra trust policy matches
+    # on. Required reviewers on the environment gate the key. The name is a
+    # cross-repo contract with kameas-infra; change it there first.
+    environment: release
+    # One publish at a time: index.json is a read-modify-write, and two close
+    # tags must not interleave on it. Never cancel a publish in flight.
+    concurrency:
+      group: kenaz-ml-publish
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
@@ -747,8 +763,12 @@ jobs:
       # deliberately. Never a branch name: the bytes we sign with must be the
       # bytes we reviewed.
       HARNESS_SIGNER_REF: ''
+      AWS_REGION: us-east-2
     steps:
-      - uses: actions/checkout@v4
+      # Third-party actions in this job are pinned to commit SHAs (tag shown
+      # in the comment): it handles the release signing key and release
+      # credentials, so a moved tag must not be able to change what runs.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Check publication prerequisites
         id: prereqs
@@ -761,7 +781,7 @@ jobs:
           DISTRIBUTION: ${{ vars.KENAZ_ML_CLOUDFRONT_DISTRIBUTION_ID }}
         run: |
           missing=()
-          [ -n "$SIGNING_KEY" ]        || missing+=("secret KENAZ_ML_RELEASE_SIGNING_KEY")
+          [ -n "$SIGNING_KEY" ]        || missing+=("environment secret KENAZ_ML_RELEASE_SIGNING_KEY (environment: release)")
           [ -n "$PUBLIC_KEY" ]         || missing+=("var KENAZ_ML_RELEASE_PUBLIC_KEY")
           [ -n "$ROLE_ARN" ]           || missing+=("var KENAZ_ML_RELEASE_ROLE_ARN")
           [ -n "$BUCKET" ]             || missing+=("var KENAZ_ML_RELEASE_BUCKET")
@@ -785,7 +805,7 @@ jobs:
 
       - name: Download notarized disk image
         if: steps.prereqs.outputs.ready == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: kenaz-ml-macos-arm64-notarized
           path: release
@@ -813,22 +833,28 @@ jobs:
 
       - name: Check out the harness signer at its pinned ref
         if: steps.prereqs.outputs.ready == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: kameas-ai/kenaz-harness
           ref: ${{ env.HARNESS_SIGNER_REF }}
           path: .siblings/kenaz-harness
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         if: steps.prereqs.outputs.ready == 'true'
         with:
           go-version-file: .siblings/kenaz-harness/go.mod
           cache-dependency-path: .siblings/kenaz-harness/go.sum
 
+      - name: Build the signer (no key in the environment)
+        if: steps.prereqs.outputs.ready == 'true'
+        # Module download and compilation run without the signing key
+        # present; only the already-built binary ever sees it.
+        working-directory: .siblings/kenaz-harness
+        run: go build -o "$RUNNER_TEMP/kenaz-ml-sign" ./cmd/kenaz-ml-sign
+
       - name: Sign the engine manifest and self-check the signature
         if: steps.prereqs.outputs.ready == 'true'
         id: sign
-        working-directory: .siblings/kenaz-harness
         env:
           KENAZ_ML_RELEASE_SIGNING_KEY: ${{ secrets.KENAZ_ML_RELEASE_SIGNING_KEY }}
           PUBLIC_KEY: ${{ vars.KENAZ_ML_RELEASE_PUBLIC_KEY }}
@@ -837,35 +863,35 @@ jobs:
           SHA256: ${{ steps.artifact.outputs.sha256 }}
         run: |
           set -euo pipefail
-          OUT="$GITHUB_WORKSPACE/release"
+          SIGNER="$RUNNER_TEMP/kenaz-ml-sign"
           # The signer reads the private key from KENAZ_ML_RELEASE_SIGNING_KEY
           # and prints {"key_id","version","artifact_path","sha256"}.
-          go run ./cmd/kenaz-ml-sign sign \
+          "$SIGNER" sign \
             --version "$VERSION" \
             --artifact-path "$ARTIFACT_BASENAME" \
             --sha256 "$SHA256" \
-            --out "$OUT/${ARTIFACT_BASENAME}.sig" | tee "$OUT/sign.json"
-          [ "$(stat -c %s "$OUT/${ARTIFACT_BASENAME}.sig")" -eq 64 ] \
+            --out "release/${ARTIFACT_BASENAME}.sig" | tee release/sign.json
+          [ "$(stat -c %s "release/${ARTIFACT_BASENAME}.sig")" -eq 64 ] \
             || { echo "::error::signature is not a raw 64-byte ed25519 signature"; exit 1; }
           # Self-check with the public key: the signer and the verifier must
           # agree on the canonical payload before anything is uploaded.
           printf '%s' "$PUBLIC_KEY" > "$RUNNER_TEMP/release.pub"
-          go run ./cmd/kenaz-ml-sign verify \
+          "$SIGNER" verify \
             --pubkey "$RUNNER_TEMP/release.pub" \
-            --sig "$OUT/${ARTIFACT_BASENAME}.sig" \
+            --sig "release/${ARTIFACT_BASENAME}.sig" \
             --version "$VERSION" \
             --artifact-path "$ARTIFACT_BASENAME" \
             --sha256 "$SHA256"
-          echo "key_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["key_id"])' "$OUT/sign.json")" >> "$GITHUB_OUTPUT"
+          echo "key_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["key_id"])' release/sign.json)" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials (OIDC)
         if: steps.prereqs.outputs.ready == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ vars.KENAZ_ML_RELEASE_ROLE_ARN }}
-          aws-region: us-east-2
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Upload the .dmg and its signature (immutable keys)
+      - name: Upload the .dmg and its signature (immutable, idempotent)
         if: steps.prereqs.outputs.ready == 'true'
         env:
           BUCKET: ${{ vars.KENAZ_ML_RELEASE_BUCKET }}
@@ -874,18 +900,47 @@ jobs:
         run: |
           set -euo pipefail
           PREFIX="kenaz-ml/${VERSION}"
-          for name in "${ARTIFACT_BASENAME}" "${ARTIFACT_BASENAME}.sig"; do
-            if aws s3api head-object --bucket "$BUCKET" --key "${PREFIX}/${name}" >/dev/null 2>&1; then
-              echo "::error::s3://${BUCKET}/${PREFIX}/${name} already exists; release objects are immutable — tag a new version instead"
-              exit 1
+
+          # Release objects are immutable, and a re-run after a partial publish
+          # must be able to finish. For each object:
+          #   * head-object 404            -> upload, atomically refusing to
+          #                                   overwrite (If-None-Match: *), so
+          #                                   there is no check-then-put window
+          #   * head-object 200, same sha  -> already published; continue
+          #   * head-object 200, other sha -> fail: a different artifact holds
+          #                                   this version's name
+          #   * any other head-object error -> fail: never treat 403, throttling
+          #                                   or a network error as "absent"
+          publish_object() {
+            local file="$1" key="$2" content_type="$3"
+            local sha b64 err
+            sha=$(sha256sum "$file" | cut -d' ' -f1)
+            b64=$(openssl dgst -sha256 -binary "$file" | base64 -w0)
+            if aws s3api head-object --bucket "$BUCKET" --key "$key" > "$RUNNER_TEMP/head.json" 2> "$RUNNER_TEMP/head.err"; then
+              local remote
+              remote=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("Metadata", {}).get("sha256", ""))' "$RUNNER_TEMP/head.json")
+              if [ "$remote" = "$sha" ]; then
+                echo "s3://${BUCKET}/${key} already published with the same sha256; continuing"
+                return 0
+              fi
+              echo "::error::s3://${BUCKET}/${key} already exists with a different sha256 (${remote:-unrecorded}); release objects are immutable — tag a new version"
+              return 1
             fi
-          done
-          aws s3 cp "release/${ARTIFACT_BASENAME}" "s3://${BUCKET}/${PREFIX}/${ARTIFACT_BASENAME}" \
-            --content-type application/x-apple-diskimage \
-            --cache-control "public, max-age=31536000, immutable"
-          aws s3 cp "release/${ARTIFACT_BASENAME}.sig" "s3://${BUCKET}/${PREFIX}/${ARTIFACT_BASENAME}.sig" \
-            --content-type application/octet-stream \
-            --cache-control "public, max-age=31536000, immutable"
+            if ! grep -q "(404)" "$RUNNER_TEMP/head.err"; then
+              echo "::error::could not determine whether s3://${BUCKET}/${key} exists:"; cat "$RUNNER_TEMP/head.err"
+              return 1
+            fi
+            aws s3api put-object \
+              --bucket "$BUCKET" --key "$key" --body "$file" \
+              --if-none-match '*' \
+              --checksum-sha256 "$b64" \
+              --metadata "sha256=${sha}" \
+              --content-type "$content_type" \
+              --cache-control "public, max-age=31536000, immutable" > /dev/null
+            echo "uploaded s3://${BUCKET}/${key} (sha256:${sha})"
+          }
+          publish_object "release/${ARTIFACT_BASENAME}"     "${PREFIX}/${ARTIFACT_BASENAME}"     application/x-apple-diskimage
+          publish_object "release/${ARTIFACT_BASENAME}.sig" "${PREFIX}/${ARTIFACT_BASENAME}.sig" application/octet-stream
 
       - name: Update index.json and invalidate it on the CDN
         if: steps.prereqs.outputs.ready == 'true'
@@ -901,8 +956,21 @@ jobs:
         run: |
           set -euo pipefail
           # Informational only: the harness build-time pin never reads this.
-          aws s3 cp "s3://${BUCKET}/kenaz-ml/index.json" release/index.json 2>/dev/null \
-            || echo '{"name":"kenaz-ml","releases":[]}' > release/index.json
+          # "Newest first" means publish order, not semver order.
+          #
+          # Start from an empty index ONLY when the object is confirmed
+          # absent (NoSuchKey). Any other failure to read it fails the job:
+          # a transient error must not turn into an index that lists only
+          # this release.
+          if ! aws s3api get-object --bucket "$BUCKET" --key kenaz-ml/index.json release/index.json > /dev/null 2> "$RUNNER_TEMP/index.err"; then
+            if grep -q "NoSuchKey" "$RUNNER_TEMP/index.err"; then
+              echo '{"name":"kenaz-ml","releases":[]}' > release/index.json
+              echo "no kenaz-ml/index.json yet; starting one"
+            else
+              echo "::error::could not read the existing kenaz-ml/index.json; refusing to overwrite it:"; cat "$RUNNER_TEMP/index.err"
+              exit 1
+            fi
+          fi
           python3 - <<'PY'
           import json, os
           from datetime import datetime, timezone
@@ -926,9 +994,10 @@ jobs:
           json.dump(index, open(path, "w"), indent=2)
           print(json.dumps(entry, indent=2))
           PY
-          aws s3 cp release/index.json "s3://${BUCKET}/kenaz-ml/index.json" \
+          aws s3api put-object \
+            --bucket "$BUCKET" --key kenaz-ml/index.json --body release/index.json \
             --content-type application/json \
-            --cache-control "public, max-age=300"
+            --cache-control "public, max-age=300" > /dev/null
           aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION" --paths "/kenaz-ml/index.json" >/dev/null
           {
             echo "### Publish: PASSED"
