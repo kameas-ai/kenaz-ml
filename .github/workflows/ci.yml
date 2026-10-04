@@ -747,7 +747,6 @@ jobs:
       # deliberately. Never a branch name: the bytes we sign with must be the
       # bytes we reviewed.
       HARNESS_SIGNER_REF: ''
-      ARTIFACT_BASENAME: kenaz-ml-${{ github.ref_name }}-darwin-arm64.dmg
     steps:
       - uses: actions/checkout@v4
 
@@ -796,12 +795,20 @@ jobs:
         id: artifact
         run: |
           set -euo pipefail
+          # The version is the tag WITHOUT its leading v, everywhere: the file
+          # name, the S3 prefix, index.json and the signed artifact_path. The
+          # harness pin derives kenaz-ml-<ver>-darwin-arm64.dmg from the bare
+          # version and rejects a leading v, so a name built from the raw tag
+          # would sign a path the pin never asks for.
+          VERSION="${GITHUB_REF_NAME#v}"
+          ARTIFACT_BASENAME="kenaz-ml-${VERSION}-darwin-arm64.dmg"
           mv release/kenaz-ml.dmg "release/${ARTIFACT_BASENAME}"
           SHA=$(sha256sum "release/${ARTIFACT_BASENAME}" | cut -d' ' -f1)
           SIZE=$(stat -c %s "release/${ARTIFACT_BASENAME}")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "basename=${ARTIFACT_BASENAME}" >> "$GITHUB_OUTPUT"
           echo "sha256=sha256:${SHA}" >> "$GITHUB_OUTPUT"
           echo "size=${SIZE}" >> "$GITHUB_OUTPUT"
-          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           echo "${ARTIFACT_BASENAME}: sha256:${SHA} (${SIZE} bytes)"
 
       - name: Check out the harness signer at its pinned ref
@@ -826,6 +833,7 @@ jobs:
           KENAZ_ML_RELEASE_SIGNING_KEY: ${{ secrets.KENAZ_ML_RELEASE_SIGNING_KEY }}
           PUBLIC_KEY: ${{ vars.KENAZ_ML_RELEASE_PUBLIC_KEY }}
           VERSION: ${{ steps.artifact.outputs.version }}
+          ARTIFACT_BASENAME: ${{ steps.artifact.outputs.basename }}
           SHA256: ${{ steps.artifact.outputs.sha256 }}
         run: |
           set -euo pipefail
@@ -862,6 +870,7 @@ jobs:
         env:
           BUCKET: ${{ vars.KENAZ_ML_RELEASE_BUCKET }}
           VERSION: ${{ steps.artifact.outputs.version }}
+          ARTIFACT_BASENAME: ${{ steps.artifact.outputs.basename }}
         run: |
           set -euo pipefail
           PREFIX="kenaz-ml/${VERSION}"
@@ -885,6 +894,7 @@ jobs:
           DOMAIN: ${{ vars.KENAZ_ML_DOWNLOADS_DOMAIN }}
           DISTRIBUTION: ${{ vars.KENAZ_ML_CLOUDFRONT_DISTRIBUTION_ID }}
           VERSION: ${{ steps.artifact.outputs.version }}
+          ARTIFACT_BASENAME: ${{ steps.artifact.outputs.basename }}
           SHA256: ${{ steps.artifact.outputs.sha256 }}
           SIZE: ${{ steps.artifact.outputs.size }}
           KEY_ID: ${{ steps.sign.outputs.key_id }}
