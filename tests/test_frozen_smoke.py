@@ -44,6 +44,7 @@ import os
 import socket
 import stat
 import subprocess
+import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -252,6 +253,12 @@ def _assert_unwritable(root: Path) -> None:
 def readonly_app_dir() -> Iterator[Path]:
     """Make the frozen application directory unwritable for the test's duration.
 
+    Skipped on Windows: ``chmod`` cannot make a directory unwritable there (the
+    read-only bit is advisory for directories and NTFS ACLs are what a locked
+    installation uses), so the probe below would refuse to run the test
+    anyway. The guarantee this test enforces — a notarized, read-only bundle
+    writes nothing into itself — is a property of the macOS install.
+
     This is the point of the exercise: a notarized bundle is signed and
     read-only on a user's machine, so "nothing writes into the bundle" has to be
     enforced by the filesystem here rather than asserted by inspection.
@@ -261,6 +268,8 @@ def readonly_app_dir() -> Iterator[Path]:
     way the directory is probed before the test body runs, so the check can
     never degrade into a writable-directory run that passes for free.
     """
+    if sys.platform == "win32":
+        pytest.skip("directory write permissions cannot be removed with chmod on Windows")
     app_dir = _app_dir()
     changed = _set_tree_writable(app_dir, writable=False)
     try:
