@@ -11,14 +11,14 @@
 #
 # Options (environment):
 #   KENAZ_ML_VERSION=1.2.3   install this version instead of the latest release
-#   KENAZ_ML_HOME=<dir>      install root (default: $XDG_DATA_HOME/kenaz-ml or ~/.local/share/kenaz-ml)
+#   KENAZ_ML_HOME=<dir>      install root (default: ~/.kenaz/ml/standalone)
 #   KENAZ_ML_BIN_DIR=<dir>   where the `kenaz-ml` link goes (default: ~/.local/bin)
 #   KENAZ_ML_REPO=owner/name GitHub repository (default: kameas-ai/kenaz-ml)
 #   KENAZ_ML_BASE_URL=<url>  fetch <url>/<asset> instead of the GitHub Release (mirrors, tests)
 set -eu
 
 REPO="${KENAZ_ML_REPO:-kameas-ai/kenaz-ml}"
-HOME_DIR="${KENAZ_ML_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/kenaz-ml}"
+HOME_DIR="${KENAZ_ML_HOME:-$HOME/.kenaz/ml/standalone}"
 BIN_DIR="${KENAZ_ML_BIN_DIR:-$HOME/.local/bin}"
 
 say() { printf 'kenaz-ml: %s\n' "$*"; }

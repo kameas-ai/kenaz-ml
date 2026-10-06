@@ -50,7 +50,7 @@ try {
   if (Test-Path $partial) { Remove-Item -Recurse -Force $partial }
   New-Item -ItemType Directory -Path $partial | Out-Null
   Expand-Archive -Path (Join-Path $work $asset) -DestinationPath $partial
-  if (-not (Test-Path (Join-Path $partial 'kameas-ml\kameas-ml.exe'))) { throw 'kenaz-ml: the archive has no kameas-ml\kameas-ml.exe' }
+  if (-not (Test-Path "$partial\kameas-ml\kameas-ml.exe")) { throw "kenaz-ml: the archive has no $partial\kameas-ml\kameas-ml.exe" }
   if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
   Move-Item $partial $dest
 

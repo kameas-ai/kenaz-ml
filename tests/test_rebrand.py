@@ -178,6 +178,10 @@ ARTIFACT_EXEMPT_PATHS = ("freeze/kenaz-ml.spec",)
 ALLOWED_ARTIFACT_PATTERNS = (
     rf"dist/{ARTIFACT_NAME}(?:/{ARTIFACT_NAME})?",
     rf"\$MOUNT/{ARTIFACT_NAME}",
+    # Any path whose directory is the onedir, optionally ending in its
+    # launcher (`$dest/kameas-ml/kameas-ml`, `$partial\kameas-ml\kameas-ml.exe`):
+    # the install scripts unpack the artifact and must name where it lands.
+    rf"(?:[\w.$~{{}}-]+[/\\])+{ARTIFACT_NAME}(?:[/\\]{ARTIFACT_NAME}(?:\.exe)?)?",
 )
 
 
@@ -314,7 +318,9 @@ def test_the_reason_the_artifact_keeps_its_name_is_recorded_where_it_is_set() ->
 #: counted as though they were the daemon's, and the figure inflates by ~65.
 LEDGER_PATTERN = r"sigil(?!_ml\b)(?!-ml\b)(?!_[A-Z])"
 LEDGER_BASELINE_OCCURRENCES = 163
-LEDGER_BASELINE_FILES = 39
+# 39 at the rebrand; 38 since release.yml stopped bumping the stale Homebrew
+# formula (its only mention of the daemon was the tap's name).
+LEDGER_BASELINE_FILES = 38
 SIGILD_BASELINE_OCCURRENCES = 95
 SIGILD_BASELINE_FILES = 32
 
@@ -362,8 +368,10 @@ def test_the_sigild_surface_did_not_shrink() -> None:
 # equal on both trees. That is the assertion with teeth: it catches a ledger
 # reference being renamed anywhere the shim does not legitimately reach.
 # 153 at the rebrand; 152 since the unused Pyre taint config (one comment naming
-# the daemon's plugin API) was deleted with the move to pyrefly.
-LEDGER_STABLE_SURFACE = 152
+# the daemon's plugin API) was deleted with the move to pyrefly; 150 since the
+# stale Homebrew tap (`kameas-ai/sigil`, `homebrew-sigil`) left README.md and
+# release.yml — the binary bundles replaced the source formula.
+LEDGER_STABLE_SURFACE = 150
 _SHIM_AND_SELF = (
     ":!tests/test_rebrand.py",
     ":!src/kenaz_ml/config.py",
