@@ -294,6 +294,11 @@ jobs:
             target: darwin-x86_64
             exe: kameas-ml
             mac_artifact: kenaz-ml-macos-x86_64
+            # GitHub's shared Intel runners start the frozen engine in ~10 s
+            # (measured 9.7-10.1 s), right on NFR-003's line; the requirement
+            # is enforced on the arm64 reference lane, this lane measures
+            # against a wider gate so a regression still shows.
+            cold_start_budget_sec: "20"
           - os: ubuntu-24.04
             target: linux-x86_64
             exe: kameas-ml
@@ -454,6 +459,7 @@ jobs:
         #   * cold start against NFR-003's 10 s budget, on the real binary
         env:
           KENAZ_ML_FROZEN_BIN: ${{ github.workspace }}/dist/kameas-ml/${{ matrix.exe }}
+          KENAZ_ML_COLD_START_BUDGET_SEC: ${{ matrix.cold_start_budget_sec || '10' }}
         run: uv run pytest tests/test_frozen_smoke.py -v -s
 
       - name: Package the bundle
