@@ -10,9 +10,10 @@ every non-Windows unzipper (and Go's ``archive/zip``, which the harness
 installer uses) treats as literal file names; ``zip`` keeps Unix modes but is
 not on the Windows runner. This writes one layout everywhere:
 
-* entry names use forward slashes and start with the onedir's name
-  (``kameas-ml/…``), so the archive root is the ``kameas-ml/`` directory the
-  installers expect — the same layout as the macOS ``.dmg`` volume;
+* entry names use forward slashes and start with the onedir's own directory
+  name (``dist/kameas-ml`` is packaged as that directory), so the archive
+  root is the directory the installers expect — the same layout as the macOS
+  ``.dmg`` volume;
 * Unix mode bits are recorded for every entry (on Windows, where there are
   none, the launcher and shared libraries get 0755 so a cross-platform
   unpacker still marks them executable);
@@ -47,8 +48,9 @@ def package(onedir: Path, out: Path) -> int:
     onedir = onedir.resolve()
     if not onedir.is_dir():
         raise SystemExit(f"{onedir} is not a directory")
-    if not any((onedir / n).exists() for n in ("kameas-ml", "kameas-ml.exe")):
-        raise SystemExit(f"{onedir} has no launcher; is it a frozen onedir?")
+    # PyInstaller names the launcher after the onedir itself (plus .exe on Windows).
+    if not any((onedir / n).exists() for n in (onedir.name, onedir.name + ".exe")):
+        raise SystemExit(f"{onedir} has no launcher named after it; is it a frozen onedir?")
     out.parent.mkdir(parents=True, exist_ok=True)
     root = onedir.name
     count = 0

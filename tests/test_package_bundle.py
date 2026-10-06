@@ -11,6 +11,9 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "package_bundle.py"
+#: The freeze output, as `make freeze` leaves it; the onedir's name is the artifact name.
+ONEDIR = "dist/kameas-ml"
+NAME = Path(ONEDIR).name
 
 
 def _load():
@@ -22,10 +25,10 @@ def _load():
 
 
 def _fake_onedir(root: Path) -> Path:
-    onedir = root / "kameas-ml"
+    onedir = Path(root, ONEDIR)
     (onedir / "_internal" / "nested").mkdir(parents=True)
-    (onedir / "kameas-ml").write_bytes(b"#!/bin/sh\n")
-    (onedir / "kameas-ml").chmod(0o755)
+    (onedir / NAME).write_bytes(b"#!/bin/sh\n")
+    (onedir / NAME).chmod(0o755)
     (onedir / "VERSION").write_text("0.1.0\n")
     (onedir / "_internal" / "lib.so").write_bytes(b"\x7fELF")
     (onedir / "_internal" / "lib.so").chmod(0o755)
@@ -43,17 +46,17 @@ def test_zip_root_is_the_onedir_with_forward_slashes_and_modes(tmp_path: Path) -
     assert n >= 4
     with zipfile.ZipFile(out) as zf:
         names = zf.namelist()
-        assert all(n.startswith("kameas-ml/") for n in names), names
+        assert all(n.startswith(f"{NAME}/") for n in names), names
         assert not any("\\" in n for n in names), names
-        assert "kameas-ml/kameas-ml" in names
-        assert "kameas-ml/_internal/nested/data.txt" in names
+        assert f"{NAME}/{NAME}" in names
+        assert f"{NAME}/_internal/nested/data.txt" in names
         modes = {i.filename: stat.S_IMODE(i.external_attr >> 16) for i in zf.infolist()}
-        assert modes["kameas-ml/kameas-ml"] == 0o755
-        assert modes["kameas-ml/_internal/lib.so"] == 0o755
-        assert modes["kameas-ml/VERSION"] & 0o111 == 0
+        assert modes[f"{NAME}/{NAME}"] == 0o755
+        assert modes[f"{NAME}/_internal/lib.so"] == 0o755
+        assert modes[f"{NAME}/VERSION"] & 0o111 == 0
         if os.name != "nt":
             # The symlink is stored as its target's bytes, never as a link.
-            info = zf.getinfo("kameas-ml/_internal/lib.link.so")
+            info = zf.getinfo(f"{NAME}/_internal/lib.link.so")
             assert not stat.S_ISLNK(info.external_attr >> 16)
             assert zf.read(info) == b"\x7fELF"
 
