@@ -82,6 +82,7 @@
 #    shipped registry.
 
 import json
+import importlib.util
 import os
 import shutil
 import sys
@@ -277,6 +278,11 @@ _registry_path, _registry_marker_path = _apply_registry(REPO_ROOT / "build" / "f
 # (tests/test_frozen_smoke.py) is the guard that these are sufficient: it
 # launches the frozen binary and POSTs /predict/stuck, which exercises the
 # sklearn estimator path end-to-end.
+# ONNX Runtime is absent on Intel macOS (no wheel for this Python; see
+# pyproject.toml). Collect it only where it is installed so that one spec
+# builds every target; the engine refuses laya-bearing kinds without it.
+HAS_ONNXRUNTIME = importlib.util.find_spec("onnxruntime") is not None
+
 hiddenimports = []
 hiddenimports += collect_submodules("sklearn")
 hiddenimports += collect_submodules("sklearn.utils")
@@ -444,7 +450,8 @@ except Exception:  # noqa: BLE001 — absence is the expected case
 # `laya` package -- which hard-requires torch -- can never be smuggled in (C-004).
 # `laya` itself is deliberately NOT collected: it is not a declared dependency
 # (see src/kenaz_ml/laya/systemone_mount.py for the PyPI finding).
-hiddenimports += collect_submodules("onnxruntime")
+if HAS_ONNXRUNTIME:
+    hiddenimports += collect_submodules("onnxruntime")
 
 
 # ===========================================================================
@@ -474,7 +481,8 @@ datas += collect_data_files("scipy")
 datas += collect_data_files("feast", include_py_files=True)
 datas += collect_data_files("dask")
 datas += collect_data_files("pyarrow")
-datas += collect_data_files("onnxruntime")
+if HAS_ONNXRUNTIME:
+    datas += collect_data_files("onnxruntime")
 
 # Distribution metadata (`*.dist-info`), which PyInstaller does not collect by
 # default. Feast's dependency tree gates optional imports on
@@ -488,7 +496,8 @@ datas += collect_data_files("onnxruntime")
 datas += copy_metadata("feast", recursive=True)
 datas += copy_metadata("pandas")
 datas += copy_metadata("dask")
-datas += copy_metadata("onnxruntime")
+if HAS_ONNXRUNTIME:
+    datas += copy_metadata("onnxruntime")
 
 # The shipped feature-store assets, all three landing at the one path
 # `bundle_dir()` resolves to. The YAML pair is the configuration surface; the
@@ -521,7 +530,8 @@ print(f"freeze: stamping engine version {ENGINE_VERSION}")
 # statically-linked `cygrpc` extension.
 binaries = []
 binaries += collect_dynamic_libs("pyarrow")
-binaries += collect_dynamic_libs("onnxruntime")
+if HAS_ONNXRUNTIME:
+    binaries += collect_dynamic_libs("onnxruntime")
 try:
     binaries += collect_dynamic_libs("grpc")
 except Exception:  # noqa: BLE001 — see the grpc note above
