@@ -272,8 +272,31 @@ jobs:
   #   * "the bundle is a reasonable size". The delta is printed on every build
   #     and gated, so drift is visible long before it breaches.
   freeze:
-    name: Frozen bundle
-    runs-on: macos-14
+    name: Frozen bundle (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS arm64 is the notarized .dmg lane (spec 069 LD-3); the other
+          # targets ship as zips of the same onedir layout (a `kameas-ml/`
+          # directory at the archive root, what the harness installer and
+          # scripts/install.sh unpack).
+          - os: macos-14
+            target: darwin-arm64
+            exe: kameas-ml
+          - os: ubuntu-24.04
+            target: linux-x86_64
+            exe: kameas-ml
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+            exe: kameas-ml
+          - os: windows-latest
+            target: windows-x86_64
+            exe: kameas-ml.exe
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -285,33 +308,42 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
+        run: uv sync --locked --group freeze
+
+      - name: Engine version
+        id: ver
         run: |
-          uv sync --locked --group freeze
-          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          set -euo pipefail
+          VERSION=$(uv run python -c "from pathlib import Path; import sys; sys.path.insert(0, 'src'); from kenaz_ml._version import pyproject_version; print(pyproject_version(Path('pyproject.toml')) or '')")
+          [ -n "$VERSION" ] || { echo "::error::could not read the engine version from pyproject.toml"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Release tag must match the pyproject version (A5)
         # pyproject.toml is the engine's single version source; the freeze
         # stamps it into VERSION files and /health reports it. A tag that
         # disagrees would ship a mislabelled engine, so it fails here.
         if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          PYPROJECT_VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
           TAG_VERSION="${GITHUB_REF_NAME#v}"
-          PYPROJECT_VERSION=$(python -c "from pathlib import Path; import sys; sys.path.insert(0, 'src'); from kenaz_ml._version import pyproject_version; print(pyproject_version(Path('pyproject.toml')) or '')")
           if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
             echo "::error::tag ${GITHUB_REF_NAME} (version ${TAG_VERSION}) does not match pyproject.toml version ${PYPROJECT_VERSION}; bump pyproject before tagging"
             exit 1
           fi
 
       - name: Build frozen bundle
-        # `make freeze` runs `pyinstaller freeze/kenaz-ml.spec` under uv, which applies
-        # the Feast registry at build time and fails the build if the apply
-        # fails (D-001 / T019). A bundle without a registry would start fine and
-        # fail at the first feature call on a user's machine, so this must never
-        # degrade to a warning.
-        run: make freeze
+        # The same recipe `make freeze` runs (make is not on the Windows
+        # runner). The spec applies the Feast registry at build time and
+        # fails the build if the apply fails (D-001 / T019): a bundle without
+        # a registry would start fine and fail at the first feature call on
+        # a user's machine, so this must never degrade to a warning.
+        run: uv run --group freeze pyinstaller freeze/kenaz-ml.spec --noconfirm --clean
 
       - name: Bundle-size gate (NFR-001)
+        # Measured and gated on the notarized macOS lane, where every native
+        # library is signable surface; the other targets report their size.
         env:
           # Size of the frozen onedir bundle immediately BEFORE this migration,
           # measured on macOS arm64 at commit ef67e05 (the last commit before
@@ -329,28 +361,29 @@ jobs:
           BASELINE_BUNDLE_MB: '126'
           # NFR-001: no more than 350 MB over the pre-migration set.
           GROWTH_CEILING_MB: '350'
+          TARGET: ${{ matrix.target }}
         run: |
           BUNDLE_MB=$(du -sm dist/kameas-ml | cut -f1)
-          LIBS=$(find dist/kameas-ml \( -name '*.so' -o -name '*.dylib' \) | wc -l | tr -d ' ')
+          LIBS=$(find dist/kameas-ml \( -name '*.so' -o -name '*.dylib' -o -name '*.dll' -o -name '*.pyd' \) | wc -l | tr -d ' ')
           DELTA_MB=$((BUNDLE_MB - BASELINE_BUNDLE_MB))
           HEADROOM_MB=$((GROWTH_CEILING_MB - DELTA_MB))
 
           {
-            echo "### Frozen bundle size"
+            echo "### Frozen bundle size (${TARGET})"
             echo ""
             echo "| | value |"
             echo "|---|---|"
             echo "| bundle | ${BUNDLE_MB} MB |"
-            echo "| pre-migration baseline | ${BASELINE_BUNDLE_MB} MB |"
+            echo "| pre-migration baseline (macOS arm64) | ${BASELINE_BUNDLE_MB} MB |"
             echo "| **delta** | **+${DELTA_MB} MB** |"
             echo "| NFR-001 ceiling | ${GROWTH_CEILING_MB} MB |"
             echo "| headroom | ${HEADROOM_MB} MB |"
-            echo "| signable Mach-O files | ${LIBS} |"
+            echo "| native libraries | ${LIBS} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "bundle ${BUNDLE_MB} MB; baseline ${BASELINE_BUNDLE_MB} MB; delta +${DELTA_MB} MB; ceiling ${GROWTH_CEILING_MB} MB; ${LIBS} signable Mach-O files"
+          echo "bundle ${BUNDLE_MB} MB; baseline ${BASELINE_BUNDLE_MB} MB; delta +${DELTA_MB} MB; ceiling ${GROWTH_CEILING_MB} MB; ${LIBS} native libraries"
 
-          if [ "$DELTA_MB" -gt "$GROWTH_CEILING_MB" ]; then
+          if [ "$TARGET" = "darwin-arm64" ] && [ "$DELTA_MB" -gt "$GROWTH_CEILING_MB" ]; then
             echo "::error::bundle grew +${DELTA_MB} MB over the pre-migration baseline, past NFR-001's ${GROWTH_CEILING_MB} MB ceiling"
             exit 1
           fi
@@ -363,15 +396,43 @@ jobs:
         #     chmod'd unwritable, asserting nothing inside the bundle changed and
         #     that the online store landed in the user data directory (FR-013)
         #   * cold start against NFR-003's 10 s budget, on the real binary
-        run: |
-          KENAZ_ML_FROZEN_BIN="$PWD/dist/kameas-ml/kameas-ml" \
-            pytest tests/test_frozen_smoke.py -v -s
+        env:
+          KENAZ_ML_FROZEN_BIN: ${{ github.workspace }}/dist/kameas-ml/${{ matrix.exe }}
+        run: uv run pytest tests/test_frozen_smoke.py -v -s
 
-      - name: Upload frozen bundle
+      - name: Package the bundle
+        # Linux and Windows ship as a zip whose root is the `kameas-ml/`
+        # onedir (the same layout as the macOS .dmg volume). macOS is packaged
+        # by the notarize job from the raw onedir artifact below.
+        if: matrix.target != 'darwin-arm64'
+        env:
+          NAME: kenaz-ml-${{ steps.ver.outputs.version }}-${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          cd dist
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            powershell -NoProfile -Command "Compress-Archive -Path kameas-ml -DestinationPath ../release/${NAME}.zip -CompressionLevel Optimal"
+          else
+            zip -qr "../release/${NAME}.zip" kameas-ml
+          fi
+          cd ..
+          ls -l release
+
+      - name: Upload frozen bundle (macOS onedir, for the notarize job)
+        if: matrix.target == 'darwin-arm64'
         uses: actions/upload-artifact@v4
         with:
           name: kenaz-ml-macos-arm64
           path: dist/kameas-ml
+          retention-days: 7
+
+      - name: Upload packaged bundle
+        if: matrix.target != 'darwin-arm64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kenaz-ml-${{ matrix.target }}
+          path: release/*.zip
           retention-days: 7
 
   # ==========================================================================
