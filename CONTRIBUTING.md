@@ -51,7 +51,7 @@ must be preserved:
    queries: `"stuck"`, `"suggest"`, `"duration"`, `"quality"`.
 3. Python never writes to `events`, `tasks`, `patterns`, or `suggestions` —
    those tables are owned by the Go daemon.
-4. The HTTP server must remain on port `7774` — `sigild` and `sigilctl`
+4. The HTTP server's default port stays `7774` — `sigild` and `sigilctl`
    depend on it.
 
 ## Adding a New Model

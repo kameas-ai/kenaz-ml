@@ -72,8 +72,10 @@ def main() -> None:
         "--port",
         type=int,
         default=7774,
-        help="Loopback port (default 7774). Spawning clients pass an env-mapped port "
-        "(prod 7774, dev 7775, test 7776); the loopback bind guard applies on every port.",
+        help="Loopback port (default 7774, the daemon's contract — see CLAUDE.md invariant 3). A spawning client passes the "
+        "port it chose from its env's lane (design A5.3: base prod 7774, dev 7785, test 7786, falling back to "
+        "base+10k when a port is taken) and records it in the install root's engine.port; the engine binds "
+        "whatever it is given. The loopback bind guard applies on every port.",
     )
     serve_parser.add_argument(
         "--mode",
