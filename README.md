@@ -63,12 +63,29 @@ Weighted scoring model that computes a rolling 30-minute work quality score (0â€
 
 ## Install
 
-### Homebrew
+### Binary (no Python needed)
+
+Every release ships the engine as a self-contained, frozen bundle for macOS
+(Apple silicon, signed and notarized), Linux (x86_64, arm64) and Windows
+(x86_64). The install scripts download the bundle for your machine from the
+GitHub Release, verify it against the release's `SHA256SUMS`, and put
+`kenaz-ml` on your PATH:
 
 ```bash
-brew tap kameas-ai/sigil
-brew install kenaz-ml
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/kameas-ai/kenaz-ml/main/scripts/install.sh | sh
 ```
+
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/kameas-ai/kenaz-ml/main/scripts/install.ps1 | iex
+```
+
+Set `KENAZ_ML_VERSION=1.2.3` to pin a version. The bundles themselves are on
+the [releases page](https://github.com/kameas-ai/kenaz-ml/releases) as
+`kenaz-ml-<version>-<os>-<arch>.{dmg,zip}`; each unpacks to a `kameas-ml/`
+directory whose `kameas-ml` executable is the engine. The kenaz desktop app and
+kenaz-harness install the same bundles on their own.
 
 ### From source
 
