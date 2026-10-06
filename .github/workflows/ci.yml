@@ -402,21 +402,26 @@ jobs:
 
       - name: Package the bundle
         # Linux and Windows ship as a zip whose root is the `kameas-ml/`
-        # onedir (the same layout as the macOS .dmg volume). macOS is packaged
-        # by the notarize job from the raw onedir artifact below.
+        # onedir (the same layout as the macOS .dmg volume), written by one
+        # script on every runner: forward-slash entry names and Unix mode
+        # bits, so the harness's Go unzipper and plain `unzip` both get a
+        # runnable tree (Compress-Archive writes backslash names). macOS is
+        # packaged by the notarize job from the raw onedir artifact below.
         if: matrix.target != 'darwin-arm64'
         env:
           NAME: kenaz-ml-${{ steps.ver.outputs.version }}-${{ matrix.target }}
         run: |
           set -euo pipefail
-          mkdir -p release
-          cd dist
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            powershell -NoProfile -Command "Compress-Archive -Path kameas-ml -DestinationPath ../release/${NAME}.zip -CompressionLevel Optimal"
-          else
-            zip -qr "../release/${NAME}.zip" kameas-ml
-          fi
-          cd ..
+          uv run python scripts/package_bundle.py --onedir dist/kameas-ml --out "release/${NAME}.zip"
+          uv run python - <<'PY'
+          import zipfile, sys, glob
+          z = zipfile.ZipFile(glob.glob("release/*.zip")[0])
+          names = z.namelist()
+          bad = [n for n in names if "\\" in n or not n.startswith("kameas-ml/")]
+          assert not bad, bad[:5]
+          assert any(n in ("kameas-ml/kameas-ml", "kameas-ml/kameas-ml.exe") for n in names)
+          print(f"{len(names)} entries, root kameas-ml/, forward slashes")
+          PY
           ls -l release
 
       - name: Upload frozen bundle (macOS onedir, for the notarize job)
