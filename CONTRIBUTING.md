@@ -75,6 +75,26 @@ test: short description
 docs: short description
 ```
 
+## Cutting a Release
+
+Releases are tags. CI builds and publishes everything from the tag; nothing
+is built or uploaded by hand.
+
+1. Bump `version` in `pyproject.toml` (it is the engine's single version
+   source: the freeze stamps it into the bundle and `/health` reports it).
+   Merge that to `main`.
+2. Tag the merge commit `v<version>` and push the tag. The freeze job
+   refuses a tag that disagrees with `pyproject.toml`.
+3. CI then: freezes the engine for macOS arm64, Linux x86_64/arm64 and
+   Windows x86_64 and runs the frozen smoke tests on each; signs, notarizes
+   and staples the macOS `.dmg` (a release build **fails** without the Apple
+   credentials — never skips); attaches every bundle plus `SHA256SUMS` to the
+   GitHub Release; and, once the publication secrets and infrastructure
+   exist, signs the manifest and publishes to the release bucket for the
+   harness's pinned install (until then that job reports NOT RUN).
+4. `scripts/install.sh` / `scripts/install.ps1` pick the new release up
+   automatically; the kenaz app and the harness pin releases explicitly.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the
