@@ -193,7 +193,15 @@ def _apply_registry(staging_dir):
         *fs_definitions.FEATURE_SERVICES.values(),
     ]
 
-    with tempfile.TemporaryDirectory(prefix="kenaz-ml-freeze-userdata-") as throwaway_user_data:
+    # ignore_cleanup_errors: Feast's SQLite online store keeps its connection
+    # open for the life of the FeatureStore object, and on Windows an open
+    # file cannot be deleted, so the throwaway user-data directory's cleanup
+    # raised PermissionError and failed the freeze. The directory holds only
+    # the apply's scratch online store; leaving it behind on a build machine
+    # is harmless, failing the build over it is not.
+    with tempfile.TemporaryDirectory(
+        prefix="kenaz-ml-freeze-userdata-", ignore_cleanup_errors=True
+    ) as throwaway_user_data:
         try:
             repo_config = fs_config.load_local_repo_config(
                 bundle=staging_dir,
@@ -201,6 +209,7 @@ def _apply_registry(staging_dir):
             )
             store = FeatureStore(config=repo_config)
             store.apply(objects)
+            del store
         except Exception as exc:  # noqa: BLE001 — re-raised below with context
             raise RuntimeError(
                 "feast apply failed during the frozen build, so no registry was produced.\n"

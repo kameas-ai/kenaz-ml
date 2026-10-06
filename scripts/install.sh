@@ -81,20 +81,20 @@ fi
 [ "$actual" = "$expected" ] || die "sha256 mismatch for $asset: got $actual, expected $expected"
 say "verified sha256:$actual"
 
-# ---- unpack into versions/<version>/kameas-ml ---------------------------------
+# ---- unpack the onedir into versions/<version>/ ---------------------------------
 dest="$HOME_DIR/versions/$version"
 rm -rf "$dest.partial"
 mkdir -p "$dest.partial"
 case "$os" in
   darwin)
     mount=$(hdiutil attach "$work/$asset" -nobrowse -readonly -mountrandom "$work" | tail -1 | awk '{print $NF}')
-    [ -d "$mount/kameas-ml" ] || { hdiutil detach "$mount" >/dev/null 2>&1 || true; die "the disk image has no kameas-ml/ directory"; }
+    [ -d "$mount/kameas-ml" ] || { hdiutil detach "$mount" >/dev/null 2>&1 || true; die "no onedir at $mount/kameas-ml"; }
     cp -R "$mount/kameas-ml" "$dest.partial/kameas-ml"
     hdiutil detach "$mount" >/dev/null
     ;;
   linux)
     unzip -q "$work/$asset" -d "$dest.partial"
-    [ -d "$dest.partial/kameas-ml" ] || die "the archive has no kameas-ml/ directory"
+    [ -d "$dest.partial/kameas-ml" ] || die "no onedir at $dest.partial/kameas-ml"
     chmod +x "$dest.partial/kameas-ml/kameas-ml"
     ;;
 esac
