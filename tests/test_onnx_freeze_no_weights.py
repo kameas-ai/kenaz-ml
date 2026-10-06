@@ -16,6 +16,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -58,7 +59,10 @@ def test_torch_is_never_a_declared_dependency() -> None:
 def test_onnxruntime_is_declared_and_pinned_exactly() -> None:
     deps = _pyproject()["project"]["dependencies"]
     pins = [d for d in deps if d.lower().startswith("onnxruntime")]
-    assert len(pins) == 1 and re.fullmatch(r"onnxruntime==\d+\.\d+\.\d+", pins[0]), pins
+    # One exact pin. The only marker allowed is the Intel-macOS carve-out: no
+    # macOS x86_64 wheel exists for this Python, so that build goes without.
+    pattern = r"onnxruntime==\d+\.\d+\.\d+(; sys_platform != 'darwin' or platform_machine != 'x86_64')?"
+    assert len(pins) == 1 and re.fullmatch(pattern, pins[0]), pins
 
 
 def test_freeze_spec_refuses_checkpoint_artifacts_and_torch() -> None:
@@ -144,8 +148,14 @@ def test_frozen_onnxruntime_runs_and_torch_is_absent() -> None:
 @frozen
 def test_frozen_bundle_carries_onnxruntime_natives_and_no_checkpoint_artifact() -> None:
     root = _bundle_root()
-    natives = {p.name for p in root.rglob("*") if p.suffix in (".so", ".dylib") and "onnxruntime" in p.name}
-    assert natives, "onnxruntime's native libraries are missing from the bundle"
+    natives = {
+        p.name for p in root.rglob("*") if p.suffix in (".so", ".dylib", ".dll", ".pyd") and "onnxruntime" in p.name
+    }
+    if sys.platform == "darwin" and platform.machine() == "x86_64":
+        # Intel macOS ships without ONNX Runtime (no wheel); its absence is the contract there.
+        assert not natives, f"Intel macOS bundle must not carry onnxruntime, found {sorted(natives)}"
+    else:
+        assert natives, "onnxruntime's native libraries are missing from the bundle"
     offenders = [
         str(p.relative_to(root))
         for p in root.rglob("*")

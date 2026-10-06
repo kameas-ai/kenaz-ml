@@ -285,6 +285,20 @@ jobs:
           - os: macos-14
             target: darwin-arm64
             exe: kameas-ml
+            mac_artifact: kenaz-ml-macos-arm64
+          # Intel Macs: the harness ships a universal app, so the engine has to
+          # run there too. This lane has no ONNX Runtime (no macOS x86_64
+          # wheel for this Python; see pyproject.toml): classic kinds serve,
+          # laya-bearing kinds refuse as on any ineligible host.
+          - os: macos-15-intel
+            target: darwin-x86_64
+            exe: kameas-ml
+            mac_artifact: kenaz-ml-macos-x86_64
+            # GitHub's shared Intel runners start the frozen engine in ~10 s
+            # (measured 9.7-10.1 s), right on NFR-003's line; the requirement
+            # is enforced on the arm64 reference lane, this lane measures
+            # against a wider gate so a regression still shows.
+            cold_start_budget_sec: "20"
           - os: ubuntu-24.04
             target: linux-x86_64
             exe: kameas-ml
@@ -297,6 +311,9 @@ jobs:
     defaults:
       run:
         shell: bash
+    permissions:
+      contents: read
+      id-token: write # Azure OIDC login for Windows code signing
     steps:
       - uses: actions/checkout@v4
 
@@ -388,6 +405,50 @@ jobs:
             exit 1
           fi
 
+      # ---- Windows code signing (same Azure Trusted Signing setup as the harness) ----
+      # The org's AZURE_* secrets sign kameas-ml.exe through Azure's HSM. Like
+      # the harness release, these steps are continue-on-error: an unsigned
+      # Windows engine is preferable to no Windows engine, and the notices
+      # below say which happened. Nothing here touches the other targets.
+      - name: Azure login (OIDC) — Windows signing
+        id: azure_login
+        if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != ''
+        continue-on-error: true
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Sign kameas-ml.exe (Azure Trusted Signing)
+        if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != '' && steps.azure_login.outcome == 'success'
+        continue-on-error: true
+        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        with:
+          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}
+          files-folder: dist/kameas-ml
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Windows signing skipped notice
+        if: runner.os == 'Windows' && (env.AZURE_CLIENT_ID == '' || steps.azure_login.outcome != 'success')
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        run: |
+          if [ -z "$AZURE_CLIENT_ID" ]; then
+            echo "::notice::Windows engine not signed — the org's AZURE_* secrets are not visible to this repository (add kenaz-ml to their repository list)."
+          else
+            echo "::warning::Windows engine not signed — Azure OIDC login failed (check the federated credential's subject covers this repo's refs)."
+          fi
+
       - name: Freeze smoke tests — real feature call, read-only bundle, cold start
         # The gate that means something. Covers, on the actual artifact:
         #   * /predict/stuck through the frozen sklearn estimator path
@@ -398,6 +459,7 @@ jobs:
         #   * cold start against NFR-003's 10 s budget, on the real binary
         env:
           KENAZ_ML_FROZEN_BIN: ${{ github.workspace }}/dist/kameas-ml/${{ matrix.exe }}
+          KENAZ_ML_COLD_START_BUDGET_SEC: ${{ matrix.cold_start_budget_sec || '10' }}
         run: uv run pytest tests/test_frozen_smoke.py -v -s
 
       - name: Package the bundle
@@ -407,7 +469,7 @@ jobs:
         # bits, so the harness's Go unzipper and plain `unzip` both get a
         # runnable tree (Compress-Archive writes backslash names). macOS is
         # packaged by the notarize job from the raw onedir artifact below.
-        if: matrix.target != 'darwin-arm64'
+        if: ${{ !startsWith(matrix.target, 'darwin') }}
         env:
           NAME: kenaz-ml-${{ steps.ver.outputs.version }}-${{ matrix.target }}
         run: |
@@ -425,15 +487,15 @@ jobs:
           ls -l release
 
       - name: Upload frozen bundle (macOS onedir, for the notarize job)
-        if: matrix.target == 'darwin-arm64'
+        if: startsWith(matrix.target, 'darwin')
         uses: actions/upload-artifact@v4
         with:
-          name: kenaz-ml-macos-arm64
+          name: ${{ matrix.mac_artifact }}
           path: dist/kameas-ml
           retention-days: 7
 
       - name: Upload packaged bundle
-        if: matrix.target != 'darwin-arm64'
+        if: ${{ !startsWith(matrix.target, 'darwin') }}
         uses: actions/upload-artifact@v4
         with:
           name: kenaz-ml-${{ matrix.target }}
@@ -470,20 +532,34 @@ jobs:
   # is not involved: it keeps codesign_identity=None; CI signs, the freeze does
   # not.
   notarize:
-    name: Notarization gate
+    name: Notarization gate (${{ matrix.target }})
     needs: freeze
-    runs-on: macos-14
+    runs-on: ${{ matrix.os }}
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: darwin-arm64
+            artifact: kenaz-ml-macos-arm64
+          - os: macos-15-intel
+            target: darwin-x86_64
+            artifact: kenaz-ml-macos-x86_64
     env:
       RELEASE_BUILD: ${{ startsWith(github.ref, 'refs/tags/v') }}
       PLANT_VIOLATION: ${{ github.event.inputs.plant_violation || 'none' }}
+      # The Developer ID identity the kameas-ai org signs every macOS artifact
+      # with (same constant the harness and kenaz releases use). The
+      # certificate itself comes from the org's APPLE_CERT_P12 secret.
+      APPLE_SIGN_IDENTITY: "Developer ID Application: Kameas AI, Inc. (K54JDRHBA7)"
     steps:
       - uses: actions/checkout@v4
 
       - name: Download frozen bundle
         uses: actions/download-artifact@v4
         with:
-          name: kenaz-ml-macos-arm64
+          name: ${{ matrix.artifact }}
           path: dist/kameas-ml
 
       - name: Restore executable bits
@@ -495,11 +571,13 @@ jobs:
       - name: Check for signing credentials
         id: creds
         env:
-          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
-          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
-          AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
+          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+          APPLE_CERT_P12_PASSWORD: ${{ secrets.APPLE_CERT_P12_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
-          if [ -n "$MACOS_CERTIFICATE_P12" ] && [ -n "$MACOS_SIGNING_IDENTITY" ] && [ -n "$AC_API_KEY_ID" ]; then
+          if [ -n "$APPLE_CERT_P12" ] && [ -n "$APPLE_CERT_P12_PASSWORD" ] && [ -n "$APPLE_API_KEY_ID" ] && [ -n "$APPLE_API_ISSUER_ID" ] && [ -n "$APPLE_API_KEY_P8" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
@@ -527,31 +605,30 @@ jobs:
             echo "bundle was neither signed, notarized, nor stapled. FR-012 and NFR-005 are"
             echo "**unverified** for this build."
             echo ""
-            echo "Required repository secrets:"
+            echo "These are kameas-ai ORGANIZATION secrets (shared with the harness and kenaz releases);"
+            echo "add this repository to their repository list in the org settings:"
             echo ""
-            echo "| secret | purpose |"
+            echo "| org secret | purpose |"
             echo "|---|---|"
-            echo "| \`MACOS_CERTIFICATE_P12\` | base64 of the Developer ID Application .p12 |"
-            echo "| \`MACOS_CERTIFICATE_PASSWORD\` | password for that .p12 |"
-            echo "| \`MACOS_SIGNING_IDENTITY\` | e.g. \`Developer ID Application: Example (TEAMID)\` |"
-            echo "| \`AC_API_KEY_ID\` / \`AC_API_ISSUER_ID\` / \`AC_API_PRIVATE_KEY\` | App Store Connect API key for \`notarytool\` |"
+            echo "| \`APPLE_CERT_P12\` / \`APPLE_CERT_P12_PASSWORD\` | base64 Developer ID Application .p12 and its password |"
+            echo "| \`APPLE_API_KEY_P8\` / \`APPLE_API_KEY_ID\` / \`APPLE_API_ISSUER_ID\` | App Store Connect API key for \`notarytool\` |"
           } | tee -a "$GITHUB_STEP_SUMMARY"
           echo "::warning::notarization gate skipped — Apple Developer credentials are not configured; FR-012/NFR-005 are unverified for this build"
 
       - name: Import signing certificate
         if: steps.creds.outputs.configured == 'true'
         env:
-          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
-          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+          APPLE_CERT_P12_PASSWORD: ${{ secrets.APPLE_CERT_P12_PASSWORD }}
         run: |
           KEYCHAIN_PASSWORD=$(uuidgen)
-          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > /tmp/certificate.p12
+          echo "$APPLE_CERT_P12" | base64 --decode > /tmp/certificate.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security set-keychain-settings -t 3600 -u build.keychain
           security import /tmp/certificate.p12 -k build.keychain \
-            -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            -P "$APPLE_CERT_P12_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" build.keychain > /dev/null
           rm -f /tmp/certificate.p12
@@ -559,7 +636,7 @@ jobs:
       - name: Sign the bundle inside-out
         if: steps.creds.outputs.configured == 'true'
         env:
-          IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          IDENTITY: ${{ env.APPLE_SIGN_IDENTITY }}
         run: |
           set -euo pipefail
           # Inside-out: every nested Mach-O first, the launcher last. Signing the
@@ -601,9 +678,9 @@ jobs:
       - name: Notarize and staple
         if: steps.creds.outputs.configured == 'true'
         env:
-          AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
-          AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
-          AC_API_PRIVATE_KEY: ${{ secrets.AC_API_PRIVATE_KEY }}
+          AC_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          AC_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          AC_API_PRIVATE_KEY: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/ac
@@ -759,7 +836,7 @@ jobs:
         if: steps.creds.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: kenaz-ml-macos-arm64-notarized
+          name: ${{ matrix.artifact }}-notarized
           path: /tmp/kenaz-ml.dmg
           retention-days: 14
 
@@ -768,19 +845,10 @@ jobs:
   # ==========================================================================
   # On a `v*` tag, every platform bundle is attached to the GitHub Release
   # under its canonical name, with a SHA256SUMS file the install scripts
-  # verify against:
-  #
-  #   kenaz-ml-<ver>-darwin-arm64.dmg      (signed + notarized + stapled)
-  #   kenaz-ml-<ver>-linux-x86_64.zip
-  #   kenaz-ml-<ver>-linux-arm64.zip
-  #   kenaz-ml-<ver>-windows-x86_64.zip
-  #   SHA256SUMS
-  #
-  # The release is created here if release.yml has not created it yet
-  # (both workflows run on the tag; whichever is first creates, the other
-  # uploads). Uploads use --clobber so a re-run replaces rather than fails.
-  # This needs no infrastructure beyond GitHub; the S3/CDN publish job below
-  # is the harness's signed-pin channel and remains separate.
+  # verify against (scripts/assemble_release_assets.sh lists them). The
+  # release is created here if release.yml has not created it yet; uploads use
+  # --clobber so a re-run replaces rather than fails. Needs nothing beyond
+  # GitHub; the S3/CDN publish job below is the harness's pinned channel.
   release-assets:
     name: GitHub Release assets
     needs: [freeze, notarize]
@@ -791,35 +859,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download platform bundles
+      - name: Download notarized macOS images
         uses: actions/download-artifact@v4
         with:
           path: bundles
-          pattern: kenaz-ml-*
-          merge-multiple: false
+          pattern: kenaz-ml-macos-*-notarized
+
+      - name: Download Linux and Windows bundles
+        uses: actions/download-artifact@v4
+        with:
+          path: bundles
+          pattern: kenaz-ml-{linux,windows}-*
 
       - name: Assemble release assets
         env:
           TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          VERSION="${TAG#v}"
-          mkdir -p assets
-          # Linux/Windows zips are already canonically named by the freeze job.
-          find bundles -name 'kenaz-ml-*.zip' -exec cp {} assets/ \;
-          # The notarized .dmg carries its canonical name from here on.
-          if [ -f bundles/kenaz-ml-macos-arm64-notarized/kenaz-ml.dmg ]; then
-            cp bundles/kenaz-ml-macos-arm64-notarized/kenaz-ml.dmg "assets/kenaz-ml-${VERSION}-darwin-arm64.dmg"
-          else
-            echo "::error::no notarized .dmg artifact — the notarize job is the release gate for macOS"
-            exit 1
-          fi
-          for t in linux-x86_64 linux-arm64 windows-x86_64; do
-            [ -f "assets/kenaz-ml-${VERSION}-${t}.zip" ] || { echo "::error::missing bundle for ${t}"; exit 1; }
-          done
-          (cd assets && sha256sum -- * > SHA256SUMS)
-          ls -l assets
-          cat assets/SHA256SUMS
+        run: scripts/assemble_release_assets.sh "${TAG#v}" bundles assets
 
       - name: Create or update the GitHub Release
         env:
@@ -842,141 +897,190 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ==========================================================================
-  # Publish (engine-publication-01ENPUB01 WP-M2)
+  # Publication to the release bucket + CDN (engine-publication-01ENPUB01)
   # ==========================================================================
-  # Release builds only. Takes the signed + notarized + stapled .dmg the
-  # notarize job produced, signs its MANIFEST with the release ed25519 key,
-  # and publishes both to the release bucket behind the downloads CDN:
+  # The same environment resolution and AWS access pattern as the harness and
+  # kenaz releases, so one set of repo variables and one IAM setup serve all
+  # three products:
   #
-  #   kenaz-ml/<ver>/kenaz-ml-<ver>-darwin-arm64.dmg
-  #   kenaz-ml/<ver>/kenaz-ml-<ver>-darwin-arm64.dmg.sig
-  #   kenaz-ml/index.json                      (informational, newest first)
+  #   trigger                         env    bucket                          CDN
+  #   push to main                    dev    kameas-ai-dev-releases-use2     dev.downloads.kameas.ai
+  #   tag v*-rc*                      stage  kameas-ai-stage-releases-use2   stage.downloads.kameas.ai
+  #   tag v* (no -rc) / dispatch      prod   kameas-ai-prod-releases-use2    downloads.kameas.ai
   #
-  # What is signed is NOT the .dmg bytes: it is the canonical bytes of the
-  # harness's EngineManifest(version, artifact_path, sha256).SigningPayload(),
-  # produced by the harness's own signer (kenaz-harness cmd/kenaz-ml-sign) at
-  # a pinned ref. The harness rebuilds that manifest at install time from its
-  # build-time pin, so the three inputs here must match the pin exactly:
-  # the version string, the CHANNEL-RELATIVE artifact path (the bare file
-  # name — the channel URL already carries kenaz-ml/<ver>), and the .dmg
-  # sha256 as "sha256:<lowercase hex>". The .dmg is bound through that hash.
-  # The signature file is the raw 64-byte detached ed25519 signature.
+  # Access is two hops, as in the harness: GitHub OIDC assumes the per-env
+  # gh-deploy role (DEPLOY_ROLE_ARN_<ENV>), which assumes the env account's
+  # AppDeployRole (APPDEPLOY_ROLE_ARN_<ENV>). Both ARNs are repo Actions
+  # variables — the same six the harness repo carries — so no account ids are
+  # committed here. The IAM trust policies must admit this repository.
   #
-  # Objects are immutable: an upload refuses to overwrite (If-None-Match: *),
-  # and a key that already holds a DIFFERENT artifact fails the job. A re-run
-  # after a partial publish is idempotent: an existing object with the same
-  # sha256 is treated as already published. index.json is the one mutable
-  # object and is rewritten (newest first = publish order) and invalidated on
-  # the CDN; one publish runs at a time.
+  # What lands, per platform, under s3://<bucket>/kenaz-ml/<label>/ :
+  #   kenaz-ml-<label>-<target>.{dmg,zip}   immutable (If-None-Match), sha256 in metadata
+  #   kenaz-ml-<label>-<target>.{dmg,zip}.sig   raw ed25519 over the engine MANIFEST
+  #                                             (version, bare filename, sha256) — the
+  #                                             harness's verified-install contract;
+  #                                             written only when the signing key exists
+  #   SHA256SUMS
+  # plus kenaz-ml/index.json (informational, newest first, one entry per label
+  # with a key per platform) and a CloudFront invalidation of it.
   #
-  # Prerequisites that live outside this repository, each checked below and
-  # reported as NOT RUN while absent (the release still succeeds — publication
-  # is not yet part of the release gate; the notarized .dmg is still uploaded
-  # as a workflow artifact):
-  #   secret KENAZ_ML_RELEASE_SIGNING_KEY    the ed25519 private key file contents,
-  #                                          on the `release` GitHub environment
-  #   var    KENAZ_ML_RELEASE_PUBLIC_KEY     its public key (for the post-sign self-check)
-  #   var    KENAZ_ML_RELEASE_ROLE_ARN       AWS role assumed via GitHub OIDC
-  #   var    KENAZ_ML_RELEASE_BUCKET         e.g. kameas-ai-<env>-releases-use2
-  #   var    KENAZ_ML_DOWNLOADS_DOMAIN       e.g. downloads.<env>.kameas.ai
-  #   var    KENAZ_ML_CLOUDFRONT_DISTRIBUTION_ID
-  #   env    HARNESS_SIGNER_REF (below)      the pinned kenaz-harness ref that ships the signer
-  publish:
-    name: Publish engine release
-    needs: notarize
+  # <label> is the bare version for tags (1.2.3; the harness pin derives the
+  # file names from it and rejects a leading v) and <version>-dev.<sha7> for
+  # main pushes, so dev builds never collide with each other or a release.
+  resolve-env:
+    name: Resolve release environment
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    # The signing key is a GitHub ENVIRONMENT secret (owner decision 2026-10-03):
-    # without this declaration it is invisible to the job, and declaring it is
-    # also what makes the OIDC token's `sub` claim read
-    # `...:environment:release`, which the kameas-infra trust policy matches
-    # on. Required reviewers on the environment gate the key. The name is a
-    # cross-repo contract with kameas-infra; change it there first.
-    environment: release
-    # One publish at a time: index.json is a read-modify-write, and two close
-    # tags must not interleave on it. Never cancel a publish in flight.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    outputs:
+      target_env: ${{ steps.pick.outputs.target_env }}
+      bucket: ${{ steps.pick.outputs.bucket }}
+      role_arn: ${{ steps.pick.outputs.role_arn }}
+      appdeploy_role_arn: ${{ steps.pick.outputs.appdeploy_role_arn }}
+      cf_dist_id: ${{ steps.pick.outputs.cf_dist_id }}
+      cdn_base: ${{ steps.pick.outputs.cdn_base }}
+      label: ${{ steps.pick.outputs.label }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: pick
+        env:
+          DEPLOY_ROLE_ARN_DEV: ${{ vars.DEPLOY_ROLE_ARN_DEV }}
+          DEPLOY_ROLE_ARN_STAGE: ${{ vars.DEPLOY_ROLE_ARN_STAGE }}
+          DEPLOY_ROLE_ARN_PROD: ${{ vars.DEPLOY_ROLE_ARN_PROD }}
+          APPDEPLOY_ROLE_ARN_DEV: ${{ vars.APPDEPLOY_ROLE_ARN_DEV }}
+          APPDEPLOY_ROLE_ARN_STAGE: ${{ vars.APPDEPLOY_ROLE_ARN_STAGE }}
+          APPDEPLOY_ROLE_ARN_PROD: ${{ vars.APPDEPLOY_ROLE_ARN_PROD }}
+          REF: ${{ github.ref }}
+          EVENT: ${{ github.event_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            TARGET="prod"
+          elif [[ "$REF" == refs/tags/v*-rc* ]]; then
+            TARGET="stage"
+          elif [[ "$REF" == refs/tags/v* ]]; then
+            TARGET="prod"
+          else
+            TARGET="dev"
+          fi
+          case "$TARGET" in
+            dev)   BUCKET="kameas-ai-dev-releases-use2";   ROLE_ARN="$DEPLOY_ROLE_ARN_DEV";   APPDEPLOY_ROLE_ARN="$APPDEPLOY_ROLE_ARN_DEV";   CF_DIST_ID="E1PRT6QD4VW589"; CDN_BASE="https://dev.downloads.kameas.ai" ;;
+            stage) BUCKET="kameas-ai-stage-releases-use2"; ROLE_ARN="$DEPLOY_ROLE_ARN_STAGE"; APPDEPLOY_ROLE_ARN="$APPDEPLOY_ROLE_ARN_STAGE"; CF_DIST_ID="E1N8AI5X4GRPWU"; CDN_BASE="https://stage.downloads.kameas.ai" ;;
+            prod)  BUCKET="kameas-ai-prod-releases-use2";  ROLE_ARN="$DEPLOY_ROLE_ARN_PROD";  APPDEPLOY_ROLE_ARN="$APPDEPLOY_ROLE_ARN_PROD";  CF_DIST_ID="ENWB9Y4KGTPFD";  CDN_BASE="https://downloads.kameas.ai" ;;
+          esac
+          VERSION=$(python3 -c "from pathlib import Path; import sys; sys.path.insert(0, 'src'); from kenaz_ml._version import pyproject_version; print(pyproject_version(Path('pyproject.toml')) or '')")
+          [ -n "$VERSION" ] || { echo "::error::could not read the engine version from pyproject.toml"; exit 1; }
+          if [[ "$REF" == refs/tags/v* ]]; then
+            LABEL="${REF#refs/tags/v}"
+          else
+            LABEL="${VERSION}-dev.${SHA:0:7}"
+          fi
+          {
+            echo "target_env=$TARGET"
+            echo "bucket=$BUCKET"
+            echo "role_arn=$ROLE_ARN"
+            echo "appdeploy_role_arn=$APPDEPLOY_ROLE_ARN"
+            echo "cf_dist_id=$CF_DIST_ID"
+            echo "cdn_base=$CDN_BASE"
+            echo "label=$LABEL"
+          } >> "$GITHUB_OUTPUT"
+          echo "Resolved: event=$EVENT ref=$REF -> env=$TARGET bucket=$BUCKET label=$LABEL"
+
+  publish:
+    name: Publish engine release (${{ needs.resolve-env.outputs.target_env }})
+    needs: [resolve-env, freeze, notarize]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    # The GitHub environment named after the target env carries the release
+    # signing key (an environment secret) and gives the OIDC token the
+    # `environment:` subject the IAM trust policies match on; required
+    # reviewers on prod gate the key. One publish at a time per env: index.json
+    # is a read-modify-write.
+    environment: ${{ needs.resolve-env.outputs.target_env }}
     concurrency:
-      group: kenaz-ml-publish
+      group: kenaz-ml-publish-${{ needs.resolve-env.outputs.target_env }}
       cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
     env:
-      # The kenaz-harness ref the signer is taken from. Empty until the signer
-      # lands on the harness's main; set it to a full commit SHA and bump it
-      # deliberately. Never a branch name: the bytes we sign with must be the
-      # bytes we reviewed.
-      HARNESS_SIGNER_REF: ''
+      # The kenaz-harness commit the engine-manifest signer (cmd/kenaz-ml-sign)
+      # is taken from. A full SHA, bumped deliberately: the bytes we sign with
+      # must be the bytes that were reviewed there.
+      HARNESS_SIGNER_REF: 3c05def820a7dc9b402a186e66823c30140c6c79
       AWS_REGION: us-east-2
+      LABEL: ${{ needs.resolve-env.outputs.label }}
+      BUCKET: ${{ needs.resolve-env.outputs.bucket }}
+      CDN_BASE: ${{ needs.resolve-env.outputs.cdn_base }}
+      TARGET_ENV: ${{ needs.resolve-env.outputs.target_env }}
     steps:
-      # Third-party actions in this job are pinned to commit SHAs (tag shown
-      # in the comment): it handles the release signing key and release
-      # credentials, so a moved tag must not be able to change what runs.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Check publication prerequisites
         id: prereqs
         env:
+          ROLE_ARN: ${{ needs.resolve-env.outputs.role_arn }}
+          APPDEPLOY_ROLE_ARN: ${{ needs.resolve-env.outputs.appdeploy_role_arn }}
           SIGNING_KEY: ${{ secrets.KENAZ_ML_RELEASE_SIGNING_KEY }}
           PUBLIC_KEY: ${{ vars.KENAZ_ML_RELEASE_PUBLIC_KEY }}
-          ROLE_ARN: ${{ vars.KENAZ_ML_RELEASE_ROLE_ARN }}
-          BUCKET: ${{ vars.KENAZ_ML_RELEASE_BUCKET }}
-          DOMAIN: ${{ vars.KENAZ_ML_DOWNLOADS_DOMAIN }}
-          DISTRIBUTION: ${{ vars.KENAZ_ML_CLOUDFRONT_DISTRIBUTION_ID }}
         run: |
           missing=()
-          [ -n "$SIGNING_KEY" ]        || missing+=("environment secret KENAZ_ML_RELEASE_SIGNING_KEY (environment: release)")
-          [ -n "$PUBLIC_KEY" ]         || missing+=("var KENAZ_ML_RELEASE_PUBLIC_KEY")
-          [ -n "$ROLE_ARN" ]           || missing+=("var KENAZ_ML_RELEASE_ROLE_ARN")
-          [ -n "$BUCKET" ]             || missing+=("var KENAZ_ML_RELEASE_BUCKET")
-          [ -n "$DOMAIN" ]             || missing+=("var KENAZ_ML_DOWNLOADS_DOMAIN")
-          [ -n "$DISTRIBUTION" ]       || missing+=("var KENAZ_ML_CLOUDFRONT_DISTRIBUTION_ID")
-          [ -n "$HARNESS_SIGNER_REF" ] || missing+=("workflow env HARNESS_SIGNER_REF (pinned kenaz-harness signer ref)")
+          [ -n "$ROLE_ARN" ]          || missing+=("var DEPLOY_ROLE_ARN_${TARGET_ENV^^}")
+          [ -n "$APPDEPLOY_ROLE_ARN" ] || missing+=("var APPDEPLOY_ROLE_ARN_${TARGET_ENV^^}")
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
             {
-              echo "### Publish: NOT RUN — release ${GITHUB_REF_NAME} was notarized but NOT published"
+              echo "### Publish (${TARGET_ENV}): NOT RUN — ${LABEL} was built but NOT published to the ${TARGET_ENV} bucket"
               echo ""
-              echo "The signed .dmg exists only as the \`kenaz-ml-macos-arm64-notarized\` workflow artifact."
-              echo "No harness or kenaz install can fetch this release until publication runs. Missing:"
+              echo "Missing (set the same repo Actions variables the harness release uses):"
               echo ""
               for m in "${missing[@]}"; do echo "- $m"; done
             } | tee -a "$GITHUB_STEP_SUMMARY"
-            echo "::warning::engine release ${GITHUB_REF_NAME} NOT published — missing: ${missing[*]}"
+            echo "::warning::engine ${LABEL} NOT published to ${TARGET_ENV} — missing: ${missing[*]}"
+            exit 0
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          if [ -n "$SIGNING_KEY" ] && [ -n "$PUBLIC_KEY" ]; then
+            echo "sign=true" >> "$GITHUB_OUTPUT"
           else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::no release signing key for ${TARGET_ENV} (environment secret KENAZ_ML_RELEASE_SIGNING_KEY + var KENAZ_ML_RELEASE_PUBLIC_KEY); bundles publish WITHOUT .sig files — install scripts work, the harness's verified pin cannot use this label"
           fi
 
-      - name: Download notarized disk image
+      - name: Download notarized macOS images
         if: steps.prereqs.outputs.ready == 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: kenaz-ml-macos-arm64-notarized
-          path: release
+          path: bundles
+          pattern: kenaz-ml-macos-*-notarized
 
-      - name: Name and hash the artifact
+      - name: Download Linux and Windows bundles
         if: steps.prereqs.outputs.ready == 'true'
-        id: artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: bundles
+          pattern: kenaz-ml-{linux,windows}-*
+
+      - name: Assemble release assets
+        if: steps.prereqs.outputs.ready == 'true'
         run: |
           set -euo pipefail
-          # The version is the tag WITHOUT its leading v, everywhere: the file
-          # name, the S3 prefix, index.json and the signed artifact_path. The
-          # harness pin derives kenaz-ml-<ver>-darwin-arm64.dmg from the bare
-          # version and rejects a leading v, so a name built from the raw tag
-          # would sign a path the pin never asks for.
-          VERSION="${GITHUB_REF_NAME#v}"
-          ARTIFACT_BASENAME="kenaz-ml-${VERSION}-darwin-arm64.dmg"
-          mv release/kenaz-ml.dmg "release/${ARTIFACT_BASENAME}"
-          SHA=$(sha256sum "release/${ARTIFACT_BASENAME}" | cut -d' ' -f1)
-          SIZE=$(stat -c %s "release/${ARTIFACT_BASENAME}")
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "basename=${ARTIFACT_BASENAME}" >> "$GITHUB_OUTPUT"
-          echo "sha256=sha256:${SHA}" >> "$GITHUB_OUTPUT"
-          echo "size=${SIZE}" >> "$GITHUB_OUTPUT"
-          echo "${ARTIFACT_BASENAME}: sha256:${SHA} (${SIZE} bytes)"
+          # The freeze named the bundles after pyproject's version. For a tag
+          # the label is that version; for a dev build it is <version>-dev.<sha7>,
+          # so every bundle is renamed to the label being published.
+          PYVER=$(python3 -c "from pathlib import Path; import sys; sys.path.insert(0, 'src'); from kenaz_ml._version import pyproject_version; print(pyproject_version(Path('pyproject.toml')))")
+          scripts/assemble_release_assets.sh "$PYVER" bundles staged
+          mkdir -p release
+          for f in staged/kenaz-ml-"${PYVER}"-*; do
+            suffix="${f##*/kenaz-ml-${PYVER}-}"             # "<target>.<ext>"
+            mv "$f" "release/kenaz-ml-${LABEL}-${suffix}"
+          done
+          (cd release && sha256sum -- * > SHA256SUMS)
+          ls -l release
 
       - name: Check out the harness signer at its pinned ref
-        if: steps.prereqs.outputs.ready == 'true'
+        if: steps.prereqs.outputs.sign == 'true'
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: kameas-ai/kenaz-harness
@@ -984,172 +1088,143 @@ jobs:
           path: .siblings/kenaz-harness
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        if: steps.prereqs.outputs.ready == 'true'
+        if: steps.prereqs.outputs.sign == 'true'
         with:
           go-version-file: .siblings/kenaz-harness/go.mod
           cache-dependency-path: .siblings/kenaz-harness/go.sum
 
       - name: Build the signer (no key in the environment)
-        if: steps.prereqs.outputs.ready == 'true'
-        # Module download and compilation run without the signing key
-        # present; only the already-built binary ever sees it.
+        if: steps.prereqs.outputs.sign == 'true'
         working-directory: .siblings/kenaz-harness
         run: go build -o "$RUNNER_TEMP/kenaz-ml-sign" ./cmd/kenaz-ml-sign
 
-      - name: Sign the engine manifest and self-check the signature
-        if: steps.prereqs.outputs.ready == 'true'
+      - name: Sign every bundle's manifest and self-check
+        if: steps.prereqs.outputs.sign == 'true'
         id: sign
         env:
           KENAZ_ML_RELEASE_SIGNING_KEY: ${{ secrets.KENAZ_ML_RELEASE_SIGNING_KEY }}
           PUBLIC_KEY: ${{ vars.KENAZ_ML_RELEASE_PUBLIC_KEY }}
-          VERSION: ${{ steps.artifact.outputs.version }}
-          ARTIFACT_BASENAME: ${{ steps.artifact.outputs.basename }}
-          SHA256: ${{ steps.artifact.outputs.sha256 }}
         run: |
           set -euo pipefail
           SIGNER="$RUNNER_TEMP/kenaz-ml-sign"
-          # The signer reads the private key from KENAZ_ML_RELEASE_SIGNING_KEY
-          # and prints {"key_id","version","artifact_path","sha256"}.
-          "$SIGNER" sign \
-            --version "$VERSION" \
-            --artifact-path "$ARTIFACT_BASENAME" \
-            --sha256 "$SHA256" \
-            --out "release/${ARTIFACT_BASENAME}.sig" | tee release/sign.json
-          [ "$(stat -c %s "release/${ARTIFACT_BASENAME}.sig")" -eq 64 ] \
-            || { echo "::error::signature is not a raw 64-byte ed25519 signature"; exit 1; }
-          # Self-check with the public key: the signer and the verifier must
-          # agree on the canonical payload before anything is uploaded.
           printf '%s' "$PUBLIC_KEY" > "$RUNNER_TEMP/release.pub"
-          "$SIGNER" verify \
-            --pubkey "$RUNNER_TEMP/release.pub" \
-            --sig "release/${ARTIFACT_BASENAME}.sig" \
-            --version "$VERSION" \
-            --artifact-path "$ARTIFACT_BASENAME" \
-            --sha256 "$SHA256"
-          echo "key_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["key_id"])' release/sign.json)" >> "$GITHUB_OUTPUT"
+          key_id=""
+          for f in release/kenaz-ml-*.dmg release/kenaz-ml-*.zip; do
+            name=$(basename "$f")
+            sha="sha256:$(sha256sum "$f" | cut -d' ' -f1)"
+            # What is signed is the engine MANIFEST (version, channel-relative
+            # artifact path = bare filename, sha256), not the bytes; the bytes
+            # are bound through the sha256. Same inputs the harness pin rebuilds.
+            "$SIGNER" sign --version "$LABEL" --artifact-path "$name" --sha256 "$sha" --out "$f.sig" > "$f.sign.json"
+            [ "$(stat -c %s "$f.sig")" -eq 64 ] || { echo "::error::$name.sig is not a raw 64-byte ed25519 signature"; exit 1; }
+            "$SIGNER" verify --pubkey "$RUNNER_TEMP/release.pub" --sig "$f.sig" --version "$LABEL" --artifact-path "$name" --sha256 "$sha"
+            key_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["key_id"])' "$f.sign.json")
+            rm -f "$f.sign.json"
+          done
+          echo "key_id=$key_id" >> "$GITHUB_OUTPUT"
 
-      - name: Configure AWS credentials (OIDC)
+      - name: Configure AWS credentials (OIDC → gh-deploy role)
         if: steps.prereqs.outputs.ready == 'true'
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
-          role-to-assume: ${{ vars.KENAZ_ML_RELEASE_ROLE_ARN }}
+          role-to-assume: ${{ needs.resolve-env.outputs.role_arn }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Upload the .dmg and its signature (immutable, idempotent)
+      - name: Assume the env account's AppDeployRole
         if: steps.prereqs.outputs.ready == 'true'
         env:
-          BUCKET: ${{ vars.KENAZ_ML_RELEASE_BUCKET }}
-          VERSION: ${{ steps.artifact.outputs.version }}
-          ARTIFACT_BASENAME: ${{ steps.artifact.outputs.basename }}
+          APPDEPLOY_ROLE_ARN: ${{ needs.resolve-env.outputs.appdeploy_role_arn }}
         run: |
           set -euo pipefail
-          PREFIX="kenaz-ml/${VERSION}"
+          CREDS=$(aws sts assume-role --role-arn "$APPDEPLOY_ROLE_ARN" --role-session-name gh-publish-kenaz-ml --query Credentials --output json)
+          for k in AccessKeyId SecretAccessKey SessionToken; do echo "::add-mask::$(echo "$CREDS" | jq -r ".$k")"; done
+          {
+            echo "AWS_ACCESS_KEY_ID=$(echo "$CREDS" | jq -r .AccessKeyId)"
+            echo "AWS_SECRET_ACCESS_KEY=$(echo "$CREDS" | jq -r .SecretAccessKey)"
+            echo "AWS_SESSION_TOKEN=$(echo "$CREDS" | jq -r .SessionToken)"
+          } >> "$GITHUB_ENV"
 
+      - name: Upload bundles, signatures and checksums (immutable, idempotent)
+        if: steps.prereqs.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          PREFIX="kenaz-ml/${LABEL}"
           # Release objects are immutable, and a re-run after a partial publish
-          # must be able to finish. For each object:
-          #   * head-object 404            -> upload, atomically refusing to
-          #                                   overwrite (If-None-Match: *), so
-          #                                   there is no check-then-put window
-          #   * head-object 200, same sha  -> already published; continue
-          #   * head-object 200, other sha -> fail: a different artifact holds
-          #                                   this version's name
-          #   * any other head-object error -> fail: never treat 403, throttling
-          #                                   or a network error as "absent"
+          # must be able to finish:
+          #   head-object 404            -> upload with If-None-Match: * (no check-then-put window)
+          #   head-object 200, same sha  -> already published; continue
+          #   head-object 200, other sha -> fail: a different artifact holds this name
+          #   any other head-object error -> fail: never treat 403/throttling/network as "absent"
           publish_object() {
-            local file="$1" key="$2" content_type="$3"
-            local sha b64 err
+            local file="$1" key="$2" content_type="$3" cache="$4"
+            local sha b64 remote
             sha=$(sha256sum "$file" | cut -d' ' -f1)
             b64=$(openssl dgst -sha256 -binary "$file" | base64 -w0)
             if aws s3api head-object --bucket "$BUCKET" --key "$key" > "$RUNNER_TEMP/head.json" 2> "$RUNNER_TEMP/head.err"; then
-              local remote
               remote=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("Metadata", {}).get("sha256", ""))' "$RUNNER_TEMP/head.json")
-              if [ "$remote" = "$sha" ]; then
-                echo "s3://${BUCKET}/${key} already published with the same sha256; continuing"
-                return 0
-              fi
-              echo "::error::s3://${BUCKET}/${key} already exists with a different sha256 (${remote:-unrecorded}); release objects are immutable — tag a new version"
+              if [ "$remote" = "$sha" ]; then echo "s3://${BUCKET}/${key} already published; continuing"; return 0; fi
+              echo "::error::s3://${BUCKET}/${key} already exists with a different sha256 (${remote:-unrecorded}); release objects are immutable"
               return 1
             fi
             if ! grep -q "(404)" "$RUNNER_TEMP/head.err"; then
-              echo "::error::could not determine whether s3://${BUCKET}/${key} exists:"; cat "$RUNNER_TEMP/head.err"
-              return 1
+              echo "::error::could not determine whether s3://${BUCKET}/${key} exists:"; cat "$RUNNER_TEMP/head.err"; return 1
             fi
-            aws s3api put-object \
-              --bucket "$BUCKET" --key "$key" --body "$file" \
-              --if-none-match '*' \
-              --checksum-sha256 "$b64" \
-              --metadata "sha256=${sha}" \
-              --content-type "$content_type" \
-              --cache-control "public, max-age=31536000, immutable" > /dev/null
+            aws s3api put-object --bucket "$BUCKET" --key "$key" --body "$file" --if-none-match '*' \
+              --checksum-sha256 "$b64" --metadata "sha256=${sha}" --content-type "$content_type" --cache-control "$cache" > /dev/null
             echo "uploaded s3://${BUCKET}/${key} (sha256:${sha})"
           }
-          publish_object "release/${ARTIFACT_BASENAME}"     "${PREFIX}/${ARTIFACT_BASENAME}"     application/x-apple-diskimage
-          publish_object "release/${ARTIFACT_BASENAME}.sig" "${PREFIX}/${ARTIFACT_BASENAME}.sig" application/octet-stream
+          for f in release/*; do
+            name=$(basename "$f")
+            case "$name" in
+              *.dmg) ct=application/x-apple-diskimage ;;
+              *.zip) ct=application/zip ;;
+              *.sig) ct=application/octet-stream ;;
+              SHA256SUMS) ct=text/plain ;;
+              *) ct=application/octet-stream ;;
+            esac
+            publish_object "$f" "${PREFIX}/${name}" "$ct" "public, max-age=31536000, immutable"
+          done
 
       - name: Update index.json and invalidate it on the CDN
         if: steps.prereqs.outputs.ready == 'true'
         env:
-          BUCKET: ${{ vars.KENAZ_ML_RELEASE_BUCKET }}
-          DOMAIN: ${{ vars.KENAZ_ML_DOWNLOADS_DOMAIN }}
-          DISTRIBUTION: ${{ vars.KENAZ_ML_CLOUDFRONT_DISTRIBUTION_ID }}
-          VERSION: ${{ steps.artifact.outputs.version }}
-          ARTIFACT_BASENAME: ${{ steps.artifact.outputs.basename }}
-          SHA256: ${{ steps.artifact.outputs.sha256 }}
-          SIZE: ${{ steps.artifact.outputs.size }}
+          DISTRIBUTION: ${{ needs.resolve-env.outputs.cf_dist_id }}
           KEY_ID: ${{ steps.sign.outputs.key_id }}
         run: |
           set -euo pipefail
-          # Informational only: the harness build-time pin never reads this.
-          # "Newest first" means publish order, not semver order.
-          #
-          # Start from an empty index ONLY when the object is confirmed
-          # absent (NoSuchKey). Any other failure to read it fails the job:
-          # a transient error must not turn into an index that lists only
-          # this release.
-          if ! aws s3api get-object --bucket "$BUCKET" --key kenaz-ml/index.json release/index.json > /dev/null 2> "$RUNNER_TEMP/index.err"; then
-            if grep -q "NoSuchKey" "$RUNNER_TEMP/index.err"; then
-              echo '{"name":"kenaz-ml","releases":[]}' > release/index.json
-              echo "no kenaz-ml/index.json yet; starting one"
-            else
-              echo "::error::could not read the existing kenaz-ml/index.json; refusing to overwrite it:"; cat "$RUNNER_TEMP/index.err"
-              exit 1
-            fi
+          # Informational only; the harness pin never reads it. Newest first = publish order.
+          # Start from empty ONLY on a confirmed NoSuchKey; any other read failure fails the job.
+          if ! aws s3api get-object --bucket "$BUCKET" --key kenaz-ml/index.json index.json > /dev/null 2> "$RUNNER_TEMP/index.err"; then
+            if grep -q "NoSuchKey" "$RUNNER_TEMP/index.err"; then echo '{"name":"kenaz-ml","releases":[]}' > index.json
+            else echo "::error::could not read the existing kenaz-ml/index.json; refusing to overwrite it:"; cat "$RUNNER_TEMP/index.err"; exit 1; fi
           fi
           python3 - <<'PY'
-          import json, os
+          import json, os, hashlib
           from datetime import datetime, timezone
-          path = "release/index.json"
-          index = json.load(open(path))
-          version = os.environ["VERSION"]
-          base = f"https://{os.environ['DOMAIN']}/kenaz-ml/{version}/{os.environ['ARTIFACT_BASENAME']}"
-          entry = {
-              "version": version,
-              "released_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-              "darwin_arm64": {
-                  "url": base,
-                  "sha256": os.environ["SHA256"],
-                  "size_bytes": int(os.environ["SIZE"]),
-                  "sig_url": base + ".sig",
-                  "key_id": os.environ["KEY_ID"],
-              },
-          }
-          releases = [r for r in index.get("releases", []) if r.get("version") != version]
-          index = {"name": "kenaz-ml", "releases": [entry, *releases]}
-          json.dump(index, open(path, "w"), indent=2)
-          print(json.dumps(entry, indent=2))
+          label, base = os.environ["LABEL"], f"{os.environ['CDN_BASE']}/kenaz-ml/{os.environ['LABEL']}"
+          platforms = {}
+          for name in sorted(os.listdir("release")):
+              if not name.startswith("kenaz-ml-") or name.endswith(".sig") or name == "SHA256SUMS":
+                  continue
+              target = name[len(f"kenaz-ml-{label}-"):].rsplit(".", 1)[0].replace("-", "_")
+              path = os.path.join("release", name)
+              entry = {"url": f"{base}/{name}", "sha256": "sha256:" + hashlib.sha256(open(path, "rb").read()).hexdigest(), "size_bytes": os.path.getsize(path)}
+              if os.path.exists(path + ".sig"):
+                  entry["sig_url"], entry["key_id"] = f"{base}/{name}.sig", os.environ.get("KEY_ID", "")
+              platforms[target] = entry
+          index = json.load(open("index.json"))
+          releases = [r for r in index.get("releases", []) if r.get("version") != label]
+          now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+          index = {"name": "kenaz-ml", "releases": [{"version": label, "env": os.environ["TARGET_ENV"], "released_at": now, **platforms}, *releases][:100]}
+          json.dump(index, open("index.json", "w"), indent=2)
+          print(json.dumps(index["releases"][0], indent=2))
           PY
-          aws s3api put-object \
-            --bucket "$BUCKET" --key kenaz-ml/index.json --body release/index.json \
-            --content-type application/json \
-            --cache-control "public, max-age=300" > /dev/null
-          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION" --paths "/kenaz-ml/index.json" >/dev/null
+          aws s3api put-object --bucket "$BUCKET" --key kenaz-ml/index.json --body index.json --content-type application/json --cache-control "public, max-age=300" > /dev/null
+          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION" --paths "/kenaz-ml/index.json" > /dev/null
           {
-            echo "### Publish: PASSED"
+            echo "### Publish (${TARGET_ENV}): PASSED — ${CDN_BASE}/kenaz-ml/${LABEL}/"
             echo ""
-            echo "| | |"
-            echo "|---|---|"
-            echo "| artifact | \`https://${DOMAIN}/kenaz-ml/${VERSION}/${ARTIFACT_BASENAME}\` |"
-            echo "| sha256 | \`${SHA256}\` |"
-            echo "| size | ${SIZE} bytes |"
-            echo "| signing key | \`${KEY_ID}\` |"
+            echo '```'
+            cat release/SHA256SUMS
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

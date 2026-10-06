@@ -70,7 +70,14 @@ dependencies = [
     # requires torch>=2.0.0 and transformers>=4.48.0 unconditionally (C-004
     # forbids torch in the base set); `laya-serve` 0.2.1 is deprecated upstream.
     # src/kenaz_ml/laya/ imports laya lazily and refuses truthfully when absent.
-    "onnxruntime==1.30.0",
+    #
+    # Not on Intel macOS: onnxruntime publishes no macOS x86_64 wheel for this
+    # Python (arm64 only), so the darwin-x86_64 engine ships without ONNX
+    # Runtime. That build serves the classic scikit-learn kinds exactly like
+    # the others; its laya eligibility gate reports benchmark_failed (the
+    # import fails) and every laya-bearing kind refuses truthfully, which is the
+    # same posture an ineligible host has anywhere.
+    "onnxruntime==1.30.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
 
 [project.optional-dependencies]

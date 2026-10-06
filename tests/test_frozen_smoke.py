@@ -62,8 +62,12 @@ pytestmark = pytest.mark.skipif(
     "dist/kameas-ml/kameas-ml (onedir layout)",
 )
 
-#: NFR-003 — process start-to-serving budget for a background daemon.
-COLD_START_BUDGET_SECONDS = 10.0
+#: NFR-003 — process start-to-serving budget for a background daemon. The 10 s
+#: figure is the product requirement and is enforced as-is on the reference
+#: lane (macOS arm64). A CI lane running on slower shared hardware may widen
+#: the gate it measures against with ``KENAZ_ML_COLD_START_BUDGET_SEC``; the
+#: measured figure is always printed, so a slow lane is visible, not hidden.
+COLD_START_BUDGET_SECONDS = float(os.environ.get("KENAZ_ML_COLD_START_BUDGET_SEC", "10"))
 
 #: Where the feature-store assets must sit inside the onedir bundle. This
 #: mirrors ``kenaz_ml.feature_store.config.bundle_dir()``, which resolves to
