@@ -1,0 +1,191 @@
+name: tag-on-merge
+
+# Cuts a SemVer tag + GitHub Release on every push to main whose commit
+# subject is a release-worthy conventional commit. Inline copy of the
+# harness's tag-on-merge.yml (kenaz-harness/.github/workflows/tag-on-merge.yml)
+# adapted to GitHub-hosted runners; keep the two in sync.
+#
+# Mapping (the squash-merged PR title becomes the commit subject verbatim —
+# the repo's squash settings are PR_TITLE / PR_BODY, enforced by the
+# "Conventional Commits" PR check in pr-title.yml):
+#   feat(scope)?:        → minor (0.x.0)
+#   fix|perf|revert|deps → patch (0.x.y)
+#   feat!: / BREAKING CHANGE in body → major, capped to minor while < 1.0.0
+#   docs|chore|ci|style|refactor|test|build → no release
+#
+# Source of truth: git tags. The next version = bump(latest `vX.Y.Z` tag).
+# No CHANGELOG file maintained — release notes are GitHub's auto-generated
+# "What's Changed" body.
+#
+# After tagging, dispatches ci.yml (frozen bundles, notarization, release
+# assets, prod publication) and release.yml (sdist + wheel) against the new
+# tag. GITHUB_TOKEN-created tags do not fire `on: push: tags`, so the
+# explicit workflow_dispatch is required.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tag-on-merge
+  cancel-in-progress: false
+
+jobs:
+  bump-and-release:
+    name: Bump version + cut release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # tag + release
+      actions: write      # workflow_dispatch
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0  # tags + history needed to find the latest tag
+
+      - name: classify commit + compute next version
+        id: ver
+        run: |
+          set -euo pipefail
+          SUBJECT=$(git log -1 --pretty=%s)
+          BODY=$(git log -1 --pretty=%B | tail -n +3)
+          echo "Commit subject: $SUBJECT"
+
+          # Skip self-tagging-bot commits to avoid loops.
+          AUTHOR=$(git log -1 --pretty=%ae)
+          if [[ "$AUTHOR" == *"github-actions[bot]"* ]]; then
+            echo "Bot commit; skipping."
+            echo "bump=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Parse conventional-commit prefix: <type>[(scope)][!]: <subject>
+          # The regex lives in a variable — bash's `[[ =~ ]]` parser chokes on
+          # nested `[[:space:]]` classes when the regex is inline.
+          re='^([a-z]+)(\([^)]+\))?(!?):[[:space:]]'
+          if [[ "$SUBJECT" =~ $re ]]; then
+            TYPE="${BASH_REMATCH[1]}"
+            BANG="${BASH_REMATCH[3]}"
+          else
+            echo "Subject is not a conventional commit; skipping release."
+            echo "bump=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BREAKING=false
+          if [ -n "$BANG" ] || echo "$BODY" | grep -qE '^BREAKING[ -]CHANGE:'; then
+            BREAKING=true
+          fi
+
+          case "$TYPE" in
+            feat)                 BUMP="minor" ;;
+            fix|perf|revert|deps) BUMP="patch" ;;
+            *)                    BUMP="none"  ;;
+          esac
+          if [ "$BREAKING" = true ]; then
+            BUMP="major"
+          fi
+
+          if [ "$BUMP" = "none" ]; then
+            echo "Type '$TYPE' does not trigger a release."
+            echo "bump=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Latest semver tag (default v0.0.0 if none).
+          LAST=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
+          LAST=${LAST:-v0.0.0}
+          BASE=${LAST#v}
+          IFS=. read -r MAJ MIN PAT <<<"$BASE"
+
+          # Pre-1.0 cap: breaking bumps minor instead of major while at 0.x.
+          if [ "$MAJ" = "0" ] && [ "$BUMP" = "major" ]; then
+            BUMP="minor"
+            echo "::notice::Pre-1.0 cap — breaking change bumps minor instead of major"
+          fi
+
+          case "$BUMP" in
+            major) MAJ=$((MAJ+1)); MIN=0; PAT=0 ;;
+            minor) MIN=$((MIN+1)); PAT=0 ;;
+            patch) PAT=$((PAT+1)) ;;
+          esac
+          NEXT="v${MAJ}.${MIN}.${PAT}"
+
+          echo "Last tag: $LAST → next: $NEXT (bump=$BUMP, breaking=$BREAKING)"
+          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+          echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "previous_tag=$LAST" >> "$GITHUB_OUTPUT"
+          {
+            echo "## tag-on-merge"
+            echo ""
+            echo "- subject: \`$SUBJECT\`"
+            echo "- type: \`$TYPE\` (breaking=$BREAKING)"
+            echo "- bump: \`$BUMP\`"
+            echo "- $LAST → **$NEXT**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: check the tag agrees with pyproject.toml
+        if: steps.ver.outputs.bump != 'none'
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # The engine reports pyproject's version at runtime and the publish
+          # job labels prod artifacts by the tag; a mismatch would ship a
+          # binary that calls itself one version under another's label.
+          PY=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)
+          if [ "v$PY" != "$TAG" ]; then
+            echo "::error::pyproject.toml says $PY but the next release tag is $TAG; bump pyproject.toml in the release-worthy PR (or land a version bump first)"
+            exit 1
+          fi
+
+      - name: generate release notes
+        if: steps.ver.outputs.bump != 'none'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG:  ${{ steps.ver.outputs.tag }}
+          PREV: ${{ steps.ver.outputs.previous_tag }}
+        run: |
+          set -euo pipefail
+          if [ "$PREV" = "v0.0.0" ] && ! git rev-parse "$PREV" >/dev/null 2>&1; then
+            echo "Initial release $TAG." > notes.md
+          else
+            gh api -X POST repos/$GITHUB_REPOSITORY/releases/generate-notes \
+              -f tag_name="$TAG" \
+              -f target_commitish="$GITHUB_SHA" \
+              -f previous_tag_name="$PREV" \
+              --jq .body > notes.md \
+              || echo "Automated release for $TAG." > notes.md
+          fi
+
+      - name: tag + release
+        if: steps.ver.outputs.bump != 'none'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file notes.md \
+            --target "$GITHUB_SHA"
+
+      - name: dispatch the release builds against the tag
+        if: steps.ver.outputs.bump != 'none'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # ci.yml at the tag: frozen bundles, notarization, GitHub Release
+          # assets, publication to the prod bucket + CDN.
+          gh workflow run ci.yml -R "$GITHUB_REPOSITORY" --ref "$TAG"
+          # release.yml at the tag: sdist + wheel on the same release.
+          gh workflow run release.yml -R "$GITHUB_REPOSITORY" --ref "$TAG"
+          echo "Dispatched ci.yml and release.yml for $TAG"
