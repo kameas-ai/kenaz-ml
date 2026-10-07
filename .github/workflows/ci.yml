@@ -486,12 +486,27 @@ jobs:
           PY
           ls -l release
 
+      - name: Archive the onedir for the notarize job
+        if: startsWith(matrix.target, 'darwin')
+        # The artifact store follows symlinks and drops modes. Uploaded as a
+        # directory, _internal/Python.framework arrived with Versions/Current
+        # as a real directory and three copies of the interpreter binary, and
+        # codesign refused the bundle as "ambiguous (could be app or
+        # framework)". A tarball keeps the framework's symlinks and every
+        # executable bit intact.
+        run: |
+          set -euo pipefail
+          [ -L dist/kameas-ml/_internal/Python.framework/Versions/Current ] \
+            || { echo "::error::Python.framework/Versions/Current is not a symlink before archiving"; exit 1; }
+          tar -C dist -cf "$RUNNER_TEMP/onedir.tar" kameas-ml
+          ls -l "$RUNNER_TEMP/onedir.tar"
+
       - name: Upload frozen bundle (macOS onedir, for the notarize job)
         if: startsWith(matrix.target, 'darwin')
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.mac_artifact }}
-          path: dist/kameas-ml
+          path: ${{ runner.temp }}/onedir.tar
           retention-days: 7
 
       - name: Upload packaged bundle
@@ -560,13 +575,20 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: dist/kameas-ml
+          path: ${{ runner.temp }}/onedir
 
-      - name: Restore executable bits
-        # actions/upload-artifact does not preserve the executable bit.
+      - name: Unpack the onedir
+        # The tarball (see "Archive the onedir" in the freeze job) is what
+        # preserves the Python.framework symlinks and the executable bits
+        # that the artifact store loses; assert both before signing anything.
         run: |
-          chmod +x dist/kameas-ml/kameas-ml
-          find dist/kameas-ml -name '*.dylib' -o -name '*.so' | xargs -I{} chmod +x {}
+          set -euo pipefail
+          mkdir -p dist
+          tar -C dist -xf "$RUNNER_TEMP/onedir/onedir.tar"
+          [ -x dist/kameas-ml/kameas-ml ] || { echo "::error::launcher is not executable after unpacking"; exit 1; }
+          FW=dist/kameas-ml/_internal/Python.framework
+          [ -L "$FW/Versions/Current" ] || { echo "::error::$FW/Versions/Current is not a symlink after unpacking; the framework cannot be signed as a bundle"; exit 1; }
+          echo "framework current version: $(readlink "$FW/Versions/Current")"
 
       - name: Check for signing credentials
         id: creds
