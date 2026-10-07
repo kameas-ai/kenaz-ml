@@ -642,10 +642,25 @@ jobs:
           # Inside-out: every nested Mach-O first, the launcher last. Signing the
           # launcher before its dylibs invalidates the outer signature the moment
           # an inner one is written (ADR-nested-binary-signing).
-          find dist/kameas-ml -type f \( -name '*.dylib' -o -name '*.so' \) -print0 \
+          #
+          # Mach-O files are found by content (scripts/list_macho.sh), not by
+          # name. The first notarization of this bundle was rejected because a
+          # *.so/*.dylib filter left _internal/Python.framework unsigned: the
+          # interpreter's binary is just `Python`, with no extension.
+          ONEDIR=dist/kameas-ml
+          FRAMEWORK="$ONEDIR/_internal/Python.framework"
+          scripts/list_macho.sh "$ONEDIR" \
+            | grep -v -e "^$FRAMEWORK/" -e "^$ONEDIR/kameas-ml$" \
+            | tr '\n' '\0' \
             | xargs -0 -n 25 codesign --force --timestamp --options runtime --sign "$IDENTITY"
-          codesign --force --timestamp --options runtime --sign "$IDENTITY" dist/kameas-ml/kameas-ml
-          echo "signed $(find dist/kameas-ml \( -name '*.so' -o -name '*.dylib' \) | wc -l | tr -d ' ') nested Mach-O files plus the launcher"
+          # The framework is a bundle (Versions/<v>/Resources/Info.plist), so it
+          # is signed as one; signing only the binary inside leaves the bundle
+          # seal unset, which notarization reports as an invalid signature.
+          if [ -d "$FRAMEWORK" ]; then
+            codesign --force --timestamp --options runtime --sign "$IDENTITY" "$FRAMEWORK"
+          fi
+          codesign --force --timestamp --options runtime --sign "$IDENTITY" "$ONEDIR/kameas-ml"
+          echo "signed $(scripts/list_macho.sh "$ONEDIR" | wc -l | tr -d ' ') Mach-O files (framework and launcher included)"
 
       - name: "Planted violation: strip one nested signature (evidence run only)"
         if: steps.creds.outputs.configured == 'true' && env.PLANT_VIOLATION == 'unsigned_dylib'
@@ -665,19 +680,33 @@ jobs:
           # Fail here rather than at Apple's end: a single unsigned nested binary
           # is the documented way this fails with 435 of them, and the local
           # error names the file while the notarization log does not always.
+          # Each Mach-O must carry what the notary service checks: a valid
+          # signature, the hardened runtime, and a secure timestamp.
           failed=0
+          count=0
           while IFS= read -r macho; do
+            count=$((count + 1))
             if ! codesign --verify --strict "$macho" 2>/dev/null; then
               echo "::error::unsigned or invalid signature: $macho"
               failed=1
+              continue
             fi
-          done < <(find dist/kameas-ml -type f \( -name '*.dylib' -o -name '*.so' \))
+            info=$(codesign -dvv "$macho" 2>&1)
+            case "$info" in *"flags="*"(runtime)"*) ;; *) echo "::error::hardened runtime not enabled: $macho"; failed=1 ;; esac
+            case "$info" in *"Timestamp="*) ;; *) echo "::error::no secure timestamp: $macho"; failed=1 ;; esac
+          done < <(scripts/list_macho.sh dist/kameas-ml)
+          echo "checked $count Mach-O files"
+          [ "$count" -gt 0 ] || { echo "::error::no Mach-O files found under dist/kameas-ml"; exit 1; }
+          if [ -d dist/kameas-ml/_internal/Python.framework ]; then
+            codesign --verify --deep --strict --verbose=2 dist/kameas-ml/_internal/Python.framework
+          fi
           codesign --verify --deep --strict --verbose=2 dist/kameas-ml/kameas-ml
           [ "$failed" -eq 0 ]
 
       - name: Notarize and staple
         if: steps.creds.outputs.configured == 'true'
         env:
+          IDENTITY: ${{ env.APPLE_SIGN_IDENTITY }}
           AC_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           AC_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
           AC_API_PRIVATE_KEY: ${{ secrets.APPLE_API_KEY_P8 }}
@@ -709,11 +738,39 @@ jobs:
           fi
           hdiutil detach "$MOUNT"
 
+          # The image is signed too, as the harness signs its .dmg.
+          codesign --force --timestamp --sign "$IDENTITY" /tmp/kenaz-ml.dmg
+
+          # `notarytool submit --wait` exits 0 on a rejected submission; the
+          # verdict is the `status:` line. On anything but Accepted, fetch
+          # Apple's log, which names each offending file and the rule it broke,
+          # and fail here instead of at `stapler`.
           xcrun notarytool submit /tmp/kenaz-ml.dmg \
             --key "/tmp/ac/AuthKey_${AC_API_KEY_ID}.p8" \
             --key-id "$AC_API_KEY_ID" \
             --issuer "$AC_API_ISSUER_ID" \
-            --wait --timeout 45m
+            --wait --timeout 45m | tee /tmp/notary-submit.log
+          SUBMISSION_ID=$(sed -n 's/^ *id: //p' /tmp/notary-submit.log | head -1)
+          STATUS=$(sed -n 's/^ *status: //p' /tmp/notary-submit.log | tail -1)
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "::group::Apple notary log for submission ${SUBMISSION_ID:-unknown}"
+            if [ -n "$SUBMISSION_ID" ]; then
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --key "/tmp/ac/AuthKey_${AC_API_KEY_ID}.p8" \
+                --key-id "$AC_API_KEY_ID" \
+                --issuer "$AC_API_ISSUER_ID" | tee /tmp/notary-log.json
+              {
+                echo "### Notarization gate: REJECTED (${STATUS:-no status})"
+                echo '```json'
+                cat /tmp/notary-log.json
+                echo '```'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo "::endgroup::"
+            rm -rf /tmp/ac
+            echo "::error::notarization ${STATUS:-returned no status} for submission ${SUBMISSION_ID:-unknown}; see the notary log above"
+            exit 1
+          fi
           xcrun stapler staple /tmp/kenaz-ml.dmg
           rm -rf /tmp/ac
 
