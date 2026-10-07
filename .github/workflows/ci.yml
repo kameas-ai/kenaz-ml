@@ -889,8 +889,10 @@ jobs:
           assert version and version != "0+unknown", version
           root_file = open(os.path.join(os.environ["MOUNT"], "kameas-ml", "VERSION")).read().strip()
           assert root_file == version, (root_file, version)
+          # On a release build the identity is the tag: the engine must report
+          # exactly the version being released. (An earlier guard rejected
+          # "0.1.0" as a placeholder; it blocked the real v0.1.0.)
           if os.environ.get("RELEASE_BUILD") == "true":
-              assert version != "0.1.0", "release build still reports the placeholder 0.1.0"
               assert version == os.environ["GITHUB_REF_NAME"].removeprefix("v"), (version, os.environ["GITHUB_REF_NAME"])
           mount = os.path.realpath(os.environ["MOUNT"])
           assert os.path.realpath(body["exe_path"]).startswith(mount), (body["exe_path"], mount)
