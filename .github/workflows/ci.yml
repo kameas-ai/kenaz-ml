@@ -1034,9 +1034,13 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT" == "workflow_dispatch" ]]; then
-            TARGET="prod"
-          elif [[ "$REF" == refs/tags/v*-rc* ]]; then
+          # The ref decides the environment, whatever the event: tag-on-merge
+          # creates release tags with GITHUB_TOKEN, which never fires
+          # `on: push: tags`, so it dispatches this workflow at the tag and
+          # the run arrives as workflow_dispatch with REF=refs/tags/vX.Y.Z.
+          # A dispatch on a branch (the planted-violation evidence run) is a
+          # dev build like any other push to main.
+          if [[ "$REF" == refs/tags/v*-rc* ]]; then
             TARGET="stage"
           elif [[ "$REF" == refs/tags/v* ]]; then
             TARGET="prod"

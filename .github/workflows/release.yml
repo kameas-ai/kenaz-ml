@@ -1,6 +1,10 @@
 name: Release
 
 on:
+  # tag-on-merge.yml dispatches this at the tag it just created (a
+  # GITHUB_TOKEN-created tag does not fire `on: push: tags`); the push
+  # trigger remains for a tag pushed by hand.
+  workflow_dispatch:
   push:
     tags:
       - 'v*'

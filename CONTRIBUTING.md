@@ -77,23 +77,41 @@ docs: short description
 
 ## Cutting a Release
 
-Releases are tags. CI builds and publishes everything from the tag; nothing
-is built or uploaded by hand.
+Releases are cut automatically. Nothing is tagged, built or uploaded by hand.
 
-1. Bump `version` in `pyproject.toml` (it is the engine's single version
-   source: the freeze stamps it into the bundle and `/health` reports it).
-   Merge that to `main`.
-2. Tag the merge commit `v<version>` and push the tag. The freeze job
-   refuses a tag that disagrees with `pyproject.toml`.
-3. CI then: freezes the engine for macOS arm64, Linux x86_64/arm64 and
-   Windows x86_64 and runs the frozen smoke tests on each; signs, notarizes
-   and staples the macOS `.dmg` (a release build **fails** without the Apple
-   credentials — never skips); attaches every bundle plus `SHA256SUMS` to the
-   GitHub Release; and, once the publication secrets and infrastructure
-   exist, signs the manifest and publishes to the release bucket for the
-   harness's pinned install (until then that job reports NOT RUN).
+1. **PR titles are conventional commits**, enforced by the "Conventional
+   Commits" check. Merges are squash-only and the PR title becomes the
+   commit subject on `main`, which is what decides the release:
+
+   | Title prefix | Bump | Release? |
+   |---|---|---|
+   | `feat:` / `feat(scope):` | minor (`0.x.0`) | yes |
+   | `fix:`, `perf:`, `revert:`, `deps:` | patch (`0.x.y`) | yes |
+   | `feat!:` or `BREAKING CHANGE:` in the body | major (capped to minor while `< 1.0.0`) | yes |
+   | `docs:`, `chore:`, `ci:`, `style:`, `refactor:`, `test:`, `build:` | none | no |
+
+2. **A release-worthy PR must carry the matching `version` bump in
+   `pyproject.toml`** (the engine's single version source: the freeze stamps
+   it into the bundle and `/health` reports it). `tag-on-merge` computes the
+   next tag from the latest `vX.Y.Z` tag and fails, without tagging, if
+   `pyproject.toml` disagrees.
+3. On merge, `tag-on-merge.yml` tags `vX.Y.Z`, creates the GitHub Release
+   with auto-generated notes, and dispatches the release builds at the tag:
+   `ci.yml` freezes the engine for macOS arm64 and x86_64, Linux x86_64 and
+   arm64, and Windows x86_64, runs the frozen smoke tests on each, signs,
+   notarizes and staples both macOS `.dmg`s (a release build **fails**
+   without the Apple credentials, never skips), attaches every bundle plus
+   `SHA256SUMS` to the Release, signs each bundle's manifest with the engine
+   release key and publishes to the prod release bucket and
+   `downloads.kameas.ai`; `release.yml` attaches the sdist and wheel.
 4. `scripts/install.sh` / `scripts/install.ps1` pick the new release up
-   automatically; the kenaz app and the harness pin releases explicitly.
+   automatically; the kenaz app and the harness pin releases explicitly
+   (the harness verifies the manifest signature against its baked copy of
+   the release public key).
+
+Pushes to `main` that do not cut a release still build and publish a
+`<version>-dev.<sha>` label to the dev bucket. A `vX.Y.Z-rc.N` tag pushed by
+hand publishes to stage.
 
 ## License
 
