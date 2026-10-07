@@ -1,9 +1,0 @@
-{
-  "feature_number": "003",
-  "slug": "003-model-storage-abstraction",
-  "feature_slug": "003-model-storage-abstraction",
-  "friendly_name": "model storage abstraction",
-  "mission": "software-dev",
-  "target_branch": "main",
-  "created_at": "2026-03-25T16:19:57.064809+00:00"
-}

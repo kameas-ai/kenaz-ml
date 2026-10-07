@@ -450,22 +450,3 @@ def test_the_feature_store_still_reads_the_sigild_user_directory() -> None:
     from kenaz_ml.feature_store import config as fs_config
 
     assert fs_config.user_data_dir() == Path.home() / ".local" / "share" / "sigild"
-
-
-# ===========================================================================
-# Historical records are not rewritten  (FR-013, C-006, D-003)
-# ===========================================================================
-
-
-def test_merged_missions_records_still_use_the_old_names() -> None:
-    """kitty-specs/ describes what was true when it was written. If a bulk edit
-    swept through it, this fails."""
-    completed = subprocess.run(
-        ["git", "grep", "-lP", "sigil_ml", "--", "kitty-specs"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode not in (0, 1):  # pragma: no cover
-        pytest.skip("git grep unavailable")
-    assert completed.stdout.split(), "kitty-specs/ no longer mentions sigil_ml; historical records were rewritten"

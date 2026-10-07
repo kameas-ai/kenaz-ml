@@ -1,9 +1,0 @@
-{
-  "feature_number": "004",
-  "slug": "004-cloud-training-pipeline",
-  "feature_slug": "004-cloud-training-pipeline",
-  "friendly_name": "cloud training pipeline",
-  "mission": "software-dev",
-  "target_branch": "main",
-  "created_at": "2026-03-25T16:21:38.373161+00:00"
-}
