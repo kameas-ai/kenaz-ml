@@ -631,7 +631,9 @@ class TestTenantDiscovery:
         result = discover_eligible_tenants(ds)
         assert result == []
 
-    @pytest.mark.skip(reason="no organization can opt in this release (Decisions Register D11); see test_no_tenant_can_be_opted_in")
+    @pytest.mark.skip(
+        reason="no organization can opt in this release (Decisions Register D11); see test_no_tenant_can_be_opted_in"
+    )
     def test_discover_opted_in(self) -> None:
         from kenaz_ml.training.tenant_discovery import discover_opted_in_tenants
 
