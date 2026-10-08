@@ -34,6 +34,12 @@ def discover_opted_in_tenants(data_store: DataStore) -> list[str]:
     Returns:
         List of opted-in tenant ID strings.
     """
+    from kenaz_ml.training.cloud_trainer import MODEL_IMPROVEMENT_PROGRAM_AVAILABLE
+
+    if not MODEL_IMPROVEMENT_PROGRAM_AVAILABLE:
+        # No organization can have opted in: the agreement that would record
+        # it does not exist in this release (Decisions Register D11).
+        return []
     tenants = data_store.get_opted_in_tenant_ids()
     logger.info("Found %d opted-in tenants for aggregate training", len(tenants))
     return tenants

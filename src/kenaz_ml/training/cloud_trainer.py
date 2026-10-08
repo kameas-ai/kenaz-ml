@@ -70,6 +70,21 @@ logger = logging.getLogger(__name__)
 
 AGGREGATE_TENANT_ID = "__aggregate__"
 
+#: Whether pooled ("aggregate") training across organizations exists in this
+#: release. It does not: the Model Improvement Program is reserved in the
+#: Subscription Agreement (v1.1 section 6.6) behind a per-organization signed
+#: agreement, and no such agreement flag exists yet (legal package, Decisions
+#: Register D11; engineering requirement C18). Until it does, every pooled
+#: training path refuses before reading any organization's data. This is a
+#: constant, not configuration, on purpose: there is nothing to switch on.
+MODEL_IMPROVEMENT_PROGRAM_AVAILABLE = False
+
+MODEL_IMPROVEMENT_PROGRAM_UNAVAILABLE = (
+    "Pooled training across organizations is not available in this release: "
+    "the Model Improvement Program requires a per-organization signed agreement "
+    "that does not exist yet (Subscription Agreement v1.1 section 6.6)."
+)
+
 #: Maps a model name to the feature view whose values it consumes. The feature
 #: *service* carries the same name as the model (definitions.py), because that
 #: name is what Go already queries in `ml_predictions.model` and is not
@@ -697,6 +712,19 @@ class CloudTrainer:
         """
         start = time.time()
         started_at = datetime.now(UTC)
+
+        if not MODEL_IMPROVEMENT_PROGRAM_AVAILABLE:
+            # Refused before any store is read: no organization's data is
+            # touched, no audit row claims a pooled run happened.
+            logger.warning("Aggregate training refused: %s", MODEL_IMPROVEMENT_PROGRAM_UNAVAILABLE)
+            return TrainingRun(
+                tenant_id=AGGREGATE_TENANT_ID,
+                status="refused",
+                error=MODEL_IMPROVEMENT_PROGRAM_UNAVAILABLE,
+                duration_ms=0,
+                started_at=started_at,
+                completed_at=datetime.now(UTC),
+            )
 
         try:
             return self._train_aggregate_inner(start, started_at)

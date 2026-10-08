@@ -631,6 +631,9 @@ class TestTenantDiscovery:
         result = discover_eligible_tenants(ds)
         assert result == []
 
+    @pytest.mark.skip(
+        reason="no organization can opt in this release (Decisions Register D11); see test_no_tenant_can_be_opted_in"
+    )
     def test_discover_opted_in(self) -> None:
         from kenaz_ml.training.tenant_discovery import discover_opted_in_tenants
 
@@ -770,6 +773,9 @@ class TestDataStoreTrainingLock:
 
 
 class TestAggregateTraining:
+    @pytest.mark.skip(
+        reason="pooled training is refused in this release (Decisions Register D11); kept for the Model Improvement Program"
+    )
     def test_aggregate_pools_opted_in_data(self) -> None:
         from kenaz_ml.training.cloud_trainer import AGGREGATE_TENANT_ID, CloudTrainer
 
@@ -793,18 +799,42 @@ class TestAggregateTraining:
         assert "stuck" in run.models_trained
         assert "duration" in run.models_trained
 
-    def test_aggregate_zero_tenants(self) -> None:
+    def test_aggregate_is_refused_before_any_data_is_read(self) -> None:
+        """D11: no pooled training path exists in this release.
+
+        The refusal happens before the data store or model store is touched,
+        and no audit row claims a pooled run happened.
+        """
+        from unittest.mock import MagicMock
+
         from kenaz_ml.training.cloud_trainer import AGGREGATE_TENANT_ID, CloudTrainer
 
-        data_store = MockDataStore(opted_in_tenants=[])
-        model_store = MockModelStore()
-        trainer = CloudTrainer(data_store, model_store)
+        data_store = MagicMock(name="data_store")
+        model_store = MagicMock(name="model_store")
+        trainer = CloudTrainer(data_store, model_store, CloudTrainingConfig(aggregate_min_tenants=1))
+
         run = trainer.train_aggregate()
 
         assert run.tenant_id == AGGREGATE_TENANT_ID
-        assert run.status == "skipped"
-        assert "No opted-in tenants" in run.error
+        assert run.status == "refused"
+        assert "Model Improvement Program" in (run.error or "")
+        assert run.models_trained == []
+        assert data_store.method_calls == [], "no organization's data was read"
+        assert model_store.method_calls == [], "nothing was written"
 
+    def test_no_tenant_can_be_opted_in(self) -> None:
+        """Discovery returns nothing without consulting the store."""
+        from unittest.mock import MagicMock
+
+        from kenaz_ml.training.tenant_discovery import discover_opted_in_tenants
+
+        data_store = MagicMock(name="data_store")
+        assert discover_opted_in_tenants(data_store) == []
+        assert data_store.method_calls == []
+
+    @pytest.mark.skip(
+        reason="pooled training is refused in this release (Decisions Register D11); kept for the Model Improvement Program"
+    )
     def test_aggregate_low_tenant_warning(self) -> None:
         """Fewer than aggregate_min_tenants warns but proceeds."""
         from kenaz_ml.training.cloud_trainer import CloudTrainer
@@ -826,6 +856,9 @@ class TestAggregateTraining:
         assert run.error is not None
         assert "recommended minimum" in run.error
 
+    @pytest.mark.skip(
+        reason="pooled training is refused in this release (Decisions Register D11); kept for the Model Improvement Program"
+    )
     def test_aggregate_enough_tenants_no_warning(self) -> None:
         from kenaz_ml.training.cloud_trainer import CloudTrainer
 
@@ -851,6 +884,9 @@ class TestAggregateTraining:
         assert run.status == "trained"
         assert run.error is None  # no warning
 
+    @pytest.mark.skip(
+        reason="pooled training is refused in this release (Decisions Register D11); kept for the Model Improvement Program"
+    )
     def test_aggregate_sampling_caps(self) -> None:
         """Per-tenant sampling cap limits contribution."""
         from kenaz_ml.training.cloud_trainer import CloudTrainer
@@ -876,6 +912,9 @@ class TestAggregateTraining:
         # t1 capped at 10, t2 all 5 = 15 total
         assert run.sample_count == 15
 
+    @pytest.mark.skip(
+        reason="pooled training is refused in this release (Decisions Register D11); kept for the Model Improvement Program"
+    )
     def test_aggregate_model_saved_to_aggregate_prefix(self) -> None:
         from kenaz_ml.training.cloud_trainer import AGGREGATE_TENANT_ID, CloudTrainer
 
@@ -1077,6 +1116,19 @@ class TestCloudFeatureExtraction:
 
 
 class TestCLICloudFlags:
+    def test_aggregate_is_refused_at_the_command_line(self) -> None:
+        """D11: --aggregate exits before any store is constructed."""
+        import subprocess
+
+        result = subprocess.run(
+            [sys.executable, "-m", "kenaz_ml.cli", "train", "--mode", "cloud", "--aggregate"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "KENAZ_POSTGRES_URL": "", "KENAZ_S3_BUCKET": ""},
+        )
+        assert result.returncode == 2
+        assert "Model Improvement Program" in result.stderr
+
     def test_cloud_mode_requires_target(self) -> None:
         """--mode cloud without --tenant/--all-tenants/--aggregate errors."""
         import subprocess

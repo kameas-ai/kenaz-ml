@@ -554,9 +554,12 @@ class PostgresStore:
     def get_opted_in_tenant_ids(self) -> list[str]:
         """Return tenant IDs opted in to aggregate data pooling.
 
-        Placeholder: returns all tenant IDs until an opt-in mechanism is implemented.
+        None can be: the per-organization Model Improvement Program agreement
+        that would record an opt-in does not exist in this release (legal
+        package, Decisions Register D11). A pooled path must never default to
+        every organization.
         """
-        return self.get_all_tenant_ids()
+        return []
 
     def record_training_run(self, tenant_id: str, status: str, duration_ms: int) -> None:
         """Record a training run audit entry for a tenant."""
