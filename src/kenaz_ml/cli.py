@@ -109,7 +109,7 @@ def main() -> None:
         "--aggregate",
         action="store_true",
         default=False,
-        help="Train aggregate model from pooled opted-in data (cloud mode only)",
+        help="Train aggregate model from pooled opted-in data (cloud mode only; unavailable in this release)",
     )
     train_parser.add_argument(
         "--min-interval",
@@ -248,6 +248,16 @@ def _handle_cloud_training(args: argparse.Namespace) -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+
+    if args.aggregate:
+        from kenaz_ml.training.cloud_trainer import (
+            MODEL_IMPROVEMENT_PROGRAM_AVAILABLE,
+            MODEL_IMPROVEMENT_PROGRAM_UNAVAILABLE,
+        )
+
+        if not MODEL_IMPROVEMENT_PROGRAM_AVAILABLE:
+            print(f"Error: {MODEL_IMPROVEMENT_PROGRAM_UNAVAILABLE}", file=sys.stderr)
+            sys.exit(2)
 
     # Validate cloud-only flags not used with local mode
     # (already handled by routing -- only called when mode == "cloud")
