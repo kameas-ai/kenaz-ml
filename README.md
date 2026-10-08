@@ -200,7 +200,23 @@ Tests use temporary SQLite databases and isolated model directories — no sigil
 
 ## Privacy
 
-kenaz-ml reads from and writes to a local SQLite database. It makes no network calls. No telemetry. No external APIs. Your workflow data never leaves your machine.
+**Local by default.** The open-source Kenaz engine records your workflow and produces its suggestions on your machine. Nothing leaves your machine. There is no telemetry, no account requirement and no cloud dependency in the open-source engine. Organizations that subscribe to Kameas Fleet can separately enable a paid, opt-in service called Offload; that is a different thing, it is off unless an organization turns it on, and it is described below.
+
+kenaz-ml reads from and writes to a local SQLite database. It makes no network calls. No telemetry. No external APIs. The test suite enforces this: `tests/test_no_egress.py` fails the build if any code path opens a socket or resolves a name.
+
+### Offload, a separate paid service
+
+Kameas also offers hosted inference for organizations that subscribe to Kameas Fleet. Under that service, called Offload, an organization's administrator can choose to send its developers' workflow activity to Kameas's cloud so predictions are computed there, including from models trained on the whole team's history.
+
+- Offload exists only when the engine is connected to a Kameas Fleet account on which an organization administrator has enabled it. The open-source engine on its own never sends anything.
+- Before anything is first sent from a developer's machine, the developer sees a notice in the product describing exactly what is sent.
+- What is sent: workflow events (file paths, shell commands run, git branch and repository names, active application or window, browser activity at domain level, power state, timestamps) and task summaries derived from them.
+- What is never sent, under Offload or otherwise: file contents, source code, prompts or AI conversations, screenshots, keystrokes. Strings that look like credentials are redacted before sending.
+- Where it goes: Kameas's AWS environment in Ohio (us-east-2), in a database schema dedicated to the organization. Predictions come back only to the developer's own tools.
+
+The terms that govern Offload are in the Kameas Fleet Subscription Agreement (§3.5 and the Data Processing Addendum) at [kenaz.kameas.ai/subscription-agreement](https://kenaz.kameas.ai/subscription-agreement), and the [Kameas Privacy Policy](https://kameas.ai/privacy), section 13, explains what it means for an individual developer.
+
+**If you want to be sure:** run the engine without a Fleet account, or with Offload disabled in your organization, and nothing leaves your machine. That is the guarantee the open-source project makes, and this section is where we will say so if that ever changes.
 
 See the [Sigil privacy policy](https://github.com/kameas-ai/sigil/blob/main/PRIVACY.md) for the full data inventory.
 
