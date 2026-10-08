@@ -1,9 +1,0 @@
-{
-  "feature_number": "001",
-  "slug": "001-cloud-serving-mode",
-  "feature_slug": "001-cloud-serving-mode",
-  "friendly_name": "cloud serving mode",
-  "mission": "software-dev",
-  "target_branch": "main",
-  "created_at": "2026-03-25T16:15:28.728007+00:00"
-}

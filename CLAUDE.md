@@ -114,7 +114,7 @@ uv add <pkg> / uv lock --upgrade-package <pkg>   # change a dependency; commit u
 
 ## Spec-Driven Workflow
 
-Feature work is organised as [spec-kitty](https://github.com/) missions under `kitty-specs/<mission-slug>/`, each with `spec.md`, `plan.md`, `research.md`, `tasks.md`, and per-work-package prompts in `tasks/`.
+Feature work is organised as [spec-kitty](https://github.com/) missions, each with `spec.md`, `plan.md`, `research.md`, `tasks.md`, and per-work-package prompts in `tasks/`. **Specs are not tracked in this public repo**: the source of truth is `workspace/specs/kenaz-ml/<mission-slug>/` in the private `kameas-ai/workspace` repo, and `kitty-specs/` here is a gitignored local working copy of it (copy a mission in to work on it; copy it back when done).
 
 - Every spec-kitty CLI call needs `--mission <handle>` — the handle is the `mission_id` (ULID), its 8-char `mid8` prefix, or the full `mission_slug`.
 - The `NNN-` directory prefix is display-only and assigned at **merge** time; `mission_number` is `null` before then. Never use it as a selector.
