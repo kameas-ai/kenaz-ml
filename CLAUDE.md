@@ -17,6 +17,8 @@ It ships in **two deployments from one codebase**:
 
 Mode is selected by `config.operating_mode()`.
 
+The cloud deployment is two processes from the same image: `kenaz-ml serve --mode cloud`, the stateless API, and `kenaz-ml worker`, which runs the engine's local loop (poller, predictions, training scheduler) once per **stream** -- an `(org, user)` pair -- against `PostgresStore(url, tenant=org, stream=user)`. The engine never writes `events` or `tasks` in either deployment; in the cloud the platform (fleet) provisions the tenant schema and the four engine-owned `ml_*` tables, and `ensure_tables` only verifies them. The tenant a cloud request acts for comes from a `TenantResolver` the hosting shell passes to `create_app` / `mount_engine` (`src/kenaz_ml/tenant.py`); the header resolver is the default and is only safe behind a gateway that sets it.
+
 **Core principle for the local deployment: security-first, local-only.** No data leaves the machine — this is a product guarantee, not a default. Anything that could transmit user-derived data must be gated behind cloud mode and must not be reachable from the open-source local path.
 
 Architecture beyond this file — feature layer, model lifecycle, registry, base-model strategy — lives in [`docs/ML_ARCHITECTURE.md`](docs/ML_ARCHITECTURE.md).

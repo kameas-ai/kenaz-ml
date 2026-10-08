@@ -29,6 +29,7 @@ from kenaz_ml.models.workflow import WorkflowStatePredictor
 from kenaz_ml.modelstore import ModelStore, model_store_factory
 from kenaz_ml.poller import EventPoller
 from kenaz_ml.routes import register_routes
+from kenaz_ml.tenant import TenantResolver
 from kenaz_ml.training.scheduler import TrainingScheduler
 
 logger = logging.getLogger("kenaz_ml")
@@ -259,8 +260,77 @@ async def advice_schedule_loop(scheduler: AdviceTrainingScheduler) -> None:
         await asyncio.sleep(ADVICE_TICK_SEC)
 
 
-def create_app(mode: ServingMode | None = None) -> FastAPI:
-    """Create and configure the FastAPI application."""
+def build_signal_engine(store: DataStore, model_store: ModelStore) -> SignalEngine:
+    """The signal pipeline the poller feeds, with its persisted models loaded.
+
+    Shared by the local app and the cloud worker (:mod:`kenaz_ml.worker`), so
+    a stream in the cloud gets exactly the pipeline a laptop gets.
+    """
+    from kenaz_ml.signals.engine import SignalEngine
+    from kenaz_ml.signals.file_recommender import FileRecommender
+    from kenaz_ml.signals.next_action import NextActionPredictor
+    from kenaz_ml.signals.pattern_detector import PatternDetector
+    from kenaz_ml.signals.profile import BehaviorProfile
+
+    profile = BehaviorProfile()
+    pattern_detector = PatternDetector()
+    next_action_predictor = NextActionPredictor()
+    file_recommender = FileRecommender()
+    # Load persisted signal models
+    next_action_predictor.load(model_store)
+    file_recommender.load(model_store)
+    pattern_detector.load(model_store)
+    return SignalEngine(
+        store=store,
+        profile=profile,
+        pattern_detector=pattern_detector,
+        next_action=next_action_predictor,
+        file_recommender=file_recommender,
+    )
+
+
+def init_cloud_state(state: AppState) -> None:
+    """Cloud-mode runtime setup: the per-tenant model cache and loader.
+
+    Shared by :func:`create_app` and hosting shells that build their own
+    FastAPI app around :func:`mount_engine`. Stateless by design: no data
+    store, no poller, no scheduler; those belong to :mod:`kenaz_ml.worker`.
+    """
+    from kenaz_ml.modelstore import FilesystemModelLoader, create_model_cache
+
+    state.model_cache = create_model_cache()
+    state.model_loader = FilesystemModelLoader()
+    logger.info("kenaz-ml: cloud mode -- stateless serving, cache and loader initialized")
+
+
+def mount_engine(
+    application: FastAPI,
+    state: AppState,
+    *,
+    tenant_resolver: TenantResolver | None = None,
+) -> None:
+    """Mount the engine's routes on an app the caller owns.
+
+    The seam a hosting shell uses: it builds its own FastAPI app with its own
+    middleware (token verification, entitlement, quotas, metering), creates
+    ``AppState(ServingMode.CLOUD)``, calls :func:`init_cloud_state`, and
+    mounts the engine here with a ``tenant_resolver`` that reads the tenant
+    from the identity it verified. The engine's wire contract is unchanged;
+    only who vouches for the tenant moves.
+    """
+    register_routes(application, state, tenant_resolver)
+    register_fleet_routes(application, state)
+
+
+def create_app(
+    mode: ServingMode | None = None,
+    *,
+    tenant_resolver: TenantResolver | None = None,
+) -> FastAPI:
+    """Create and configure the FastAPI application.
+
+    ``tenant_resolver`` applies in cloud mode only (see :mod:`kenaz_ml.tenant`).
+    """
     if mode is None:
         mode = resolve_mode()  # reads KENAZ_ML_MODE env var, defaults to LOCAL
 
@@ -296,30 +366,7 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
             populated = await asyncio.get_running_loop().run_in_executor(None, build_table)
             state.dispatch_table.replace_all(populated.snapshot())
 
-            # Initialize signal pipeline (additive, does not modify existing models)
-            from kenaz_ml.signals.engine import SignalEngine
-            from kenaz_ml.signals.file_recommender import FileRecommender
-            from kenaz_ml.signals.next_action import NextActionPredictor
-            from kenaz_ml.signals.pattern_detector import PatternDetector
-            from kenaz_ml.signals.profile import BehaviorProfile
-
-            profile = BehaviorProfile()
-            pattern_detector = PatternDetector()
-            next_action_predictor = NextActionPredictor()
-            file_recommender = FileRecommender()
-
-            # Load persisted signal models
-            next_action_predictor.load(ms)
-            file_recommender.load(ms)
-            pattern_detector.load(ms)
-
-            signal_engine = SignalEngine(
-                store=store,
-                profile=profile,
-                pattern_detector=pattern_detector,
-                next_action=next_action_predictor,
-                file_recommender=file_recommender,
-            )
+            signal_engine = build_signal_engine(store, ms)
             state.signal_engine = signal_engine
 
             state.poller = EventPoller(
@@ -362,11 +409,7 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
         else:
             # Cloud mode: no SQLite, no poller, no scheduler.
             # Models loaded lazily per-tenant via cache + loader.
-            from kenaz_ml.modelstore import FilesystemModelLoader, create_model_cache
-
-            state.model_cache = create_model_cache()
-            state.model_loader = FilesystemModelLoader()
-            logger.info("kenaz-ml: cloud mode -- stateless serving, cache and loader initialized")
+            init_cloud_state(state)
 
         yield
 
@@ -390,8 +433,7 @@ def create_app(mode: ServingMode | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    register_routes(application, state)
-    register_fleet_routes(application, state)
+    mount_engine(application, state, tenant_resolver=tenant_resolver)
 
     # laya-serving-and-packs-01MSK2SP WP01 (D-C1): laya's raw wire API, in
     # process, local mode only. Never called by /v1/recommend (C-002).

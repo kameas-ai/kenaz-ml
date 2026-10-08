@@ -35,8 +35,15 @@ QUALITY_TTL_SEC = 120  # 2-minute expiry for quality
 class EventPoller:
     """Polls sigild's events table and writes predictions to ml_predictions."""
 
-    def __init__(self, store: DataStore, models: dict[str, Any], signal_engine: SignalEngine | None = None) -> None:
+    def __init__(
+        self,
+        store: DataStore,
+        models: dict[str, Any],
+        signal_engine: SignalEngine | None = None,
+        poll_interval_sec: float = POLL_INTERVAL_SEC,
+    ) -> None:
         self.store = store
+        self.poll_interval_sec = poll_interval_sec
         self.stuck = models["stuck"]
         self.activity = models["activity"]
         self.workflow = models["workflow"]
@@ -58,7 +65,7 @@ class EventPoller:
             except Exception as e:
                 # Database may not exist yet or be locked — retry silently.
                 logger.debug("poller: store error (will retry): %s", e)
-            await asyncio.sleep(POLL_INTERVAL_SEC)
+            await asyncio.sleep(self.poll_interval_sec)
 
     def stop(self) -> None:
         self._running = False

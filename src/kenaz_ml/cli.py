@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import ipaddress
 import json
 import logging
 import os
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import uvicorn
 
@@ -137,6 +138,33 @@ def main() -> None:
 
     sub.add_parser("health-check", help="Check if server is running")
 
+    worker_parser = sub.add_parser(
+        "worker",
+        help="Run the cloud worker: the engine's loop per device stream against Postgres (needs kenaz-ml[cloud])",
+    )
+    worker_parser.add_argument(
+        "--tenants",
+        default="",
+        help="Comma-separated tenant schemas; every stream (user_id) found in each gets a worker",
+    )
+    worker_parser.add_argument(
+        "--streams",
+        default="",
+        help="Comma-separated explicit streams as tenant:user_id, in addition to --tenants discovery",
+    )
+    worker_parser.add_argument(
+        "--poll-interval",
+        type=float,
+        default=None,
+        help="Seconds between polls per stream (default: the engine's local interval)",
+    )
+    worker_parser.add_argument(
+        "--retrain-check-sec",
+        type=float,
+        default=None,
+        help="Seconds between training-scheduler checks per stream (default 600)",
+    )
+
     args = parser.parse_args()
 
     # Initialize file + console logging for all commands
@@ -163,6 +191,8 @@ def main() -> None:
             port=args.port,
             log_level="info",
         )
+    elif args.command == "worker":
+        _handle_worker(args)
     elif args.command == "train":
         if args.mode == "cloud":
             _handle_cloud_training(args)
@@ -291,6 +321,54 @@ def _handle_cloud_training(args: argparse.Namespace) -> None:
             print("\nFull JSON:")
             print(json.dumps(result.to_dict(), indent=2))
         sys.exit(0 if result.status != "failed" else 1)
+
+
+def _handle_worker(args: argparse.Namespace) -> None:
+    """Run the cloud worker until SIGTERM/SIGINT. Lazy-imports cloud modules."""
+    db_url = env("KENAZ_POSTGRES_URL")
+    s3_bucket = env("KENAZ_S3_BUCKET")
+    if not db_url or not s3_bucket:
+        print(
+            "Error: KENAZ_POSTGRES_URL and KENAZ_S3_BUCKET environment variables are required for the worker",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    tenants = [t.strip() for t in args.tenants.split(",") if t.strip()]
+    streams: list[tuple[str, str]] = []
+    for item in (p.strip() for p in args.streams.split(",") if p.strip()):
+        tenant, sep, user = item.partition(":")
+        if not sep or not tenant or not user:
+            print(f"Error: --streams entries are tenant:user_id, got {item!r}", file=sys.stderr)
+            sys.exit(2)
+        streams.append((tenant, user))
+    if not tenants and not streams:
+        print("Error: the worker needs --tenants and/or --streams", file=sys.stderr)
+        sys.exit(2)
+
+    from kenaz_ml import worker as worker_mod
+
+    kwargs: dict[str, Any] = {}
+    if args.poll_interval is not None:
+        kwargs["poll_interval_sec"] = args.poll_interval
+    if args.retrain_check_sec is not None:
+        kwargs["retrain_check_sec"] = args.retrain_check_sec
+    try:
+        workers = worker_mod.build_postgres_workers(db_url, s3_bucket, tenants=tenants, streams=streams, **kwargs)
+    except ImportError as exc:
+        raise SystemExit(f"Error: {exc}. Install with: pip install kenaz-ml[cloud]") from None
+    if not workers:
+        print("Error: no streams to run; nothing in the given tenants has events with a user_id", file=sys.stderr)
+        sys.exit(1)
+
+    async def _main() -> None:
+        stop = asyncio.Event()
+        worker_mod.install_stop_signals(stop)
+        logging.getLogger("kenaz_ml").info(
+            "kenaz-ml worker: %d stream(s): %s", len(workers), ", ".join(w.name for w in workers)
+        )
+        await worker_mod.run_workers(workers, stop)
+
+    asyncio.run(_main())
 
 
 def _create_data_store(db_url: str) -> DataStore:

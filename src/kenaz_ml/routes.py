@@ -28,7 +28,7 @@ from kenaz_ml.models.quality import QualityEstimator
 from kenaz_ml.models.stuck import StuckPredictor
 from kenaz_ml.models.workflow import WorkflowStatePredictor
 from kenaz_ml.plugins import fetch_capabilities
-from kenaz_ml.tenant import TenantContext, make_tenant_dependency
+from kenaz_ml.tenant import TenantContext, TenantResolver, make_tenant_dependency
 from kenaz_ml.training.trainer import Trainer
 from kenaz_ml.typewriter.models import (
     DurationRequest,
@@ -118,10 +118,14 @@ FALLBACK_QUALITY = QualityResponse(score=50, components={}, status="normal")
 # ---------- Route registration ----------
 
 
-def register_routes(fastapi_app: FastAPI, state: AppState) -> None:
-    """Register all API routes on the given FastAPI app."""
+def register_routes(fastapi_app: FastAPI, state: AppState, tenant_resolver: TenantResolver | None = None) -> None:
+    """Register all API routes on the given FastAPI app.
 
-    get_tenant = make_tenant_dependency(state)
+    ``tenant_resolver`` is the cloud-mode tenant seam (see
+    :mod:`kenaz_ml.tenant`); ``None`` keeps the header resolver.
+    """
+
+    get_tenant = make_tenant_dependency(state, tenant_resolver)
     # Computed once per app, at startup (registration), never per request.
     state.engine_sha256 = engine_sha256()
 
