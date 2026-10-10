@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -31,7 +31,7 @@ from kenaz_ml.config import ServingMode
 from kenaz_ml.datastore import DataStore
 from kenaz_ml.modelstore import ModelStore
 from kenaz_ml.poller import POLL_INTERVAL_SEC, EventPoller
-from kenaz_ml.training.scheduler import TrainingScheduler
+from kenaz_ml.training.scheduler import RetainedMirror, TrainingScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,10 @@ class StreamWorker:
     store: DataStore
     model_store: ModelStore
     retained_dir: Path | None = None
+    #: Where ``retained_dir`` persists when the container's disk does not (S3).
+    retained_mirror: RetainedMirror | None = None
+    #: Days a retained example may be kept; ``None`` means no age bound.
+    retention_days: Callable[[], int | None] | None = None
     poll_interval_sec: float = POLL_INTERVAL_SEC
     retrain_check_sec: float = DEFAULT_RETRAIN_CHECK_SEC
     state: AppState = field(init=False, repr=False)
@@ -108,6 +112,8 @@ class StreamWorker:
             model_store=self.model_store,
             reload_callback=self.state.reload_models_into_poller,
             retained_dir=self.retained_dir,
+            retained_mirror=self.retained_mirror,
+            retention_days=self.retention_days,
         )
         logger.info("worker[%s]: models loaded, poller ready", self.name)
 
