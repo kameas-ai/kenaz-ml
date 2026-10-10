@@ -105,6 +105,27 @@ class PostgresStore:
             self._conn.close()
             self._conn = None
 
+    def _optional_read(self, cur: Any, statement: str, params: Any = None) -> list[Any] | None:
+        """Run a read that may legitimately fail (a table or column this schema lacks).
+
+        The read runs inside a savepoint, so a failure rolls back only the read.
+        A whole-connection ``rollback()`` here would also discard every write
+        the caller has made since its last commit: in the cloud worker that was
+        each prediction cycle's ``ml_predictions`` rows, because the signal
+        engine's feedback read fails on a tenant with no ``suggestions`` table
+        while the audit row written after it commits.
+        Returns ``None`` when the read failed.
+        """
+        cur.execute("SAVEPOINT engine_optional_read")
+        try:
+            cur.execute(statement, params)
+            rows = cur.fetchall()
+        except Exception:
+            cur.execute("ROLLBACK TO SAVEPOINT engine_optional_read")
+            return None
+        cur.execute("RELEASE SAVEPOINT engine_optional_read")
+        return rows
+
     # --- Schema bootstrap ---
 
     #: The engine-owned tables ``ensure_tables`` creates, or expects to find
@@ -256,14 +277,14 @@ class PostgresStore:
         schema has no ``user_id`` column (a single-stream schema) or no rows.
         """
         conn = self._get_conn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT DISTINCT user_id FROM events WHERE user_id IS NOT NULL ORDER BY user_id")
-                return [str(row[0]) for row in cur.fetchall() if row[0] not in (None, "")]
-        except Exception:
-            conn.rollback()
+        with conn.cursor() as cur:
+            rows = self._optional_read(
+                cur, "SELECT DISTINCT user_id FROM events WHERE user_id IS NOT NULL ORDER BY user_id"
+            )
+        if rows is None:
             logger.debug("list_streams: events.user_id not available in schema %s", self._tenant)
             return []
+        return [str(row[0]) for row in rows if row[0] not in (None, "")]
 
     # --- Cursor operations ---
 
@@ -494,23 +515,21 @@ class PostgresStore:
     def get_signal_feedback(self, since_ms: int) -> list[dict]:
         """Read feedback linkages from suggestions table for training."""
         conn = self._get_conn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT s.signal_id, ms.signal_type, s.status, s.created_at "
-                    "FROM suggestions s "
-                    "JOIN ml_signals ms ON s.signal_id = ms.id "
-                    "WHERE s.signal_id IS NOT NULL AND s.created_at > %s "
-                    "ORDER BY s.created_at ASC",
-                    (since_ms,),
-                )
-                return [
-                    {"signal_id": r[0], "signal_type": r[1], "status": r[2], "created_at": r[3]} for r in cur.fetchall()
-                ]
-        except Exception:
-            conn.rollback()
-            logger.debug("get_signal_feedback: suggestions.signal_id not available yet")
+        with conn.cursor() as cur:
+            rows = self._optional_read(
+                cur,
+                "SELECT s.signal_id, ms.signal_type, s.status, s.created_at "
+                "FROM suggestions s "
+                "JOIN ml_signals ms ON s.signal_id = ms.id "
+                "WHERE s.signal_id IS NOT NULL AND s.created_at > %s "
+                "ORDER BY s.created_at ASC",
+                (since_ms,),
+            )
+        if rows is None:
+            # A cloud tenant has no ``suggestions`` table (the daemon owns it locally).
+            logger.debug("get_signal_feedback: suggestions.signal_id not available in schema %s", self._tenant)
             return []
+        return [{"signal_id": r[0], "signal_type": r[1], "status": r[2], "created_at": r[3]} for r in rows]
 
     # --- Cloud training methods ---
 

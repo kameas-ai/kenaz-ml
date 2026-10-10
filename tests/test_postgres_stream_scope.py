@@ -23,9 +23,17 @@ class InsufficientPrivilege(Exception):
 
 
 class FakeCursor:
-    def __init__(self, log: list[tuple[str, Any]], *, deny_ddl: bool, tables_present: tuple[str, ...]) -> None:
+    def __init__(
+        self,
+        log: list[tuple[str, Any]],
+        *,
+        deny_ddl: bool,
+        tables_present: tuple[str, ...],
+        fail_on: tuple[str, ...] = (),
+    ) -> None:
         self.log = log
         self.deny_ddl = deny_ddl
+        self.fail_on = fail_on
         self.tables_present = tables_present
         self.description = None
         self._last = ""
@@ -42,6 +50,8 @@ class FakeCursor:
         self.log.append((text, params))
         if self.deny_ddl and text.startswith(("CREATE", "ALTER")):
             raise InsufficientPrivilege("permission denied for schema")
+        if any(needle in text for needle in self.fail_on):
+            raise RuntimeError(f"relation does not exist: {text[:40]}")
 
     def fetchone(self) -> Any:
         return None
@@ -86,10 +96,18 @@ class _Identifier(str):
 @pytest.fixture
 def fake_psycopg2(monkeypatch: pytest.MonkeyPatch):
     """Install a psycopg2 whose connections record every statement."""
-    state: dict[str, Any] = {"log": [], "conn": None, "deny_ddl": False, "tables_present": ENGINE_TABLES}
+    state: dict[str, Any] = {
+        "log": [],
+        "conn": None,
+        "deny_ddl": False,
+        "tables_present": ENGINE_TABLES,
+        "fail_on": (),
+    }
 
     def connect(url: str) -> FakeConn:
-        conn = FakeConn(state["log"], deny_ddl=state["deny_ddl"], tables_present=state["tables_present"])
+        conn = FakeConn(
+            state["log"], deny_ddl=state["deny_ddl"], tables_present=state["tables_present"], fail_on=state["fail_on"]
+        )
         state["conn"] = conn
         return conn
 
@@ -184,7 +202,7 @@ def test_ensure_tables_fails_loudly_when_a_table_is_missing(fake_psycopg2) -> No
     assert fake_psycopg2["conn"].rollbacks == 2
 
 
-def test_list_streams_returns_empty_and_rolls_back_when_the_column_is_absent(fake_psycopg2) -> None:
+def test_list_streams_returns_empty_and_rolls_back_only_its_savepoint_when_the_column_is_absent(fake_psycopg2) -> None:
     store = PostgresStore("postgresql://x", tenant="tenant_a")
 
     class NoColumnCursor(FakeCursor):
@@ -196,7 +214,8 @@ def test_list_streams_returns_empty_and_rolls_back_when_the_column_is_absent(fak
     conn = store._get_conn()
     conn.cursor = lambda: NoColumnCursor(fake_psycopg2["log"], deny_ddl=False, tables_present=ENGINE_TABLES)  # type: ignore[method-assign]
     assert store.list_streams() == []
-    assert conn.rollbacks == 1
+    assert conn.rollbacks == 0, "only the read's savepoint is rolled back, never pending writes"
+    assert "ROLLBACK TO SAVEPOINT engine_optional_read" in [s for s, _ in fake_psycopg2["log"]]
 
 
 @pytest.mark.parametrize("bad", ["", "has space", "tab\there", "x" * 129, "line\nbreak"])
@@ -207,3 +226,24 @@ def test_stream_ids_with_whitespace_or_wrong_length_are_refused(bad: str) -> Non
 def test_a_bad_stream_id_is_refused_at_construction(fake_psycopg2) -> None:
     with pytest.raises(ValueError, match="stream id"):
         PostgresStore("postgresql://x", tenant="tenant_a", stream="no spaces allowed")
+
+
+def test_a_failed_feedback_read_keeps_the_predictions_written_before_it(fake_psycopg2) -> None:
+    """Regression: a cloud tenant has no ``suggestions`` table.
+
+    The signal engine's feedback read used to ``rollback()`` the connection,
+    discarding the cycle's ``ml_predictions`` rows while the audit row written
+    after it committed. The read must fail inside a savepoint instead.
+    """
+    fake_psycopg2["fail_on"] = ("FROM suggestions",)
+    store = PostgresStore("postgresql://x", tenant="tenant_a", stream="user-1")
+    store.insert_prediction("stuck", {"probability": 0.4}, 0.4, 90)
+
+    assert store.get_signal_feedback(since_ms=0) == []
+
+    assert fake_psycopg2["conn"].rollbacks == 0, "the shared transaction must not be rolled back"
+    log = [s for s, _ in fake_psycopg2["log"]]
+    assert "ROLLBACK TO SAVEPOINT engine_optional_read" in log
+    assert log.index("SAVEPOINT engine_optional_read") > next(
+        i for i, s in enumerate(log) if s.startswith("INSERT INTO ml_predictions")
+    )
