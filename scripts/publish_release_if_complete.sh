@@ -42,16 +42,24 @@ grep -qE '\.whl$' <<<"$NAMES" || missing+=("<wheel>.whl")
 grep -qE '\.tar\.gz$' <<<"$NAMES" || missing+=("<sdist>.tar.gz")
 
 if [ "${#missing[@]}" -gt 0 ]; then
-  echo "::notice::Release $TAG stays a draft until the rest of its assets arrive: ${missing[*]}"
+  # Expected when the other workflow is still uploading; if it already
+  # finished (or failed), this draft is stuck and needs a re-run.
+  echo "::warning::Release $TAG stays a DRAFT until the rest of its assets arrive: ${missing[*]}"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    echo "### Release $TAG is still a DRAFT — missing: ${missing[*]}" >> "$GITHUB_STEP_SUMMARY"
+  fi
   exit 0
 fi
 
-# Only a plain vX.Y.Z that is the highest such tag becomes "Latest"; a
-# re-run of an older tag or an -rc publishes without stealing it.
+# Only a plain vX.Y.Z at least as high as every PUBLISHED plain release
+# becomes "Latest"; a re-run of an older tag or an -rc publishes without
+# stealing it. Compared against published releases, not tags, so a higher
+# tag stuck as a draft can't stop a completed hotfix from becoming latest.
 LATEST=false
 if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  HIGHEST=$(gh api --paginate "repos/$REPO/git/matching-refs/tags/v" --jq '.[].ref' \
-    | sed 's#^refs/tags/##' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+  HIGHEST=$( { gh release list -R "$REPO" --exclude-drafts --exclude-pre-releases --limit 200 \
+      --json tagName --jq '.[].tagName' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; echo "$TAG"; } \
+    | sort -V | tail -1)
   [ "$HIGHEST" = "$TAG" ] && LATEST=true
 fi
 PRERELEASE=false
