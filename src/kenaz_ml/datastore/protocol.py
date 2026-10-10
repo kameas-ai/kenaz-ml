@@ -10,6 +10,7 @@ Implementations:
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import Any, Protocol, runtime_checkable
 
 
@@ -34,10 +35,14 @@ class DataStore(Protocol):
         """Update ml_cursor.last_event_id to the given event_id."""
         ...
 
-    def get_events_since(self, since_id: int, limit: int = 100) -> list[dict[str, Any]]:
+    def get_events_since(
+        self, since_id: int, limit: int = 100, *, exclude_kinds: Collection[str] = ()
+    ) -> list[dict[str, Any]]:
         """Return events with id > since_id, ordered by id ASC, up to limit.
 
         Each dict has keys: id, kind, source, payload (raw string), ts.
+        Rows whose kind is in ``exclude_kinds`` are filtered in the query and
+        never leave the database.
         """
         ...
 

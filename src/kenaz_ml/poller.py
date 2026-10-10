@@ -31,6 +31,15 @@ QUALITY_WINDOW_SEC = 1800  # 30-minute rolling window for quality features
 PREDICTION_TTL_SEC = 90  # 90-second expiry for stuck/activity/workflow
 QUALITY_TTL_SEC = 120  # 2-minute expiry for quality
 
+#: Event kinds the poller's models are not meant to see. These are the kinds
+#: gated behind ML notice revision 2: they record advice shown, the feature
+#: vectors behind it and model choices, not developer activity, and they exist
+#: for the hosted advice trainers alone. The query filters them, so they never
+#: reach the activity classifier, the buffer, or any feature.
+POLLER_EXCLUDED_KINDS: frozenset[str] = frozenset(
+    {"advice.label", "advice.features", "model.switch", "branch.created", "agent.turn_profile"}
+)
+
 
 class EventPoller:
     """Polls sigild's events table and writes predictions to ml_predictions."""
@@ -73,7 +82,7 @@ class EventPoller:
     def _poll_once(self) -> None:
         since = self.store.get_cursor()
 
-        rows = self.store.get_events_since(since, limit=100)
+        rows = self.store.get_events_since(since, limit=100, exclude_kinds=POLLER_EXCLUDED_KINDS)
 
         if not rows:
             return
