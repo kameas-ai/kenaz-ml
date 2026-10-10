@@ -275,6 +275,10 @@ jobs:
   #   * "the bundle is a reasonable size". The delta is printed on every build
   #     and gated, so drift is visible long before it breaches.
   freeze:
+    # Push-to-main bundle builds (and the notarize/dev-publish chain that
+    # needs them) are opt-in via the repository variable AUTO_RELEASE=true;
+    # PRs, tags and dispatches always build.
+    if: (github.event_name != 'push' || github.ref_type == 'tag' || vars.AUTO_RELEASE == 'true')
     name: Frozen bundle (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -1014,7 +1018,7 @@ jobs:
   resolve-env:
     name: Resolve release environment
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.event_name != 'push' || github.ref_type == 'tag' || vars.AUTO_RELEASE == 'true')
     outputs:
       target_env: ${{ steps.pick.outputs.target_env }}
       bucket: ${{ steps.pick.outputs.bucket }}
