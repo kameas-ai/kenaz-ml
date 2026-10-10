@@ -3,7 +3,7 @@
   "info": {
     "title": "kenaz-ml",
     "description": "kenaz-ml \u2014 the ML sidecar for Sigil (local mode)",
-    "version": "0.3.0"
+    "version": "0.3.1"
   },
   "paths": {
     "/health": {

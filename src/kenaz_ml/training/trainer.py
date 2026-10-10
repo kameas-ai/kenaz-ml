@@ -262,6 +262,8 @@ def _retain_examples(
     vectors: Sequence[Sequence[float]],
     labels: Sequence[float],
     as_of: Sequence[int],
+    *,
+    directory: Path | None = None,
 ) -> AppendResult | None:
     """Append this run's examples to ``model_name``'s retained set (FR-009).
 
@@ -287,7 +289,7 @@ def _retain_examples(
     ]
 
     try:
-        result = append_examples(model_name, examples, contract)
+        result = append_examples(model_name, examples, contract, directory=directory)
     except Exception:
         logger.warning("training: failed to retain examples for %r", model_name, exc_info=True)
         return None
@@ -429,9 +431,39 @@ class _ManifestUpdate:
 class Trainer:
     """Orchestrates training of all kenaz-ml models from local data."""
 
-    def __init__(self, store: DataStore, model_store: ModelStore | None = None) -> None:
+    def __init__(
+        self,
+        store: DataStore,
+        model_store: ModelStore | None = None,
+        *,
+        retained_dir: Path | None = None,
+    ) -> None:
         self.store = store
         self._model_store = model_store
+        self._retained_dir = retained_dir
+
+    def _retain(
+        self,
+        model_name: str,
+        contract: FeatureContract | None,
+        vectors: Sequence[Sequence[float]],
+        labels: Sequence[float],
+        as_of: Sequence[int],
+    ) -> AppendResult | None:
+        """Retain this run's examples where this Trainer's data belongs.
+
+        The default retention directory is one per install, which is right
+        for the local deployment's single person and wrong for a process that
+        trains many streams: a cloud worker would put every organization's
+        vectors in one file. So a Trainer over a store that is not
+        filesystem-backed retains only into an explicit ``retained_dir`` (the
+        cloud worker passes one per tenant and stream) and otherwise retains
+        nothing.
+        """
+        if self._retained_dir is None and _artifact_dir(self._model_store) is None:
+            logger.info("training: no per-stream retention directory for %r; not retaining", model_name)
+            return None
+        return _retain_examples(model_name, contract, vectors, labels, as_of, directory=self._retained_dir)
 
     def _require_model_store(self) -> ModelStore:
         """The model store, for the signal models that cannot be saved without one."""
@@ -596,7 +628,7 @@ class Trainer:
             predictor.train(X, y)
             # Retention happens only once the fit and save have succeeded, so a
             # failed run leaves the retained set exactly as it found it.
-            retained = _retain_examples("stuck", contract, X_list, y_list, as_of_list)
+            retained = self._retain("stuck", contract, X_list, y_list, as_of_list)
             update.record(
                 n_samples=len(X),
                 model=predictor.model,
@@ -664,7 +696,7 @@ class Trainer:
         with self._manifest_update("duration", contract, TRAINING_SOURCE_LOCAL) as update:
             estimator = DurationEstimator(model_store=self._model_store)
             estimator.train(X, y)
-            retained = _retain_examples("duration", contract, X_list, y_list, as_of_list)
+            retained = self._retain("duration", contract, X_list, y_list, as_of_list)
             update.record(
                 n_samples=len(X),
                 model=estimator.model,
