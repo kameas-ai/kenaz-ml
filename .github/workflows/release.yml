@@ -16,7 +16,11 @@ permissions:
 # SHA256SUMS) are attached to the release by ci.yml's `release-assets` job on
 # the same tag; this workflow adds the Python sdist and wheel for people who
 # install the package into their own environment. Whichever workflow reaches
-# the tag first creates the release; uploads never fail on an existing one.
+# the tag first creates the release, always as a DRAFT (tag-on-merge.yml
+# normally has already); uploads never fail on an existing one. The draft is
+# published by scripts/publish_release_if_complete.sh, run after the upload
+# here and in ci.yml, once the bundles, SHA256SUMS, sdist and wheel are all
+# attached — so `releases/latest` never points at a partial release.
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -35,7 +39,11 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          # `gh release view/upload <tag>` resolve drafts too (the REST
+          # releases/tags/{tag} endpoint does not), so the draft that
+          # tag-on-merge.yml created is found, not duplicated.
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --verify-tag --generate-notes --title "$TAG"
+            gh release create "$TAG" --draft --verify-tag --generate-notes --title "$TAG"
           fi
           gh release upload "$TAG" dist/* --clobber
+          scripts/publish_release_if_complete.sh "$TAG"

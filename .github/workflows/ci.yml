@@ -311,6 +311,9 @@ jobs:
           - os: windows-latest
             target: windows-x86_64
             exe: kameas-ml.exe
+    # A healthy freeze takes ~10 min; a wedged one should not hold a runner
+    # (and the release behind it) for GitHub's 6 h default.
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
@@ -554,6 +557,8 @@ jobs:
     needs: freeze
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    # notarytool waits up to 45 min for Apple; the rest of the gate is ~10.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -737,8 +742,19 @@ jobs:
           AC_API_PRIVATE_KEY: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
           set -euo pipefail
-          mkdir -p /tmp/ac
-          echo "$AC_API_PRIVATE_KEY" > "/tmp/ac/AuthKey_${AC_API_KEY_ID}.p8"
+          # Every hdiutil call goes through scripts/dmg_helpers.sh (retry with
+          # backoff, stop processes holding the volume, `detach -force` as a
+          # last resort): a single "Resource busy" lost v0.2.2 and v0.3.0
+          # their engine bundles.
+          source scripts/dmg_helpers.sh
+          dmg_quiet_spotlight
+          MOUNT=""
+          AC_DIR=$(mktemp -d)
+          AC_KEY="$AC_DIR/AuthKey_${AC_API_KEY_ID}.p8"
+          # The App Store Connect key never outlives this step, however it ends.
+          cleanup() { dmg_detach "$MOUNT" || true; rm -rf "$AC_DIR"; }
+          trap cleanup EXIT
+          ( umask 077; printf '%s\n' "$AC_API_PRIVATE_KEY" > "$AC_KEY" )
 
           # A .dmg, because a ticket has to be stapled to a container.
           #
@@ -750,18 +766,19 @@ jobs:
           # dist/kameas-ml directly produced a volume the installer refused.
           rm -rf /tmp/dmg-root && mkdir -p /tmp/dmg-root
           cp -R dist/kameas-ml /tmp/dmg-root/kameas-ml
-          hdiutil create -volname kenaz-ml -srcfolder /tmp/dmg-root \
-            -ov -format UDZO /tmp/kenaz-ml.dmg
+          dmg_create /tmp/dmg-root /tmp/kenaz-ml.dmg kenaz-ml
           rm -rf /tmp/dmg-root
 
           # Prove the layout before spending a notarization round on it.
-          MOUNT=$(hdiutil attach /tmp/kenaz-ml.dmg -nobrowse -readonly | tail -1 | awk '{print $NF}')
+          MOUNT=$(dmg_attach /tmp/kenaz-ml.dmg)
           if [ ! -d "$MOUNT/kameas-ml" ] || [ ! -x "$MOUNT/kameas-ml/kameas-ml" ] || [ ! -d "$MOUNT/kameas-ml/_internal" ]; then
-            ls -la "$MOUNT"; hdiutil detach "$MOUNT" || true
+            ls -la "$MOUNT"
             echo "::error::dmg layout is wrong: expected <root>/kameas-ml/{kameas-ml,_internal}; the harness installer would refuse this image"
             exit 1
           fi
-          hdiutil detach "$MOUNT"
+          # Hard requirement: codesign and stapler rewrite the image next.
+          dmg_detach "$MOUNT"
+          MOUNT=""
 
           # The image is signed too, as the harness signs its .dmg.
           codesign --force --timestamp --sign "$IDENTITY" /tmp/kenaz-ml.dmg
@@ -771,7 +788,7 @@ jobs:
           # Apple's log, which names each offending file and the rule it broke,
           # and fail here instead of at `stapler`.
           xcrun notarytool submit /tmp/kenaz-ml.dmg \
-            --key "/tmp/ac/AuthKey_${AC_API_KEY_ID}.p8" \
+            --key "$AC_KEY" \
             --key-id "$AC_API_KEY_ID" \
             --issuer "$AC_API_ISSUER_ID" \
             --wait --timeout 45m | tee /tmp/notary-submit.log
@@ -781,7 +798,7 @@ jobs:
             echo "::group::Apple notary log for submission ${SUBMISSION_ID:-unknown}"
             if [ -n "$SUBMISSION_ID" ]; then
               xcrun notarytool log "$SUBMISSION_ID" \
-                --key "/tmp/ac/AuthKey_${AC_API_KEY_ID}.p8" \
+                --key "$AC_KEY" \
                 --key-id "$AC_API_KEY_ID" \
                 --issuer "$AC_API_ISSUER_ID" | tee /tmp/notary-log.json
               {
@@ -792,12 +809,10 @@ jobs:
               } >> "$GITHUB_STEP_SUMMARY"
             fi
             echo "::endgroup::"
-            rm -rf /tmp/ac
             echo "::error::notarization ${STATUS:-returned no status} for submission ${SUBMISSION_ID:-unknown}; see the notary log above"
             exit 1
           fi
           xcrun stapler staple /tmp/kenaz-ml.dmg
-          rm -rf /tmp/ac
 
       - name: Verify notarization (FR-012, NFR-005)
         if: steps.creds.outputs.configured == 'true'
@@ -830,15 +845,17 @@ jobs:
           set -euo pipefail
           uv sync --locked
           export PATH="$PWD/.venv/bin:$PATH"
-          MOUNT=$(hdiutil attach /tmp/kenaz-ml.dmg -nobrowse -readonly | tail -1 | awk '{print $NF}')
+          source scripts/dmg_helpers.sh
+          MOUNT=$(dmg_attach /tmp/kenaz-ml.dmg)
+          # The tests are the gate, not the unmount: an engine a test spawned
+          # can still hold the volume (v0.2.2 failed here on exit 16). The
+          # helper stops such holders, retries, then forces; a mount that still
+          # will not go only warns, since nothing writes the image after this.
+          trap 'dmg_detach "$MOUNT" || echo "::warning::could not detach $MOUNT"' EXIT
           # `serves_health` (added by WP08) reuses test_frozen_binary_serves_health
           # and its launcher against the MOUNTED, notarized binary.
           KENAZ_ML_FROZEN_BIN="$MOUNT/kameas-ml/kameas-ml" pytest tests/test_frozen_smoke.py -v -s \
-            -k "feature_store or registry_records or serves_health" || {
-              hdiutil detach "$MOUNT" || true
-              exit 1
-            }
-          hdiutil detach "$MOUNT"
+            -k "feature_store or registry_records or serves_health"
 
       - name: Spawn the notarized artifact and verify /health identity + the lease lifecycle (FR-021)
         if: steps.creds.outputs.configured == 'true'
@@ -851,8 +868,9 @@ jobs:
         # .dmg ran in "Verify notarization" above.
         run: |
           set -euo pipefail
-          MOUNT=$(hdiutil attach /tmp/kenaz-ml.dmg -nobrowse -readonly | tail -1 | awk '{print $NF}')
-          trap 'hdiutil detach "$MOUNT" >/dev/null 2>&1 || true' EXIT
+          source scripts/dmg_helpers.sh
+          MOUNT=$(dmg_attach /tmp/kenaz-ml.dmg)
+          trap 'dmg_detach "$MOUNT" || echo "::warning::could not detach $MOUNT"' EXIT
           ROOT=$(mktemp -d)
           DATA=$(mktemp -d)
           mkdir -p "$ROOT/lease"
@@ -930,9 +948,12 @@ jobs:
   # On a `v*` tag, every platform bundle is attached to the GitHub Release
   # under its canonical name, with a SHA256SUMS file the install scripts
   # verify against (scripts/assemble_release_assets.sh lists them). The
-  # release is created here if release.yml has not created it yet; uploads use
-  # --clobber so a re-run replaces rather than fails. Needs nothing beyond
-  # GitHub; the S3/CDN publish job below is the harness's pinned channel.
+  # release is a DRAFT until every asset is on it (tag-on-merge.yml creates it
+  # as one; it is created here, also as a draft, if neither that nor
+  # release.yml has yet); uploads use --clobber so a re-run replaces rather
+  # than fails, and scripts/publish_release_if_complete.sh publishes it once
+  # the bundles and release.yml's sdist + wheel are all present. Needs nothing
+  # beyond GitHub; the S3/CDN publish job below is the harness's pinned channel.
   release-assets:
     name: GitHub Release assets
     needs: [freeze, notarize]
@@ -966,10 +987,14 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          # `gh release view/upload <tag>` resolve drafts too.
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --verify-tag --generate-notes --title "$TAG"
+            gh release create "$TAG" --draft --verify-tag --generate-notes --title "$TAG"
           fi
           gh release upload "$TAG" assets/* --clobber
+          # Draft → published only with the full asset set (else it waits for
+          # release.yml, which runs the same check after its upload).
+          scripts/publish_release_if_complete.sh "$TAG"
           {
             echo "### Release assets: PASSED"
             echo ""
