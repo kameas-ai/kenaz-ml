@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from pathlib import Path
 
 from kenaz_ml.datastore import DataStore
 from kenaz_ml.modelstore import ModelStore
@@ -30,9 +31,12 @@ class TrainingScheduler:
         store: DataStore,
         model_store: ModelStore | None = None,
         reload_callback: Callable[[], None] | None = None,
+        *,
+        retained_dir: Path | None = None,
     ) -> None:
         self.store = store
         self._model_store = model_store
+        self._retained_dir = retained_dir
         self._reload = reload_callback
         self._last_retrain: float = 0.0
         self._baseline_tasks: int = self._count_completed()
@@ -52,7 +56,7 @@ class TrainingScheduler:
             current - self._baseline_tasks,
         )
         try:
-            result = Trainer(self.store, model_store=self._model_store).train_all()
+            result = Trainer(self.store, model_store=self._model_store, retained_dir=self._retained_dir).train_all()
             self._last_retrain = time.time()
             self._baseline_tasks = current
             self._log_retrain(result)

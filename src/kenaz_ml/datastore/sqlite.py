@@ -10,6 +10,7 @@ import json
 import logging
 import sqlite3
 import time
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
@@ -102,15 +103,20 @@ class SqliteStore:
 
     # --- Event queries ---
 
-    def get_events_since(self, since_id: int, limit: int = 100) -> list[dict[str, Any]]:
+    def get_events_since(
+        self, since_id: int, limit: int = 100, *, exclude_kinds: Collection[str] = ()
+    ) -> list[dict[str, Any]]:
         """Return events with id > since_id, ordered by id ASC, up to limit.
 
         Each dict has keys: id, kind, source, payload (raw string), ts.
+        Rows whose kind is in ``exclude_kinds`` are filtered in the query.
         """
+        excluded = sorted(exclude_kinds)
+        not_in = f" AND kind NOT IN ({', '.join('?' * len(excluded))})" if excluded else ""
         conn = self._get_conn()
         rows = conn.execute(
-            "SELECT id, kind, source, payload, ts FROM events WHERE id > ? ORDER BY id ASC LIMIT ?",
-            (since_id, limit),
+            f"SELECT id, kind, source, payload, ts FROM events WHERE id > ?{not_in} ORDER BY id ASC LIMIT ?",
+            (since_id, *excluded, limit),
         ).fetchall()
         columns = ["id", "kind", "source", "payload", "ts"]
         return [dict(zip(columns, row)) for row in rows]

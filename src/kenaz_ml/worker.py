@@ -24,6 +24,7 @@ import logging
 import signal
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from kenaz_ml.app import AppState, build_signal_engine
 from kenaz_ml.config import ServingMode
@@ -33,6 +34,22 @@ from kenaz_ml.poller import POLL_INTERVAL_SEC, EventPoller
 from kenaz_ml.training.scheduler import TrainingScheduler
 
 logger = logging.getLogger(__name__)
+
+
+def stream_retained_dir(tenant: str, user: str) -> Path:
+    """Return the retained-set directory of one ``(tenant, user)`` stream.
+
+    One directory per stream, so no file ever holds two organizations' (or two
+    members') examples, and erasing a member is removing one directory.
+    """
+    from kenaz_ml import config
+    from kenaz_ml.datastore.postgres import validate_stream_id
+
+    unsafe = user in (".", "..") or "/" in user or "\\" in user
+    if not config.validate_tenant_id(tenant) or not validate_stream_id(user) or unsafe:
+        raise ValueError(f"refusing a retained-set directory for stream {tenant!r}/{user!r}")
+    return config.retained_data_dir() / tenant / user
+
 
 #: How often a stream's worker asks the training scheduler whether a retrain
 #: is due; the scheduler applies its own minimum interval on top.
@@ -46,11 +63,14 @@ class StreamWorker:
     ``store`` must already be scoped to the stream (for Postgres,
     ``PostgresStore(url, tenant=org, stream=user)``); the worker never adds
     scoping of its own. ``model_store`` is the org's, shared by its streams.
+    ``retained_dir`` is this stream's own retained-set directory; with none,
+    training over a non-filesystem model store retains nothing.
     """
 
     name: str
     store: DataStore
     model_store: ModelStore
+    retained_dir: Path | None = None
     poll_interval_sec: float = POLL_INTERVAL_SEC
     retrain_check_sec: float = DEFAULT_RETRAIN_CHECK_SEC
     state: AppState = field(init=False, repr=False)
@@ -84,7 +104,10 @@ class StreamWorker:
             poll_interval_sec=self.poll_interval_sec,
         )
         self._scheduler = TrainingScheduler(
-            self.store, model_store=self.model_store, reload_callback=self.state.reload_models_into_poller
+            self.store,
+            model_store=self.model_store,
+            reload_callback=self.state.reload_models_into_poller,
+            retained_dir=self.retained_dir,
         )
         logger.info("worker[%s]: models loaded, poller ready", self.name)
 
@@ -191,6 +214,7 @@ def build_postgres_workers(
                 name=f"{tenant}/{user}",
                 store=PostgresStore(connection_url, tenant=tenant, stream=user),
                 model_store=model_stores[tenant],
+                retained_dir=stream_retained_dir(tenant, user),
                 poll_interval_sec=poll_interval_sec,
                 retrain_check_sec=retrain_check_sec,
             )

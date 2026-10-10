@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Collection
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -309,13 +310,22 @@ class PostgresStore:
 
     # --- Event queries ---
 
-    def get_events_since(self, since_id: int, limit: int = 100) -> list[dict[str, Any]]:
-        """Return events with id > since_id, ordered by id ASC, up to limit."""
+    def get_events_since(
+        self, since_id: int, limit: int = 100, *, exclude_kinds: Collection[str] = ()
+    ) -> list[dict[str, Any]]:
+        """Return events with id > since_id, ordered by id ASC, up to limit.
+
+        Rows whose kind is in ``exclude_kinds`` are filtered in the query and
+        never leave the database.
+        """
+        excluded = sorted(exclude_kinds)
+        not_in = " AND NOT (kind = ANY(%s))" if excluded else ""
         conn = self._get_conn()
         with conn.cursor() as cur:
             cur.execute(
-                f"SELECT id, kind, source, payload, ts FROM events WHERE id > %s{self._sc} ORDER BY id ASC LIMIT %s",
-                (since_id, *self._sp, limit),
+                f"SELECT id, kind, source, payload, ts FROM events WHERE id > %s{self._sc}{not_in} "
+                "ORDER BY id ASC LIMIT %s",
+                (since_id, *self._sp, *([excluded] if excluded else []), limit),
             )
             columns = ["id", "kind", "source", "payload", "ts"]
             return [dict(zip(columns, row)) for row in cur.fetchall()]
