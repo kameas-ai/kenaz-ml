@@ -13,7 +13,7 @@ import threading
 import time
 from datetime import UTC
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +98,17 @@ class S3ModelStore:
         tenant_id: str = "default",
         endpoint_url: str | None = None,
         region: str | None = None,
+        *,
+        client: Any | None = None,
     ) -> None:
+        """``client``: an S3 client to use instead of building one -- a cloud
+        host passes one carrying the tenant's own assumed-role credentials."""
+        self._bucket = bucket
+        self._tenant_id = tenant_id
+        if client is not None:
+            self._s3 = client
+            self._validate_prefix()
+            return
         try:
             import boto3
             from botocore.config import Config as BotoConfig
@@ -119,9 +129,15 @@ class S3ModelStore:
             kwargs["region_name"] = region
 
         self._s3 = boto3.client("s3", **kwargs)
-        self._bucket = bucket
-        self._tenant_id = tenant_id
         self._validate_bucket()
+
+    def _validate_prefix(self) -> None:
+        """Check access the way a prefix-scoped role can: a tenant role may list
+        only under its own prefix, so ``head_bucket`` would be refused."""
+        try:
+            self._s3.list_objects_v2(Bucket=self._bucket, Prefix=f"{self._tenant_id}/models/", MaxKeys=1)
+        except Exception as e:
+            raise ValueError(f"S3 prefix '{self._tenant_id}/models/' in '{self._bucket}' is not accessible: {e}") from e
 
     def _validate_bucket(self) -> None:
         try:

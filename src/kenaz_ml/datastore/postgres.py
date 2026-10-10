@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -27,11 +27,30 @@ def validate_stream_id(stream: str) -> bool:
     return 0 < len(stream) <= _STREAM_ID_MAX_LEN and stream.isprintable() and not any(c.isspace() for c in stream)
 
 
+#: A credentials provider: ``refresh`` is ``True`` after the server refused
+#: the previous credentials. Returns a URL or a libpq conninfo string.
+CredentialsProvider = Callable[[bool], str]
+
+#: invalid_password, invalid_authorization_specification.
+AUTH_FAILURE_SQLSTATES = frozenset({"28P01", "28000"})
+
+
+def _is_auth_failure(exc: BaseException) -> bool:
+    """libpq reports a refused login before any SQLSTATE exists; match its text."""
+    text = str(exc).lower()
+    return "password authentication failed" in text or "authentication failed for user" in text
+
+
 class PostgresStore:
     """DataStore implementation backed by a PostgreSQL database.
 
     Args:
-        connection_url: Postgres connection URL (e.g., postgresql://user:pass@host:5432/dbname)
+        connection_url: Postgres connection URL or libpq conninfo string, or a
+            credentials provider: a callable taking ``refresh`` and returning
+            one. A provider lets a host rotate credentials under the store --
+            it is called with ``refresh=False`` for every new connection, and
+            once more with ``refresh=True`` when the server refuses the
+            credentials, so the host can re-read them before a single retry.
         tenant: Tenant identifier for schema isolation. Defaults to "public".
         stream: The device stream inside the tenant this store is scoped to --
             the ``user_id`` the ingest wrote on every ``events`` and ``tasks``
@@ -42,7 +61,12 @@ class PostgresStore:
             right for a single-user schema or for cross-stream training.
     """
 
-    def __init__(self, connection_url: str, tenant: str = "public", stream: str | None = None) -> None:
+    def __init__(
+        self,
+        connection_url: str | CredentialsProvider,
+        tenant: str = "public",
+        stream: str | None = None,
+    ) -> None:
         try:
             import psycopg2
             from psycopg2 import sql as pg_sql
@@ -79,7 +103,7 @@ class PostgresStore:
     def _get_conn(self):
         """Return existing connection or create a new one with tenant schema."""
         if self._conn is None or self._conn.closed:
-            self._conn = self._psycopg2.connect(self._connection_url)
+            self._conn = self._connect()
             self._conn.autocommit = False
             with self._conn.cursor() as cur:
                 # A platform-provisioned schema already exists and the worker
@@ -94,6 +118,19 @@ class PostgresStore:
                 cur.execute(self._sql.SQL("SET search_path TO {}, public").format(self._sql.Identifier(self._tenant)))
             self._conn.commit()
         return self._conn
+
+    def _connect(self):
+        """Open a connection, re-reading refused credentials once."""
+        provider = self._connection_url
+        if not callable(provider):
+            return self._psycopg2.connect(provider)
+        try:
+            return self._psycopg2.connect(provider(False))
+        except self._psycopg2.OperationalError as exc:
+            if getattr(exc, "pgcode", None) not in AUTH_FAILURE_SQLSTATES and not _is_auth_failure(exc):
+                raise
+            logger.info("postgres: credentials refused for schema %s; re-reading them once", self._tenant)
+            return self._psycopg2.connect(provider(True))
 
     def commit(self) -> None:
         """Commit the current transaction."""

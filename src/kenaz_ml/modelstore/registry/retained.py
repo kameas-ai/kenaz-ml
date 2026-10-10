@@ -744,6 +744,29 @@ def delete_retained(name: str, *, directory: Path | str | None = None) -> bool:
     return True
 
 
+def expire_examples(name: str, *, before_ms: int, directory: Path | str | None = None) -> int:
+    """Drop every example whose ``as_of_ms`` is earlier than ``before_ms``.
+
+    The age bound a host applies when retained examples must not outlive the
+    data they were derived from (a cloud organization's event retention). The
+    header, and with it the generation, is preserved; the file is rewritten
+    atomically, and only when something expires. Returns the number dropped.
+    """
+    current = read_retained(name, directory=directory)
+    if not current.ok or current.header is None:
+        return 0
+    # An example with no reference time cannot be shown to be young enough,
+    # so under an age bound it goes.
+    kept = [e for e in current.examples if e.as_of_ms is not None and e.as_of_ms >= before_ms]
+    dropped = len(current.examples) - len(kept)
+    if dropped == 0:
+        return 0
+    lines = [_header_line(current.header), *(_example_line(e) for e in kept)]
+    _atomic_write_text(current.path, "\n".join(lines) + "\n")
+    logger.info("retained: expired %d example(s) older than %d from %s", dropped, before_ms, current.path)
+    return dropped
+
+
 def reset_retained(
     name: str,
     *,
