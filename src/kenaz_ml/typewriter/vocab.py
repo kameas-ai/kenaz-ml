@@ -29,12 +29,14 @@ SIZING_DIRECTIONS: tuple[str, ...] = (
     "up",
 )
 
-# The coarse size class of the model a turn ran on, from a fixed harness mapping of its catalog. Never
-# a model id or provider.
+# The coarse size class of the model a turn ran on, from a fixed harness mapping of its catalog;
+# `unknown` for a model outside the mapping (custom or local endpoints, models newer than the
+# mapping). Never a model id or provider.
 MODEL_CLASSS: tuple[str, ...] = (
     "small",
     "medium",
     "large",
+    "unknown",
 )
 
 # What the member did after the previous turn; `none` when the session ended or went idle first. A
@@ -174,6 +176,7 @@ KIND_FEATURES: dict[str, tuple[str, ...]] = {
         "model_class_small",
         "model_class_medium",
         "model_class_large",
+        "model_class_unknown",
     ),
 }
 
@@ -182,5 +185,5 @@ KIND_CONTRACT_VERSIONS: dict[str, str] = {
     "branch_now": "20e0d23994daee80",
     "compact_now": "3ad8b0c1fa514476",
     "escalate_model": "57d4bdc1bd6a71be",
-    "right_size_model": "573b80ba4cca078d",
+    "right_size_model": "6e0f833901ef1e00",
 }

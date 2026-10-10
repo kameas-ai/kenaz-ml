@@ -530,6 +530,7 @@ class RightSizeModelFeatures(BaseModel):
     model_class_small: float
     model_class_medium: float
     model_class_large: float
+    model_class_unknown: float
 
 
 # Kind id -> its feature model.

@@ -114,7 +114,8 @@
         "followup_none",
         "model_class_small",
         "model_class_medium",
-        "model_class_large"
+        "model_class_large",
+        "model_class_unknown"
       ],
       "dtypes": [
         "float64",
@@ -139,11 +140,12 @@
         "float64",
         "float64",
         "float64",
+        "float64",
         "float64"
       ],
-      "version": "573b80ba4cca078d",
+      "version": "6e0f833901ef1e00",
       "supported_versions": [
-        "573b80ba4cca078d"
+        "6e0f833901ef1e00"
       ],
       "available": false,
       "backend": null,

@@ -35,8 +35,9 @@ enums:
   ModelClass:
     description: >-
       The coarse size class of the model a turn ran on, from a fixed harness mapping
-      of its catalog. Never a model id or provider.
-    values: [small, medium, large]
+      of its catalog; `unknown` for a model outside the mapping (custom or local
+      endpoints, models newer than the mapping). Never a model id or provider.
+    values: [small, medium, large, unknown]
   TurnFollowup:
     description: >-
       What the member did after the previous turn; `none` when the session ended

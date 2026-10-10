@@ -54,13 +54,16 @@ var SizingDirections = []SizingDirection{
 }
 
 // ModelClass: The coarse size class of the model a turn ran on, from a fixed
-// harness mapping of its catalog. Never a model id or provider.
+// harness mapping of its catalog; `unknown` for a model outside the mapping
+// (custom or local endpoints, models newer than the mapping). Never a model id
+// or provider.
 type ModelClass string
 
 const (
-	ModelClassSmall  ModelClass = "small"
-	ModelClassMedium ModelClass = "medium"
-	ModelClassLarge  ModelClass = "large"
+	ModelClassSmall   ModelClass = "small"
+	ModelClassMedium  ModelClass = "medium"
+	ModelClassLarge   ModelClass = "large"
+	ModelClassUnknown ModelClass = "unknown"
 )
 
 // ModelClasss lists every ModelClass, in spec order.
@@ -68,6 +71,7 @@ var ModelClasss = []ModelClass{
 	ModelClassSmall,
 	ModelClassMedium,
 	ModelClassLarge,
+	ModelClassUnknown,
 }
 
 // TurnFollowup: What the member did after the previous turn; `none` when the
@@ -418,7 +422,7 @@ func (f EscalateModelFeatures) Vector() []float64 {
 }
 
 // RightSizeModelContractVersion is the right_size_model contract version.
-const RightSizeModelContractVersion = "573b80ba4cca078d"
+const RightSizeModelContractVersion = "6e0f833901ef1e00"
 
 // RightSizeModelFeatureNames is the right_size_model vector layout.
 var RightSizeModelFeatureNames = []string{
@@ -445,6 +449,7 @@ var RightSizeModelFeatureNames = []string{
 	"model_class_small",
 	"model_class_medium",
 	"model_class_large",
+	"model_class_unknown",
 }
 
 // RightSizeModelFeatures is the right_size_model feature vector, in contract
@@ -475,6 +480,7 @@ type RightSizeModelFeatures struct {
 	ModelClassSmall         float64 `json:"model_class_small"`
 	ModelClassMedium        float64 `json:"model_class_medium"`
 	ModelClassLarge         float64 `json:"model_class_large"`
+	ModelClassUnknown       float64 `json:"model_class_unknown"`
 }
 
 // Map returns the features keyed by name, the shape RecommendRequest.Features carries.
@@ -503,12 +509,13 @@ func (f RightSizeModelFeatures) Map() map[string]float64 {
 		"model_class_small":         f.ModelClassSmall,
 		"model_class_medium":        f.ModelClassMedium,
 		"model_class_large":         f.ModelClassLarge,
+		"model_class_unknown":       f.ModelClassUnknown,
 	}
 }
 
 // Vector returns the features positionally, in contract order.
 func (f RightSizeModelFeatures) Vector() []float64 {
-	return []float64{f.ConsecutiveToolFailures, f.RetriesInWindow, f.TurnLatencyTrend, f.CurrentRung, f.ErrorKindAuth, f.ErrorKindTransient, f.ErrorKindCancelled, f.ErrorKindBudget, f.ErrorKindUnknown, f.BudgetRemainingFraction, f.ContextFillFraction, f.TokensInBucket, f.TokensOutBucket, f.ToolCalls, f.FollowupContinue, f.FollowupEditResend, f.FollowupRegenerate, f.FollowupStop, f.FollowupBranch, f.FollowupNone, f.ModelClassSmall, f.ModelClassMedium, f.ModelClassLarge}
+	return []float64{f.ConsecutiveToolFailures, f.RetriesInWindow, f.TurnLatencyTrend, f.CurrentRung, f.ErrorKindAuth, f.ErrorKindTransient, f.ErrorKindCancelled, f.ErrorKindBudget, f.ErrorKindUnknown, f.BudgetRemainingFraction, f.ContextFillFraction, f.TokensInBucket, f.TokensOutBucket, f.ToolCalls, f.FollowupContinue, f.FollowupEditResend, f.FollowupRegenerate, f.FollowupStop, f.FollowupBranch, f.FollowupNone, f.ModelClassSmall, f.ModelClassMedium, f.ModelClassLarge, f.ModelClassUnknown}
 }
 
 // StuckRequest is a wire schema of the engine.
