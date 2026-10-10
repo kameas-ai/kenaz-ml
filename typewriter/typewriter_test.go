@@ -80,9 +80,10 @@ func TestFeatureStructsMatchTheContract(t *testing.T) {
 		Map() map[string]float64
 		Vector() []float64
 	}{
-		KindBranchNow:     BranchNowFeatures{},
-		KindCompactNow:    CompactNowFeatures{},
-		KindEscalateModel: EscalateModelFeatures{},
+		KindBranchNow:      BranchNowFeatures{},
+		KindCompactNow:     CompactNowFeatures{},
+		KindEscalateModel:  EscalateModelFeatures{},
+		KindRightSizeModel: RightSizeModelFeatures{},
 	}
 	if len(cases) != len(KindIDs) {
 		t.Fatalf("%d kinds are published but %d are covered here", len(KindIDs), len(cases))

@@ -36,6 +36,64 @@ var ErrorKinds = []ErrorKind{
 	ErrorKindUnknown,
 }
 
+// SizingDirection: A right_size_model answer: move to a smaller model, stay,
+// or move to a larger one.
+type SizingDirection string
+
+const (
+	SizingDirectionDown SizingDirection = "down"
+	SizingDirectionStay SizingDirection = "stay"
+	SizingDirectionUp   SizingDirection = "up"
+)
+
+// SizingDirections lists every SizingDirection, in spec order.
+var SizingDirections = []SizingDirection{
+	SizingDirectionDown,
+	SizingDirectionStay,
+	SizingDirectionUp,
+}
+
+// ModelClass: The coarse size class of the model a turn ran on, from a fixed
+// harness mapping of its catalog. Never a model id or provider.
+type ModelClass string
+
+const (
+	ModelClassSmall  ModelClass = "small"
+	ModelClassMedium ModelClass = "medium"
+	ModelClassLarge  ModelClass = "large"
+)
+
+// ModelClasss lists every ModelClass, in spec order.
+var ModelClasss = []ModelClass{
+	ModelClassSmall,
+	ModelClassMedium,
+	ModelClassLarge,
+}
+
+// TurnFollowup: What the member did after the previous turn; `none` when the
+// session ended or went idle first. A followup unknown at the wire buckets to
+// `none`.
+type TurnFollowup string
+
+const (
+	TurnFollowupContinue   TurnFollowup = "continue"
+	TurnFollowupEditResend TurnFollowup = "edit_resend"
+	TurnFollowupRegenerate TurnFollowup = "regenerate"
+	TurnFollowupStop       TurnFollowup = "stop"
+	TurnFollowupBranch     TurnFollowup = "branch"
+	TurnFollowupNone       TurnFollowup = "none"
+)
+
+// TurnFollowups lists every TurnFollowup, in spec order.
+var TurnFollowups = []TurnFollowup{
+	TurnFollowupContinue,
+	TurnFollowupEditResend,
+	TurnFollowupRegenerate,
+	TurnFollowupStop,
+	TurnFollowupBranch,
+	TurnFollowupNone,
+}
+
 // UserAction: What the user did with a recommendation. `accepted` and
 // `auto_acted` train as y=1, `dismissed` as y=0; `ignored` is recorded but
 // never trained.
@@ -192,27 +250,30 @@ var FeaturesRefusalReasons = []FeaturesRefusalReason{
 
 // Recommendation kind ids.
 const (
-	KindBranchNow     = "branch_now"
-	KindCompactNow    = "compact_now"
-	KindEscalateModel = "escalate_model"
+	KindBranchNow      = "branch_now"
+	KindCompactNow     = "compact_now"
+	KindEscalateModel  = "escalate_model"
+	KindRightSizeModel = "right_size_model"
 )
 
 // KindIDs lists every kind, in publication order.
-var KindIDs = []string{KindBranchNow, KindCompactNow, KindEscalateModel}
+var KindIDs = []string{KindBranchNow, KindCompactNow, KindEscalateModel, KindRightSizeModel}
 
 // ContractVersions maps a kind to the 16-hex contract version this build
 // was generated against: the value to send as feature_contract_version.
 var ContractVersions = map[string]string{
-	KindBranchNow:     BranchNowContractVersion,
-	KindCompactNow:    CompactNowContractVersion,
-	KindEscalateModel: EscalateModelContractVersion,
+	KindBranchNow:      BranchNowContractVersion,
+	KindCompactNow:     CompactNowContractVersion,
+	KindEscalateModel:  EscalateModelContractVersion,
+	KindRightSizeModel: RightSizeModelContractVersion,
 }
 
 // FeatureNames maps a kind to its ordered feature names (the vector layout).
 var FeatureNames = map[string][]string{
-	KindBranchNow:     BranchNowFeatureNames,
-	KindCompactNow:    CompactNowFeatureNames,
-	KindEscalateModel: EscalateModelFeatureNames,
+	KindBranchNow:      BranchNowFeatureNames,
+	KindCompactNow:     CompactNowFeatureNames,
+	KindEscalateModel:  EscalateModelFeatureNames,
+	KindRightSizeModel: RightSizeModelFeatureNames,
 }
 
 // BranchNowContractVersion is the branch_now contract version.
@@ -354,6 +415,100 @@ func (f EscalateModelFeatures) Map() map[string]float64 {
 // Vector returns the features positionally, in contract order.
 func (f EscalateModelFeatures) Vector() []float64 {
 	return []float64{f.ConsecutiveToolFailures, f.RetriesInWindow, f.TurnLatencyTrend, f.CurrentRung, f.ErrorKindAuth, f.ErrorKindTransient, f.ErrorKindCancelled, f.ErrorKindBudget, f.ErrorKindUnknown, f.BudgetRemainingFraction}
+}
+
+// RightSizeModelContractVersion is the right_size_model contract version.
+const RightSizeModelContractVersion = "573b80ba4cca078d"
+
+// RightSizeModelFeatureNames is the right_size_model vector layout.
+var RightSizeModelFeatureNames = []string{
+	"consecutive_tool_failures",
+	"retries_in_window",
+	"turn_latency_trend",
+	"current_rung",
+	"error_kind_auth",
+	"error_kind_transient",
+	"error_kind_cancelled",
+	"error_kind_budget",
+	"error_kind_unknown",
+	"budget_remaining_fraction",
+	"context_fill_fraction",
+	"tokens_in_bucket",
+	"tokens_out_bucket",
+	"tool_calls",
+	"followup_continue",
+	"followup_edit_resend",
+	"followup_regenerate",
+	"followup_stop",
+	"followup_branch",
+	"followup_none",
+	"model_class_small",
+	"model_class_medium",
+	"model_class_large",
+}
+
+// RightSizeModelFeatures is the right_size_model feature vector, in contract
+// order. Should the session move to a smaller model, stay, or move to a larger
+// one? Three-way (SizingDirection); served hosted, trained per member from
+// harness turn outcomes (hosted-advice-right-size-model-01M4HQ0A).
+type RightSizeModelFeatures struct {
+	ConsecutiveToolFailures float64 `json:"consecutive_tool_failures"`
+	RetriesInWindow         float64 `json:"retries_in_window"`
+	TurnLatencyTrend        float64 `json:"turn_latency_trend"`
+	CurrentRung             float64 `json:"current_rung"`
+	ErrorKindAuth           float64 `json:"error_kind_auth"`
+	ErrorKindTransient      float64 `json:"error_kind_transient"`
+	ErrorKindCancelled      float64 `json:"error_kind_cancelled"`
+	ErrorKindBudget         float64 `json:"error_kind_budget"`
+	ErrorKindUnknown        float64 `json:"error_kind_unknown"`
+	BudgetRemainingFraction float64 `json:"budget_remaining_fraction"`
+	ContextFillFraction     float64 `json:"context_fill_fraction"`
+	TokensInBucket          float64 `json:"tokens_in_bucket"`
+	TokensOutBucket         float64 `json:"tokens_out_bucket"`
+	ToolCalls               float64 `json:"tool_calls"`
+	FollowupContinue        float64 `json:"followup_continue"`
+	FollowupEditResend      float64 `json:"followup_edit_resend"`
+	FollowupRegenerate      float64 `json:"followup_regenerate"`
+	FollowupStop            float64 `json:"followup_stop"`
+	FollowupBranch          float64 `json:"followup_branch"`
+	FollowupNone            float64 `json:"followup_none"`
+	ModelClassSmall         float64 `json:"model_class_small"`
+	ModelClassMedium        float64 `json:"model_class_medium"`
+	ModelClassLarge         float64 `json:"model_class_large"`
+}
+
+// Map returns the features keyed by name, the shape RecommendRequest.Features carries.
+func (f RightSizeModelFeatures) Map() map[string]float64 {
+	return map[string]float64{
+		"consecutive_tool_failures": f.ConsecutiveToolFailures,
+		"retries_in_window":         f.RetriesInWindow,
+		"turn_latency_trend":        f.TurnLatencyTrend,
+		"current_rung":              f.CurrentRung,
+		"error_kind_auth":           f.ErrorKindAuth,
+		"error_kind_transient":      f.ErrorKindTransient,
+		"error_kind_cancelled":      f.ErrorKindCancelled,
+		"error_kind_budget":         f.ErrorKindBudget,
+		"error_kind_unknown":        f.ErrorKindUnknown,
+		"budget_remaining_fraction": f.BudgetRemainingFraction,
+		"context_fill_fraction":     f.ContextFillFraction,
+		"tokens_in_bucket":          f.TokensInBucket,
+		"tokens_out_bucket":         f.TokensOutBucket,
+		"tool_calls":                f.ToolCalls,
+		"followup_continue":         f.FollowupContinue,
+		"followup_edit_resend":      f.FollowupEditResend,
+		"followup_regenerate":       f.FollowupRegenerate,
+		"followup_stop":             f.FollowupStop,
+		"followup_branch":           f.FollowupBranch,
+		"followup_none":             f.FollowupNone,
+		"model_class_small":         f.ModelClassSmall,
+		"model_class_medium":        f.ModelClassMedium,
+		"model_class_large":         f.ModelClassLarge,
+	}
+}
+
+// Vector returns the features positionally, in contract order.
+func (f RightSizeModelFeatures) Vector() []float64 {
+	return []float64{f.ConsecutiveToolFailures, f.RetriesInWindow, f.TurnLatencyTrend, f.CurrentRung, f.ErrorKindAuth, f.ErrorKindTransient, f.ErrorKindCancelled, f.ErrorKindBudget, f.ErrorKindUnknown, f.BudgetRemainingFraction, f.ContextFillFraction, f.TokensInBucket, f.TokensOutBucket, f.ToolCalls, f.FollowupContinue, f.FollowupEditResend, f.FollowupRegenerate, f.FollowupStop, f.FollowupBranch, f.FollowupNone, f.ModelClassSmall, f.ModelClassMedium, f.ModelClassLarge}
 }
 
 // StuckRequest is a wire schema of the engine.
@@ -885,42 +1040,43 @@ type LaneRefusal struct {
 
 // Schemas constructs an empty value of every wire schema, by name.
 var Schemas = map[string]func() any{
-	"StuckRequest":          func() any { return new(StuckRequest) },
-	"StuckResponse":         func() any { return new(StuckResponse) },
-	"WorkflowStateRequest":  func() any { return new(WorkflowStateRequest) },
-	"WorkflowStateResponse": func() any { return new(WorkflowStateResponse) },
-	"DurationRequest":       func() any { return new(DurationRequest) },
-	"DurationResponse":      func() any { return new(DurationResponse) },
-	"QualityRequest":        func() any { return new(QualityRequest) },
-	"QualityResponse":       func() any { return new(QualityResponse) },
-	"TrainRequest":          func() any { return new(TrainRequest) },
-	"TrainResponse":         func() any { return new(TrainResponse) },
-	"ModelHealth":           func() any { return new(ModelHealth) },
-	"LayaEligibility":       func() any { return new(LayaEligibility) },
-	"HealthResponse":        func() any { return new(HealthResponse) },
-	"LeaseRequest":          func() any { return new(LeaseRequest) },
-	"LeaseResponse":         func() any { return new(LeaseResponse) },
-	"ShutdownResponse":      func() any { return new(ShutdownResponse) },
-	"ModelIntrospection":    func() any { return new(ModelIntrospection) },
-	"IntrospectResponse":    func() any { return new(IntrospectResponse) },
-	"RecommendRequest":      func() any { return new(RecommendRequest) },
-	"RecommendResponse":     func() any { return new(RecommendResponse) },
-	"RefusalBody":           func() any { return new(RefusalBody) },
-	"RecommendRefusal":      func() any { return new(RecommendRefusal) },
-	"ContractEntry":         func() any { return new(ContractEntry) },
-	"ContractsResponse":     func() any { return new(ContractsResponse) },
-	"LabelCursor":           func() any { return new(LabelCursor) },
-	"LabelRow":              func() any { return new(LabelRow) },
-	"LabelBatchRequest":     func() any { return new(LabelBatchRequest) },
-	"LabelRowRefusal":       func() any { return new(LabelRowRefusal) },
-	"LabelBatchResponse":    func() any { return new(LabelBatchResponse) },
-	"FeatureEvent":          func() any { return new(FeatureEvent) },
-	"FeaturesPushRequest":   func() any { return new(FeaturesPushRequest) },
-	"FeatureEventRefusal":   func() any { return new(FeatureEventRefusal) },
-	"FeaturesPushResponse":  func() any { return new(FeaturesPushResponse) },
-	"LaneRefusalBody":       func() any { return new(LaneRefusalBody) },
-	"LaneRefusal":           func() any { return new(LaneRefusal) },
-	"BranchNowFeatures":     func() any { return new(BranchNowFeatures) },
-	"CompactNowFeatures":    func() any { return new(CompactNowFeatures) },
-	"EscalateModelFeatures": func() any { return new(EscalateModelFeatures) },
+	"StuckRequest":           func() any { return new(StuckRequest) },
+	"StuckResponse":          func() any { return new(StuckResponse) },
+	"WorkflowStateRequest":   func() any { return new(WorkflowStateRequest) },
+	"WorkflowStateResponse":  func() any { return new(WorkflowStateResponse) },
+	"DurationRequest":        func() any { return new(DurationRequest) },
+	"DurationResponse":       func() any { return new(DurationResponse) },
+	"QualityRequest":         func() any { return new(QualityRequest) },
+	"QualityResponse":        func() any { return new(QualityResponse) },
+	"TrainRequest":           func() any { return new(TrainRequest) },
+	"TrainResponse":          func() any { return new(TrainResponse) },
+	"ModelHealth":            func() any { return new(ModelHealth) },
+	"LayaEligibility":        func() any { return new(LayaEligibility) },
+	"HealthResponse":         func() any { return new(HealthResponse) },
+	"LeaseRequest":           func() any { return new(LeaseRequest) },
+	"LeaseResponse":          func() any { return new(LeaseResponse) },
+	"ShutdownResponse":       func() any { return new(ShutdownResponse) },
+	"ModelIntrospection":     func() any { return new(ModelIntrospection) },
+	"IntrospectResponse":     func() any { return new(IntrospectResponse) },
+	"RecommendRequest":       func() any { return new(RecommendRequest) },
+	"RecommendResponse":      func() any { return new(RecommendResponse) },
+	"RefusalBody":            func() any { return new(RefusalBody) },
+	"RecommendRefusal":       func() any { return new(RecommendRefusal) },
+	"ContractEntry":          func() any { return new(ContractEntry) },
+	"ContractsResponse":      func() any { return new(ContractsResponse) },
+	"LabelCursor":            func() any { return new(LabelCursor) },
+	"LabelRow":               func() any { return new(LabelRow) },
+	"LabelBatchRequest":      func() any { return new(LabelBatchRequest) },
+	"LabelRowRefusal":        func() any { return new(LabelRowRefusal) },
+	"LabelBatchResponse":     func() any { return new(LabelBatchResponse) },
+	"FeatureEvent":           func() any { return new(FeatureEvent) },
+	"FeaturesPushRequest":    func() any { return new(FeaturesPushRequest) },
+	"FeatureEventRefusal":    func() any { return new(FeatureEventRefusal) },
+	"FeaturesPushResponse":   func() any { return new(FeaturesPushResponse) },
+	"LaneRefusalBody":        func() any { return new(LaneRefusalBody) },
+	"LaneRefusal":            func() any { return new(LaneRefusal) },
+	"BranchNowFeatures":      func() any { return new(BranchNowFeatures) },
+	"CompactNowFeatures":     func() any { return new(CompactNowFeatures) },
+	"EscalateModelFeatures":  func() any { return new(EscalateModelFeatures) },
+	"RightSizeModelFeatures": func() any { return new(RightSizeModelFeatures) },
 }
