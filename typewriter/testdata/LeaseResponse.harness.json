@@ -9,6 +9,9 @@
     ],
     "escalate_model": [
       "57d4bdc1bd6a71be"
+    ],
+    "right_size_model": [
+      "6e0f833901ef1e00"
     ]
   },
   "idle_exit_sec": 120.0,

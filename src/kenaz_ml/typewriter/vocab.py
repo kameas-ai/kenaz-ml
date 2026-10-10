@@ -22,6 +22,34 @@ ERROR_KINDS: tuple[str, ...] = (
     "unknown",
 )
 
+# A right_size_model answer: move to a smaller model, stay, or move to a larger one.
+SIZING_DIRECTIONS: tuple[str, ...] = (
+    "down",
+    "stay",
+    "up",
+)
+
+# The coarse size class of the model a turn ran on, from a fixed harness mapping of its catalog;
+# `unknown` for a model outside the mapping (custom or local endpoints, models newer than the
+# mapping). Never a model id or provider.
+MODEL_CLASSS: tuple[str, ...] = (
+    "small",
+    "medium",
+    "large",
+    "unknown",
+)
+
+# What the member did after the previous turn; `none` when the session ended or went idle first. A
+# followup unknown at the wire buckets to `none`.
+TURN_FOLLOWUPS: tuple[str, ...] = (
+    "continue",
+    "edit_resend",
+    "regenerate",
+    "stop",
+    "branch",
+    "none",
+)
+
 # What the user did with a recommendation. `accepted` and `auto_acted` train as y=1, `dismissed` as
 # y=0; `ignored` is recorded but never trained.
 USER_ACTIONS: tuple[str, ...] = (
@@ -124,6 +152,32 @@ KIND_FEATURES: dict[str, tuple[str, ...]] = {
         "error_kind_unknown",
         "budget_remaining_fraction",
     ),
+    "right_size_model": (
+        "consecutive_tool_failures",
+        "retries_in_window",
+        "turn_latency_trend",
+        "current_rung",
+        "error_kind_auth",
+        "error_kind_transient",
+        "error_kind_cancelled",
+        "error_kind_budget",
+        "error_kind_unknown",
+        "budget_remaining_fraction",
+        "context_fill_fraction",
+        "tokens_in_bucket",
+        "tokens_out_bucket",
+        "tool_calls",
+        "followup_continue",
+        "followup_edit_resend",
+        "followup_regenerate",
+        "followup_stop",
+        "followup_branch",
+        "followup_none",
+        "model_class_small",
+        "model_class_medium",
+        "model_class_large",
+        "model_class_unknown",
+    ),
 }
 
 # Kind id -> the 16-hex contract version a client sends as feature_contract_version.
@@ -131,4 +185,5 @@ KIND_CONTRACT_VERSIONS: dict[str, str] = {
     "branch_now": "20e0d23994daee80",
     "compact_now": "3ad8b0c1fa514476",
     "escalate_model": "57d4bdc1bd6a71be",
+    "right_size_model": "6e0f833901ef1e00",
 }

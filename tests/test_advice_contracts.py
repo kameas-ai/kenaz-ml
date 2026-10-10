@@ -55,8 +55,8 @@ CATALOG = {
 }
 
 
-def test_kind_ids_are_the_trio() -> None:
-    assert KIND_IDS == ("branch_now", "compact_now", "escalate_model")
+def test_kind_ids_are_the_published_four() -> None:
+    assert KIND_IDS == ("branch_now", "compact_now", "escalate_model", "right_size_model")
 
 
 @pytest.mark.parametrize("kind", list(CATALOG))

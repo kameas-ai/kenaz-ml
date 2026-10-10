@@ -498,11 +498,47 @@ class EscalateModelFeatures(BaseModel):
     budget_remaining_fraction: float
 
 
+class RightSizeModelFeatures(BaseModel):
+    """The ``right_size_model`` feature vector, in contract order. Should the session move to a smaller model, stay, or move to a larger one? Three-way (SizingDirection); served hosted, trained per member from harness turn outcomes (hosted-advice-right-size-model-01M4HQ0A).
+
+    The wire carries these as a name -> number object (``RecommendRequest.features``);
+    this model is the typed form of that object.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    consecutive_tool_failures: float
+    retries_in_window: float
+    turn_latency_trend: float
+    current_rung: float
+    error_kind_auth: float
+    error_kind_transient: float
+    error_kind_cancelled: float
+    error_kind_budget: float
+    error_kind_unknown: float
+    budget_remaining_fraction: float
+    context_fill_fraction: float
+    tokens_in_bucket: float
+    tokens_out_bucket: float
+    tool_calls: float
+    followup_continue: float
+    followup_edit_resend: float
+    followup_regenerate: float
+    followup_stop: float
+    followup_branch: float
+    followup_none: float
+    model_class_small: float
+    model_class_medium: float
+    model_class_large: float
+    model_class_unknown: float
+
+
 # Kind id -> its feature model.
 KIND_FEATURE_MODELS: dict[str, type[BaseModel]] = {
     "branch_now": BranchNowFeatures,
     "compact_now": CompactNowFeatures,
     "escalate_model": EscalateModelFeatures,
+    "right_size_model": RightSizeModelFeatures,
 }
 
 # Every wire schema, by name.
@@ -545,4 +581,5 @@ SCHEMAS: dict[str, type[BaseModel]] = {
     "BranchNowFeatures": BranchNowFeatures,
     "CompactNowFeatures": CompactNowFeatures,
     "EscalateModelFeatures": EscalateModelFeatures,
+    "RightSizeModelFeatures": RightSizeModelFeatures,
 }

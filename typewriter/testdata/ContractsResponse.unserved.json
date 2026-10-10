@@ -89,6 +89,68 @@
         "57d4bdc1bd6a71be"
       ],
       "version": "57d4bdc1bd6a71be"
+    },
+    "right_size_model": {
+      "features": [
+        "consecutive_tool_failures",
+        "retries_in_window",
+        "turn_latency_trend",
+        "current_rung",
+        "error_kind_auth",
+        "error_kind_transient",
+        "error_kind_cancelled",
+        "error_kind_budget",
+        "error_kind_unknown",
+        "budget_remaining_fraction",
+        "context_fill_fraction",
+        "tokens_in_bucket",
+        "tokens_out_bucket",
+        "tool_calls",
+        "followup_continue",
+        "followup_edit_resend",
+        "followup_regenerate",
+        "followup_stop",
+        "followup_branch",
+        "followup_none",
+        "model_class_small",
+        "model_class_medium",
+        "model_class_large",
+        "model_class_unknown"
+      ],
+      "dtypes": [
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64",
+        "float64"
+      ],
+      "version": "6e0f833901ef1e00",
+      "supported_versions": [
+        "6e0f833901ef1e00"
+      ],
+      "available": false,
+      "backend": null,
+      "reason": "kind_not_served",
+      "detail": "kind unavailable: no backend serves 'right_size_model' (the client's heuristic answers)"
     }
   }
 }
