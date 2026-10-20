@@ -234,19 +234,43 @@ def test_retention_contract(raw: str | None, days: int | None, reason: str) -> N
     assert (setting.days, setting.reason) == (days, reason)
 
 
+@pytest.mark.parametrize("activity_db", [True, False], ids=["activity-db", "no-activity-db"])
 @pytest.mark.parametrize(
-    ("raw", "warns"),
-    [("30", False), ("hold", False), (None, True), ("", True), ("0", True), ("3651", True), ("abc", True)],
+    ("raw", "warns_with_db", "warns_without_db"),
+    [
+        ("30", False, False),
+        ("hold", False, False),
+        (None, True, False),  # unset: silent when no activity DB is configured
+        ("", True, True),
+        ("0", True, True),
+        ("3651", True, True),
+        ("abc", True, True),
+    ],
 )
 def test_retention_warns_once_exactly_when_unusable(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, raw: str | None, warns: bool
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
+    raw: str | None,
+    warns_with_db: bool,
+    warns_without_db: bool,
+    activity_db: bool,
 ) -> None:
+    warns = warns_with_db if activity_db else warns_without_db
+    if activity_db:
+        monkeypatch.setenv(config.ACTIVITY_DB_ENV, str(tmp_path / "activity.db"))
     if raw is not None:
         monkeypatch.setenv(config.ACTIVITY_RETENTION_ENV, raw)
-    with caplog.at_level(logging.WARNING, logger="kenaz_ml.config"):
-        config.activity_retention()
-    warnings = [r for r in caplog.records if config.ACTIVITY_RETENTION_ENV in r.getMessage()]
+    with caplog.at_level(logging.DEBUG, logger="kenaz_ml.config"):
+        setting = config.activity_retention()
+    warnings = [
+        r for r in caplog.records if r.levelno >= logging.WARNING and config.ACTIVITY_RETENTION_ENV in r.getMessage()
+    ]
     assert len(warnings) == (1 if warns else 0)
+    if raw is None:
+        assert setting.days is None, "unset never prunes"
+        if not activity_db:
+            assert any(r.levelno == logging.DEBUG for r in caplog.records), "the silent skip still logs at debug"
 
 
 def _activity_db(path: Path, now_ms: int) -> None:

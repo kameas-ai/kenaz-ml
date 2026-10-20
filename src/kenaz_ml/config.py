@@ -291,9 +291,17 @@ def parse_activity_retention(raw: str | None) -> RetentionSetting:
 
 
 def activity_retention() -> RetentionSetting:
-    """Read and parse the retention variable once, logging one warning when it cannot be used."""
+    """Read and parse the retention variable once, logging one warning when it cannot be used.
+
+    An unset variable on an install with no activity DB (sigild only) is the
+    normal case there, so it skips silently (debug log). A set-but-unusable
+    value always warns, and so does an unset one when an activity DB is configured.
+    """
     raw = os.environ.get(ACTIVITY_RETENTION_ENV)
     setting = parse_activity_retention(raw)
+    if setting.reason == "missing" and not _activity_db_configured():
+        _log.debug("kenaz-ml: %s unset and no activity DB configured; not pruning", ACTIVITY_RETENTION_ENV)
+        return setting
     if setting.warn:
         _log.warning(
             "kenaz-ml: %s is %s (%s); local ml_predictions / ml_events are not pruned this run. "
@@ -305,6 +313,14 @@ def activity_retention() -> RetentionSetting:
             RETENTION_MAX_DAYS,
         )
     return setting
+
+
+def _activity_db_configured() -> bool:
+    """Whether an activity DB is set at all (a relative one counts; startup refuses it elsewhere)."""
+    try:
+        return activity_db_path() is not None
+    except ActivityDbConfigError:
+        return True
 
 
 def models_dir() -> Path:
