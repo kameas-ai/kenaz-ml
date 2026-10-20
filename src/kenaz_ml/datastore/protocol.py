@@ -47,7 +47,13 @@ class DataStore(Protocol):
         ...
 
     def get_active_task(self) -> str | None:
-        """Return the ID of the active (non-idle, not completed) task, or None."""
+        """Return the active task's ID, or None.
+
+        Active: ``completed_at IS NULL`` and ``last_active`` within the
+        configured window (``KENAZ_ACTIVE_TASK_WINDOW_MIN``, default 30
+        minutes) of now; the most recent ``last_active`` wins. ``phase`` is a
+        feature only and does not gate this.
+        """
         ...
 
     def get_task_by_id(self, task_id: str) -> dict[str, Any] | None:
@@ -60,6 +66,37 @@ class DataStore(Protocol):
         If since is provided, use it as the lower bound instead of started_at.
         JSON payloads are parsed into dicts.
         """
+        ...
+
+    # --- Hosted-advice readers (stream-scoped in the cloud) ---
+
+    def get_feature_snapshots(
+        self,
+        *,
+        kind: str | None = None,
+        task: str | None = None,
+        since_ms: int | None = None,
+        latest_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Return ``advice.features`` snapshots ordered by ``(ts, event_id)``.
+
+        Each is ``{event_id, ts, task, kind, feature_contract_version,
+        features, features_hash}``. ``kind``/``task`` filter, ``since_ms`` is
+        an inclusive lower bound on the event ``ts``, and ``latest_only`` keeps
+        the newest snapshot per ``(task, kind)``. ``[]`` when there are none.
+        """
+        ...
+
+    def get_label_events(self, *, kind: str | None = None, since_ms: int | None = None) -> list[dict[str, Any]]:
+        """Return ``advice.label`` rows as LabelRow dicts (minus ``model``, plus ``task``).
+
+        One row per ``(kind, features_hash, ts)`` where ``ts`` is the label's
+        creation time; the highest ``revision`` wins.
+        """
+        ...
+
+    def get_sizing_events(self, *, task: str | None = None, since_ms: int | None = None) -> list[dict[str, Any]]:
+        """Return ``agent.turn_profile`` and ``model.switch`` events, ``{event_id, kind, ts, task, payload}``."""
         ...
 
     def get_session_info(self, task_id: str) -> dict[str, Any] | None:
@@ -181,6 +218,9 @@ def create_store(mode: str | None = None) -> DataStore:
     from kenaz_ml.datastore.sqlite import SqliteStore
 
     resolved_mode = mode or config.operating_mode()
+    if resolved_mode == "cloud":
+        # An activity DB is the local deployment's alone (raises LocalityError).
+        config.check_activity_db_locality(serving_mode="cloud")
 
     if resolved_mode == "cloud":
         from kenaz_ml.datastore.postgres import PostgresStore
@@ -191,4 +231,5 @@ def create_store(mode: str | None = None) -> DataStore:
         tenant = config.tenant_id()
         return PostgresStore(connection_url=url, tenant=tenant)
 
-    return SqliteStore(config.db_path())
+    # The harness's activity store when one is configured, else sigild's data.db.
+    return SqliteStore(config.local_db_path())

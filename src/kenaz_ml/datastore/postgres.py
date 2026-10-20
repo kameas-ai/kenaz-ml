@@ -14,6 +14,15 @@ import time
 from collections.abc import Callable, Collection
 from typing import Any
 
+from kenaz_ml.datastore.advice_events import (
+    FEATURES_KIND,
+    LABEL_KIND,
+    SIZING_KINDS,
+    feature_snapshots,
+    label_rows,
+    sizing_events,
+)
+
 logger = logging.getLogger(__name__)
 
 #: ``user_id`` values are opaque ids the ingest wrote (fleet uses UUIDs);
@@ -59,6 +68,9 @@ class PostgresStore:
             read and write here carries ``user_id = stream``. ``None`` is the
             unscoped store: the whole schema is one stream, which is only
             right for a single-user schema or for cross-stream training.
+        active_task_window_ms: How recently an uncompleted task must have been
+            active to count as the active task. Defaults to the configured
+            window (``KENAZ_ACTIVE_TASK_WINDOW_MIN``, 30 minutes).
     """
 
     def __init__(
@@ -66,6 +78,8 @@ class PostgresStore:
         connection_url: str | CredentialsProvider,
         tenant: str = "public",
         stream: str | None = None,
+        *,
+        active_task_window_ms: int | None = None,
     ) -> None:
         try:
             import psycopg2
@@ -75,6 +89,7 @@ class PostgresStore:
                 "psycopg2-binary is required for PostgresStore. Install with: pip install kenaz-ml[cloud]"
             ) from None
 
+        from kenaz_ml.config import active_task_window_ms as configured_window_ms
         from kenaz_ml.config import validate_tenant_id
 
         if not validate_tenant_id(tenant):
@@ -86,6 +101,9 @@ class PostgresStore:
         if stream is not None and not validate_stream_id(stream):
             raise ValueError(f"Invalid stream id {stream!r}: 1-128 printable characters, no whitespace.")
         self._connection_url = connection_url
+        self.active_task_window_ms = (
+            active_task_window_ms if active_task_window_ms is not None else configured_window_ms()
+        )
         self._tenant = tenant
         self._stream = stream
         # The scope every events/tasks query carries: a clause appended inside
@@ -398,14 +416,20 @@ class PostgresStore:
 
     # --- Task queries ---
 
-    def get_active_task(self) -> str | None:
-        """Return the ID of the active (non-idle, not completed) task, or None."""
+    def get_active_task(self, *, now_ms: int | None = None) -> str | None:
+        """Return the most recently active uncompleted task inside the window, or None.
+
+        Active means ``completed_at IS NULL`` and ``last_active`` within
+        :attr:`active_task_window_ms` of ``now_ms`` (default: wall clock).
+        ``phase`` is not consulted: it is a feature, not a liveness signal.
+        """
+        now = now_ms if now_ms is not None else int(time.time() * 1000)
         conn = self._get_conn()
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id FROM tasks WHERE phase != 'idle' AND completed_at IS NULL"
+                "SELECT id FROM tasks WHERE completed_at IS NULL AND last_active >= %s"
                 f"{self._sc} ORDER BY last_active DESC LIMIT 1",
-                self._sp,
+                (now - self.active_task_window_ms, *self._sp),
             )
             row = cur.fetchone()
             return row[0] if row else None
@@ -475,6 +499,39 @@ class PostgresStore:
             cur.execute(f"SELECT COUNT(*) FROM tasks WHERE completed_at IS NOT NULL{self._sc}", self._sp)
             row = cur.fetchone()
             return row[0] if row else 0
+
+    # --- Hosted-advice event readers (stream-scoped like every events read) ---
+
+    def _select_events_of_kinds(self, kinds: tuple[str, ...], since_ms: int | None) -> list[dict[str, Any]]:
+        """This stream's ``events`` rows of the given kinds (``id, kind, payload, ts``)."""
+        since = " AND ts >= %s" if since_ms is not None else ""
+        conn = self._get_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT id, kind, payload, ts FROM events WHERE kind = ANY(%s){since}{self._sc} ORDER BY id ASC",
+                (list(kinds), *(() if since_ms is None else (since_ms,)), *self._sp),
+            )
+            return [{"id": r[0], "kind": r[1], "payload": r[2], "ts": r[3]} for r in cur.fetchall()]
+
+    def get_feature_snapshots(
+        self,
+        *,
+        kind: str | None = None,
+        task: str | None = None,
+        since_ms: int | None = None,
+        latest_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        """``advice.features`` snapshots; see :func:`kenaz_ml.datastore.advice_events.feature_snapshots`."""
+        rows = self._select_events_of_kinds((FEATURES_KIND,), since_ms)
+        return feature_snapshots(rows, kind=kind, task=task, latest_only=latest_only)
+
+    def get_label_events(self, *, kind: str | None = None, since_ms: int | None = None) -> list[dict[str, Any]]:
+        """``advice.label`` rows, one per (kind, features_hash, ts), highest revision winning."""
+        return label_rows(self._select_events_of_kinds((LABEL_KIND,), since_ms), kind=kind)
+
+    def get_sizing_events(self, *, task: str | None = None, since_ms: int | None = None) -> list[dict[str, Any]]:
+        """``agent.turn_profile`` and ``model.switch`` events for the sizing labeler."""
+        return sizing_events(self._select_events_of_kinds(SIZING_KINDS, since_ms), task=task)
 
     # --- Status data ---
 

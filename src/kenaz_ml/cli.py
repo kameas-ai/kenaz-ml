@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 import uvicorn
 
+from kenaz_ml import config
 from kenaz_ml.config import env, resolve_mode
 from kenaz_ml.datastore import create_store
 from kenaz_ml.datastore.sqlite import SqliteStore
@@ -24,6 +25,29 @@ if TYPE_CHECKING:
     from kenaz_ml.datastore import DataStore
     from kenaz_ml.modelstore import ModelStore
     from kenaz_ml.training.models import CloudTrainingConfig
+
+
+_ACTIVITY_DB_HELP = (
+    "Absolute path of the harness's local activity database; read instead of sigild's data.db. "
+    "Wins over KENAZ_ML_ACTIVITY_DB. Local mode with the filesystem model store only."
+)
+
+
+def _apply_activity_db(flag: str | None, *, serving_mode: str) -> None:
+    """Resolve ``--activity-db`` over ``KENAZ_ML_ACTIVITY_DB`` and refuse a non-local setup.
+
+    The flag wins and is bridged into the environment (the uvicorn string
+    import cannot take arguments, as with ``--mode``). Exits 2 on a relative
+    path, or when an activity DB is combined with cloud mode or an S3 model store.
+    """
+    try:
+        path = config.activity_db_path(flag)
+        if path is not None:
+            os.environ[config.ACTIVITY_DB_ENV] = str(path)
+        config.check_activity_db_locality(serving_mode=serving_mode)
+    except (config.ActivityDbConfigError, config.LocalityError) as exc:
+        print(f"kenaz-ml: {exc}", file=sys.stderr)
+        sys.exit(2)
 
 
 def is_loopback_host(host: str | None) -> bool:
@@ -84,9 +108,11 @@ def main() -> None:
         default=None,
         help="Serving mode: 'local' (default, with poller) or 'cloud' (stateless, no SQLite)",
     )
+    serve_parser.add_argument("--activity-db", default=None, help=_ACTIVITY_DB_HELP)
 
     train_parser = sub.add_parser("train", help="Train models from local data")
     train_parser.add_argument("--db", help="Path to sigild SQLite database")
+    train_parser.add_argument("--activity-db", default=None, help=_ACTIVITY_DB_HELP)
     train_parser.add_argument(
         "--mode",
         choices=["local", "cloud"],
@@ -183,6 +209,7 @@ def main() -> None:
                 "kenaz-ml: --dev-allow-remote set; binding non-loopback host %r (development only)", args.host
             )
         mode = resolve_mode(args.mode)
+        _apply_activity_db(args.activity_db, serving_mode=mode.value)
         # Bridge mode to create_app() via env var (uvicorn string import cannot pass args)
         os.environ["KENAZ_ML_MODE"] = mode.value
         uvicorn.run(
@@ -194,6 +221,7 @@ def main() -> None:
     elif args.command == "worker":
         _handle_worker(args)
     elif args.command == "train":
+        _apply_activity_db(args.activity_db, serving_mode=args.mode)
         if args.mode == "cloud":
             _handle_cloud_training(args)
         else:
@@ -335,6 +363,7 @@ def _handle_cloud_training(args: argparse.Namespace) -> None:
 
 def _handle_worker(args: argparse.Namespace) -> None:
     """Run the cloud worker until SIGTERM/SIGINT. Lazy-imports cloud modules."""
+    _apply_activity_db(None, serving_mode="cloud")
     db_url = env("KENAZ_POSTGRES_URL")
     s3_bucket = env("KENAZ_S3_BUCKET")
     if not db_url or not s3_bucket:

@@ -370,8 +370,10 @@ def test_the_sigild_surface_did_not_shrink() -> None:
 # 153 at the rebrand; 152 since the unused Pyre taint config (one comment naming
 # the daemon's plugin API) was deleted with the move to pyrefly; 150 since the
 # stale Homebrew tap (`kameas-ai/sigil`, `homebrew-sigil`) left README.md and
-# release.yml — the binary bundles replaced the source formula.
-LEDGER_STABLE_SURFACE = 150
+# release.yml — the binary bundles replaced the source formula; 161 since the
+# activity-store readers, whose code and tests name the daemon's data.db shape
+# (and its legacy ``SIGIL_`` env spellings) to test against it, unrenamed.
+LEDGER_STABLE_SURFACE = 161
 _SHIM_AND_SELF = (
     ":!tests/test_rebrand.py",
     ":!src/kenaz_ml/config.py",
