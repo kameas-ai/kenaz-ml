@@ -125,6 +125,10 @@ class EventPoller:
                 self.signal_engine.process_events(self._buffer, task_context)
             except Exception:
                 logger.debug("poller: signal engine error (non-fatal)", exc_info=True)
+            # The signal rows are this cycle's last writes. Commit them now: left
+            # open they would wait for the next cycle with events, and be lost
+            # if the store closed first.
+            self.store.commit()
 
     # Fallback predictions for untrained models.
     _FALLBACK_STUCK = {"probability": 0.5, "confidence": "weak"}

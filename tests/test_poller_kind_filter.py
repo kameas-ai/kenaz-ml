@@ -72,3 +72,79 @@ def test_the_poller_never_buffers_an_excluded_kind(tmp_path: Path) -> None:
     assert set(seen).isdisjoint(REV2_KINDS)
     assert seen == ["file", "terminal", "agent.tool"]
     assert store.get_cursor() == 8, "the cursor still advances past the excluded rows"
+
+
+class _OneSignal:
+    """A signal engine that writes one signal per cycle, as the real one does."""
+
+    def __init__(self, store: Any) -> None:
+        self.store = store
+
+    def process_events(self, buffer: list[dict], task_context: dict | None) -> int:
+        self.store.insert_signal("velocity_deviation", 0.8, {"n": len(buffer)})
+        return 1
+
+
+class _Classifier:
+    def classify(self, e: dict) -> dict:
+        return {"category": "idle", "confidence": 0.5}
+
+
+def test_signals_are_durable_after_a_cycle_with_no_further_events(tmp_path: Path) -> None:
+    from kenaz_ml.poller import EventPoller
+
+    path = tmp_path / "s.db"
+    store = _db(path)
+    store.ensure_tables()
+    models = {"stuck": None, "activity": _Classifier(), "workflow": None, "duration": None, "quality": None}
+    poller = EventPoller(store, models, signal_engine=_OneSignal(store))
+    poller._last_predict_time = time.time()
+    poller._poll_once()
+    poller._poll_once()  # no new events: an empty cycle must not be needed to commit
+    # Another connection sees the signal while the store is still open ...
+    other = sqlite3.connect(str(path))
+    try:
+        assert other.execute("SELECT signal_type FROM ml_signals").fetchall() == [("velocity_deviation",)]
+    finally:
+        other.close()
+    # ... and it survives the store closing.
+    store.close()
+    reopened = sqlite3.connect(str(path))
+    try:
+        assert reopened.execute("SELECT COUNT(*) FROM ml_signals").fetchone()[0] == 1
+    finally:
+        reopened.close()
+
+
+def test_the_poller_commits_after_the_signal_writes_in_any_store() -> None:
+    """Store-agnostic (Postgres included): the last call of a cycle is a commit after insert_signal."""
+    from kenaz_ml.poller import EventPoller
+
+    calls: list[str] = []
+
+    class Recording:
+        def get_cursor(self) -> int:
+            return 0
+
+        def get_events_since(self, since_id: int, limit: int = 100, *, exclude_kinds: Any = ()) -> list[dict]:
+            return [{"id": 1, "kind": "file", "source": "h", "payload": "{}", "ts": 1}]
+
+        def update_cursor(self, event_id: int) -> None:
+            calls.append("update_cursor")
+
+        def get_active_task(self) -> None:
+            return None
+
+        def insert_signal(self, *a: Any, **k: Any) -> int:
+            calls.append("insert_signal")
+            return 1
+
+        def commit(self) -> None:
+            calls.append("commit")
+
+    store = Recording()
+    models = {"stuck": None, "activity": _Classifier(), "workflow": None, "duration": None, "quality": None}
+    poller = EventPoller(store, models, signal_engine=_OneSignal(store))  # type: ignore[arg-type]
+    poller._last_predict_time = time.time()
+    poller._poll_once()
+    assert calls[-2:] == ["insert_signal", "commit"], calls
