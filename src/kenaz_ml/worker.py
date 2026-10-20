@@ -78,6 +78,7 @@ class StreamWorker:
     poll_interval_sec: float = POLL_INTERVAL_SEC
     retrain_check_sec: float = DEFAULT_RETRAIN_CHECK_SEC
     state: AppState = field(init=False, repr=False)
+    _scheduler: TrainingScheduler | None = field(init=False, default=None, repr=False)
 
     def __post_init__(self) -> None:
         # The container the local app uses, so load/reload paths are shared.
@@ -117,11 +118,41 @@ class StreamWorker:
         )
         logger.info("worker[%s]: models loaded, poller ready", self.name)
 
+    @property
+    def ready(self) -> bool:
+        """True once :meth:`setup` has completed (models loaded, scheduler built)."""
+        return self._scheduler is not None
+
+    @property
+    def training_in_progress(self) -> bool:
+        """True while this stream's training run or retention sweep is executing.
+
+        Stays true after :meth:`run` returns if a run was in flight: the run's
+        thread cannot be cancelled, so a host waiting for a stream's last
+        write must wait for this to go false.
+        """
+        return self._scheduler is not None and self._scheduler.busy
+
+    def completed_task_count(self) -> int:
+        """Completed tasks in this stream (0 before setup or when unreadable)."""
+        return self._scheduler.completed_task_count() if self._scheduler is not None else 0
+
+    def force_retrain(self) -> dict:
+        """Retrain this stream's models now; see :meth:`TrainingScheduler.force_retrain`.
+
+        Blocking; call from a worker thread. Raises before :meth:`setup`.
+        """
+        if self._scheduler is None:
+            raise RuntimeError(f"worker[{self.name}] is not set up yet")
+        return self._scheduler.force_retrain()
+
     async def _retrain_loop(self, stop: asyncio.Event) -> None:
         loop = asyncio.get_running_loop()
+        scheduler = self._scheduler
+        assert scheduler is not None
         while not stop.is_set():
             try:
-                await loop.run_in_executor(None, self._scheduler.check_and_retrain)
+                await loop.run_in_executor(None, scheduler.check_and_retrain)
             except Exception:
                 logger.warning("worker[%s]: retrain check failed (will retry)", self.name, exc_info=True)
             try:

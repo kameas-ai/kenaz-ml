@@ -29,14 +29,24 @@ _DELETE_BATCH = 1000
 
 
 def _versions(client: Any, bucket: str, prefix: str) -> list[dict[str, Any]]:
-    """Every version and delete marker under ``prefix``: {Key, VersionId, IsLatest}."""
+    """Every version and delete marker under ``prefix``: {Key, VersionId, IsLatest, LastModified}.
+
+    ``LastModified`` is S3's timezone-aware datetime, or ``None`` when absent.
+    """
     found: list[dict[str, Any]] = []
     paginator = client.get_paginator("list_object_versions")
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         for entry in [*page.get("Versions", []), *page.get("DeleteMarkers", [])]:
             if not entry["Key"].startswith(prefix):
                 raise AssertionError(f"S3 listed {entry['Key']!r} outside {prefix!r}")
-            found.append({"Key": entry["Key"], "VersionId": entry["VersionId"], "IsLatest": entry["IsLatest"]})
+            found.append(
+                {
+                    "Key": entry["Key"],
+                    "VersionId": entry["VersionId"],
+                    "IsLatest": entry["IsLatest"],
+                    "LastModified": entry.get("LastModified"),
+                }
+            )
     return found
 
 

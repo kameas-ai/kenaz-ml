@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -194,6 +194,83 @@ class S3ModelStore:
             return True
         except Exception:
             return False
+
+    # --- version lifecycle (member-erasure retrain) ---
+    #
+    # The bucket is versioned, so overwriting ``latest`` or deleting a key
+    # leaves the old bytes readable as a noncurrent version. These methods
+    # remove versions for good, the way ``s3_retained.purge_prefix`` does.
+
+    def _model_prefix(self, model_name: str) -> str:
+        if not model_name or "/" in model_name or model_name in (".", ".."):
+            raise ValueError(f"refusing model name {model_name!r}: one non-empty path segment required")
+        return f"{self._tenant_id}/models/{model_name}/"
+
+    def list_models(self) -> list[str]:
+        """Names of this tenant's models: every ``<model>/`` holding a ``latest`` pointer.
+
+        Other data kept under the tenant's models prefix (retained sets,
+        a host's own records) has no pointer and is not listed.
+        """
+        prefix = f"{self._tenant_id}/models/"
+        names: set[str] = set()
+        paginator = self._s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                parts = obj["Key"][len(prefix) :].split("/")
+                if len(parts) == 2 and parts[1] == "latest" and parts[0]:
+                    names.add(parts[0])
+        return sorted(names)
+
+    def current_version(self, model_name: str) -> str | None:
+        """The version the ``latest`` pointer names, or ``None`` when there is none."""
+        self._model_prefix(model_name)
+        try:
+            resp = self._s3.get_object(Bucket=self._bucket, Key=self._latest_key(model_name))
+        except Exception:
+            return None
+        return resp["Body"].read().decode("utf-8").strip() or None
+
+    def delete_model(self, model_name: str) -> int:
+        """Permanently delete every version of every object of one model.
+
+        Removes the pointer, all version directories, their noncurrent versions
+        and delete markers. Idempotent. Returns the number of versions removed.
+        """
+        from kenaz_ml.modelstore.s3_retained import purge_prefix
+
+        return purge_prefix(self._s3, self._bucket, self._model_prefix(model_name))
+
+    def purge_versions_before(self, model_name: str, before: datetime) -> int:
+        """Permanently delete this model's object versions written before ``before``.
+
+        Covers every key under the model's prefix -- old version directories,
+        noncurrent ``latest`` pointers, delete markers -- whose S3
+        ``LastModified`` precedes ``before`` (timezone-aware). The current
+        version is never deleted, whatever its timestamp: the live ``latest``
+        pointer and the live object of the version it names are always kept.
+
+        Raises ``LookupError`` when the model has no current version (call
+        :meth:`delete_model` to remove a model outright). Idempotent. Returns
+        the number of versions removed.
+        """
+        from kenaz_ml.modelstore.s3_retained import _delete_versions, _versions
+
+        if before.tzinfo is None:
+            raise ValueError("before must be timezone-aware")
+        prefix = self._model_prefix(model_name)
+        current = self.current_version(model_name)
+        if current is None:
+            raise LookupError(f"{model_name!r} has no current version to keep")
+        keep = {self._latest_key(model_name), self._versioned_key(model_name, current)}
+        doomed = [
+            e
+            for e in _versions(self._s3, self._bucket, prefix)
+            if not (e["IsLatest"] and e["Key"] in keep) and (e["LastModified"] is None or e["LastModified"] < before)
+        ]
+        removed = _delete_versions(self._s3, self._bucket, doomed)
+        logger.info("s3: purged %d superseded version(s) of %s", removed, prefix)
+        return removed
 
 
 class CachedModelStore:
