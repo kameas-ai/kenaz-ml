@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -59,9 +60,83 @@ class TrainingScheduler:
         self._reload = reload_callback
         self._last_retrain: float = 0.0
         self._baseline_tasks: int = self._count_completed()
+        # One training run (or retention sweep) at a time per stream: the
+        # scheduled check and a forced retrain share the retained directory.
+        self._lock = threading.Lock()
+        # Forced retrains called but still waiting for the lock: they count as
+        # busy, so a run queued behind another is never invisible between the
+        # first releasing the lock and the second taking it.
+        self._waiting = 0
+        self._waiting_lock = threading.Lock()
+
+    @property
+    def busy(self) -> bool:
+        """True while a training run or retention sweep is in progress, or a
+        forced retrain is queued for one.
+
+        A host that stops a stream uses this to know when the stream's last
+        write has landed: a run executes in a thread that cannot be cancelled.
+        """
+        with self._waiting_lock:
+            waiting = self._waiting
+        return waiting > 0 or self._lock.locked()
+
+    def completed_task_count(self) -> int:
+        """Completed tasks this scheduler's store can see (0 when unreadable)."""
+        return self._count_completed()
 
     def check_and_retrain(self) -> None:
-        """Call from a background thread — blocks while training runs."""
+        """Call from a background thread — blocks while training runs.
+
+        Returns at once when another run (a forced retrain) is in progress.
+        """
+        if not self._lock.acquire(blocking=False):
+            return
+        try:
+            self._check_and_retrain_locked()
+        finally:
+            self._lock.release()
+
+    def force_retrain(self) -> dict:
+        """Retrain every model now, ignoring the new-task threshold and interval.
+
+        For a host that must replace the stored models promptly, e.g. after a
+        member's data was erased from the data the models were trained on.
+        The run reads only what the store and the retained mirror hold *now*:
+        the mirror is pulled afresh (stale local copies are removed first), so
+        nothing deleted before this call is read by it.
+
+        Waits for any run already in progress. Raises if training fails, so
+        the caller can retry; returns :meth:`Trainer.train_all`'s summary,
+        whose ``"synthetic"`` list names the models fitted on synthetic data
+        because this stream had too little of its own.
+        """
+        with self._waiting_lock:
+            self._waiting += 1
+        try:
+            self._lock.acquire()
+        finally:
+            with self._waiting_lock:
+                self._waiting -= 1
+        try:
+            current = self._count_completed()
+            result = self._with_retained(
+                lambda: Trainer(self.store, model_store=self._model_store, retained_dir=self._retained_dir).train_all()
+            )
+            self._last_retrain = time.time()
+            self._baseline_tasks = current
+            self._log_retrain(result)
+            if self._reload is not None:
+                try:
+                    self._reload()
+                except Exception:
+                    logger.warning("scheduler: reload after forced retrain failed", exc_info=True)
+            logger.info("scheduler: forced retrain complete — %s", result)
+            return result
+        finally:
+            self._lock.release()
+
+    def _check_and_retrain_locked(self) -> None:
         elapsed = time.time() - self._last_retrain
         if elapsed < MIN_INTERVAL_SEC and self._last_retrain > 0:
             return
@@ -69,7 +144,7 @@ class TrainingScheduler:
         current = self._count_completed()
         if (current - self._baseline_tasks) < MIN_NEW_TASKS:
             if time.time() - self._last_sweep >= RETENTION_SWEEP_SEC:
-                self.sweep_retention()
+                self._sweep_retention_locked()
             return
 
         logger.info(
@@ -125,7 +200,19 @@ class TrainingScheduler:
             shutil.rmtree(self._retained_dir, ignore_errors=True)
 
     def sweep_retention(self) -> None:
-        """Expire aged retained examples without training. Never raises."""
+        """Expire aged retained examples without training. Never raises.
+
+        Skipped (returns at once) while a training run is in progress; that
+        run expires the same examples on its way in and out.
+        """
+        if not self._lock.acquire(blocking=False):
+            return
+        try:
+            self._sweep_retention_locked()
+        finally:
+            self._lock.release()
+
+    def _sweep_retention_locked(self) -> None:
         self._last_sweep = time.time()
         if self._retention_days is None or self._retained_dir is None:
             return

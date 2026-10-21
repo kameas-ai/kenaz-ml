@@ -441,6 +441,9 @@ class Trainer:
         self.store = store
         self._model_store = model_store
         self._retained_dir = retained_dir
+        # Models the last train_all() fitted on synthetic data because the
+        # store held fewer usable examples than the model's minimum.
+        self._synthetic: list[str] = []
 
     def _retain(
         self,
@@ -513,9 +516,16 @@ class Trainer:
         """Train all models and return a summary.
 
         Returns:
-            {"trained": [model_names], "samples": int, "duration_sec": float}
+            {"trained": [model_names], "synthetic": [model_names],
+             "samples": int, "duration_sec": float}
+
+            ``synthetic`` is the subset of ``trained`` fitted on synthetic data
+            because this store had fewer usable examples than the model's
+            minimum. A model below its minimum with no synthetic fallback is
+            absent from ``trained`` (nothing was written for it).
         """
         start = time.time()
+        self._synthetic = []
         trained = []
         total_samples = 0
 
@@ -557,6 +567,7 @@ class Trainer:
         elapsed = time.time() - start
         return {
             "trained": trained,
+            "synthetic": list(self._synthetic),
             "samples": total_samples,
             "duration_sec": round(elapsed, 2),
         }
@@ -618,6 +629,7 @@ class Trainer:
                 # behaviour, so replaying them during a base refresh would
                 # personalize the new base towards nobody.
                 update.record(n_samples=500, model=predictor.model)
+            self._synthetic.append("stuck")
             return 500
 
         X = np.array(X_list)
@@ -688,6 +700,7 @@ class Trainer:
                 estimator = DurationEstimator(model_store=self._model_store)
                 estimator.train(X, y)
                 update.record(n_samples=500, model=estimator.model)
+            self._synthetic.append("duration")
             return 500
 
         X = np.array(X_list)
