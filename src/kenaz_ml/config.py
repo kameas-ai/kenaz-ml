@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import overload
 
@@ -132,6 +133,195 @@ def _data_home() -> Path:
 def db_path() -> Path:
     """Return the path to the sigild SQLite database."""
     return _data_home() / "sigild" / "data.db"
+
+
+# ---------------------------------------------------------------------------
+# The harness's local activity store
+# ---------------------------------------------------------------------------
+
+#: The absolute path of the harness's local activity database. The spawning
+#: client sets it; the engine never derives one. ``serve --activity-db`` wins
+#: over it (the CLI bridges the flag through this variable, like ``--mode``).
+#: Read with ``os.environ`` on purpose: the name is new and has no legacy
+#: ``SIGIL_`` spelling to fall back to.
+ACTIVITY_DB_ENV = "KENAZ_ML_ACTIVITY_DB"
+
+
+class ActivityDbConfigError(ValueError):
+    """The activity database setting is unusable; the engine must not start."""
+
+
+def activity_db_path(cli_value: str | None = None) -> Path | None:
+    """Return the configured activity database path, or ``None`` when none is set.
+
+    ``cli_value`` (the ``--activity-db`` flag) wins over ``KENAZ_ML_ACTIVITY_DB``.
+    An empty value counts as unset. A relative path is refused rather than
+    resolved against whatever the working directory happens to be.
+
+    Raises:
+        ActivityDbConfigError: the value is not an absolute path.
+    """
+    raw = cli_value if cli_value is not None and cli_value.strip() else os.environ.get(ACTIVITY_DB_ENV)
+    if raw is None or not raw.strip():
+        return None
+    path = Path(raw.strip())
+    if not path.is_absolute():
+        raise ActivityDbConfigError(
+            f"{ACTIVITY_DB_ENV} / --activity-db must be an absolute path, got {raw!r}; refusing to start"
+        )
+    return path
+
+
+def local_db_path() -> Path:
+    """The SQLite file the local deployment reads: the activity DB when set, else sigild's."""
+    return activity_db_path() or db_path()
+
+
+class LocalityError(RuntimeError):
+    """An activity database is configured on a path that could move its data off the machine."""
+
+
+def check_activity_db_locality(*, serving_mode: str | None = None, model_store: object | None = None) -> None:
+    """Refuse to run with an activity database anywhere but the local, no-egress path.
+
+    The activity database holds one person's workflow on one machine. It is
+    read only by the local deployment: a cloud serving or operating mode, or a
+    model store that writes to S3, would put an engine that reads it next to a
+    path that leaves the machine. Any of those with an activity database set
+    is a misconfiguration, so the engine stops instead of choosing for it.
+
+    Raises:
+        ActivityDbConfigError: the activity DB path is not absolute.
+        LocalityError: an activity DB is set together with cloud mode or an S3 model store.
+    """
+    path = activity_db_path()
+    if path is None:
+        return
+    reasons: list[str] = []
+    if serving_mode is not None and str(getattr(serving_mode, "value", serving_mode)).lower() == "cloud":
+        reasons.append("serving mode is cloud")
+    if operating_mode() == "cloud":
+        reasons.append("KENAZ_MODE is cloud")
+    if model_store is not None and _is_s3_model_store(model_store):
+        reasons.append("the model store is S3")
+    if reasons:
+        raise LocalityError(
+            f"{ACTIVITY_DB_ENV} is set but {' and '.join(reasons)}: the local activity database is only read "
+            "by the local, on-device deployment. Unset it, or run in local mode with the filesystem model store."
+        )
+
+
+def _is_s3_model_store(model_store: object) -> bool:
+    from kenaz_ml.modelstore import CachedModelStore, S3ModelStore
+
+    inner = getattr(model_store, "_inner", None) if isinstance(model_store, CachedModelStore) else None
+    return isinstance(model_store, S3ModelStore) or isinstance(inner, S3ModelStore)
+
+
+#: Minutes of inactivity after which an uncompleted task stops being the active one.
+ACTIVE_TASK_WINDOW_ENV = "KENAZ_ACTIVE_TASK_WINDOW_MIN"
+DEFAULT_ACTIVE_TASK_WINDOW_MIN = 30
+
+
+def active_task_window_ms() -> int:
+    """The active-task window in ms (``KENAZ_ACTIVE_TASK_WINDOW_MIN``, default 30 minutes).
+
+    A task is active when it is not completed and its ``last_active`` falls
+    inside this window. Anything but a positive whole number of minutes falls
+    back to the default with a warning.
+    """
+    raw = os.environ.get(ACTIVE_TASK_WINDOW_ENV)
+    minutes = DEFAULT_ACTIVE_TASK_WINDOW_MIN
+    if raw is not None and raw.strip():
+        text = raw.strip()
+        if re.fullmatch(r"[0-9]+", text) and int(text) > 0:
+            minutes = int(text)
+        else:
+            _log.warning(
+                "kenaz-ml: %s=%r is not a positive whole number of minutes; using %d",
+                ACTIVE_TASK_WINDOW_ENV,
+                raw,
+                DEFAULT_ACTIVE_TASK_WINDOW_MIN,
+            )
+    return minutes * 60_000
+
+
+#: Local retention of the engine's own rows (``ml_predictions``, ``ml_events``).
+ACTIVITY_RETENTION_ENV = "KENAZ_ML_ACTIVITY_RETENTION_DAYS"
+RETENTION_MIN_DAYS = 1
+RETENTION_MAX_DAYS = 3650
+
+
+@dataclass(frozen=True)
+class RetentionSetting:
+    """The parsed retention variable.
+
+    ``days`` is set only when ``reason == "valid"``; every other reason means
+    "do not prune this run". ``warn`` is whether that outcome deserves a
+    warning: everything except a valid value and an explicit ``hold``.
+    """
+
+    days: int | None
+    reason: str  # valid | hold | missing | empty | invalid | no_activity_db
+
+    @property
+    def warn(self) -> bool:
+        return self.reason not in ("valid", "hold", "no_activity_db")
+
+
+def parse_activity_retention(raw: str | None) -> RetentionSetting:
+    """Parse ``KENAZ_ML_ACTIVITY_RETENTION_DAYS`` exactly, never clamping and never defaulting.
+
+    - a decimal integer 1..3650 after trimming whitespace: prune rows older than that many days;
+    - ``hold`` (any case): skip;
+    - missing, empty, or anything else (0, negative, >3650, non-integer): skip, with a warning.
+    """
+    if raw is None:
+        return RetentionSetting(None, "missing")
+    text = raw.strip()
+    if not text:
+        return RetentionSetting(None, "empty")
+    if text.lower() == "hold":
+        return RetentionSetting(None, "hold")
+    if re.fullmatch(r"[0-9]+", text):
+        days = int(text)
+        if RETENTION_MIN_DAYS <= days <= RETENTION_MAX_DAYS:
+            return RetentionSetting(days, "valid")
+    return RetentionSetting(None, "invalid")
+
+
+def activity_retention() -> RetentionSetting:
+    """Read and parse the retention variable once, logging one warning when it cannot be used.
+
+    Retention applies only to the harness activity DB. With none configured
+    (sigild only, whose ml_* tables are Go-owned) it is off whatever the
+    variable says: reason ``"no_activity_db"``, a debug log, never a warning.
+    Otherwise a missing or unusable value warns once.
+    """
+    raw = os.environ.get(ACTIVITY_RETENTION_ENV)
+    if not _activity_db_configured():
+        _log.debug("kenaz-ml: no activity DB configured; %s ignored, nothing is pruned", ACTIVITY_RETENTION_ENV)
+        return RetentionSetting(None, "no_activity_db")
+    setting = parse_activity_retention(raw)
+    if setting.warn:
+        _log.warning(
+            "kenaz-ml: %s is %s (%s); local ml_predictions / ml_events are not pruned this run. "
+            "Expected a whole number of days %d..%d, or 'hold'.",
+            ACTIVITY_RETENTION_ENV,
+            setting.reason,
+            "unset" if raw is None else repr(raw),
+            RETENTION_MIN_DAYS,
+            RETENTION_MAX_DAYS,
+        )
+    return setting
+
+
+def _activity_db_configured() -> bool:
+    """Whether an activity DB is set at all (a relative one counts; startup refuses it elsewhere)."""
+    try:
+        return activity_db_path() is not None
+    except ActivityDbConfigError:
+        return True
 
 
 def models_dir() -> Path:

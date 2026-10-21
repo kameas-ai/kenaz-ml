@@ -13,12 +13,13 @@ if TYPE_CHECKING:
 
 from fastapi import FastAPI
 
-from kenaz_ml import __version__
+from kenaz_ml import __version__, config
 from kenaz_ml.advice.dispatch import DispatchTable, build_table, evaluation_hook, retrain_hook
 from kenaz_ml.advice.training import TICK_SEC as ADVICE_TICK_SEC
 from kenaz_ml.advice.training import AdviceTrainingScheduler
 from kenaz_ml.config import ServingMode, resolve_mode
 from kenaz_ml.datastore import DataStore, create_store
+from kenaz_ml.datastore.sqlite import SqliteStore
 from kenaz_ml.lifecycle.leases import LeaseTable, is_managed
 from kenaz_ml.models.activity import ActivityClassifier
 from kenaz_ml.models.duration import DurationEstimator
@@ -248,6 +249,33 @@ async def lifecycle_loop(state: AppState) -> None:
             logger.warning("lifecycle: sweep failed; will retry", exc_info=True)
 
 
+#: Seconds between local retention runs (the first runs at startup).
+RETENTION_INTERVAL_SEC = 86_400
+
+
+def prune_once(store: SqliteStore, retention_days: int) -> dict[str, int]:
+    """One retention run; failures are logged, never raised (the next run retries)."""
+    try:
+        deleted = store.prune_ml_rows(retention_days)
+    except Exception:
+        logger.warning("retention: pruning ml_predictions / ml_events failed; retrying next run", exc_info=True)
+        return {}
+    logger.info(
+        "retention: pruned rows older than %d days (%s)",
+        retention_days,
+        ", ".join(f"{t}={n}" for t, n in deleted.items()) or "no tables yet",
+    )
+    return deleted
+
+
+async def activity_retention_loop(store: SqliteStore, retention_days: int) -> None:
+    """Prune at startup, then daily, each run in its own BEGIN IMMEDIATE transaction."""
+    loop = asyncio.get_running_loop()
+    while True:
+        await loop.run_in_executor(None, prune_once, store, retention_days)
+        await asyncio.sleep(RETENTION_INTERVAL_SEC)
+
+
 async def advice_schedule_loop(scheduler: AdviceTrainingScheduler) -> None:
     """Drive the advice scheduler off the event loop, every ``TICK_SEC`` (FR-005)."""
     while True:
@@ -341,12 +369,15 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         """Manage startup and shutdown lifecycle for the application."""
         # --- Startup ---
+        # Before anything opens: an activity DB is local-only (raises LocalityError).
+        config.check_activity_db_locality(serving_mode=state.mode.value)
         if state.mode == ServingMode.LOCAL:
             store = create_store()
             state.store = store
 
             ms = model_store_factory()
             state.model_store = ms
+            config.check_activity_db_locality(serving_mode=state.mode.value, model_store=ms)
 
             logger.info("kenaz-ml: using %s data backend, %s model backend", type(store).__name__, type(ms).__name__)
 
@@ -404,6 +435,14 @@ def create_app(
 
             lifecycle_task = asyncio.create_task(lifecycle_loop(state))
             state_tasks.append(lifecycle_task)
+
+            # Local retention of the engine's own rows, read once at startup. Only
+            # the harness activity DB is pruned: sigild's data.db ml_* tables are
+            # Go-owned and Python only inserts there, so with no activity DB
+            # retention is off whatever the variable says.
+            retention = config.activity_retention()
+            if retention.days is not None and isinstance(store, SqliteStore) and config.activity_db_path() is not None:
+                state_tasks.append(asyncio.create_task(activity_retention_loop(store, retention.days)))
 
             logger.info("kenaz-ml: local mode -- models loaded, poller started, scheduler active")
         else:

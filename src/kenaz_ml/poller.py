@@ -86,6 +86,12 @@ class EventPoller:
 
         if not rows:
             return
+        max_id = max(e["id"] for e in rows)
+
+        # A cycle that failed before its commit left the cursor behind, so its
+        # rows come back: do not buffer them twice.
+        buffered = self._buffer[-1]["id"] if self._buffer else 0
+        rows = [e for e in rows if e["id"] > buffered]
 
         events = []
         for e in rows:
@@ -106,16 +112,11 @@ class EventPoller:
         self._buffer = self._buffer[-200:]  # keep last 200
         self._since_last_predict += len(events)
 
-        max_id = max(e["id"] for e in events)
-        self.store.update_cursor(max_id)
-
         elapsed = time.time() - self._last_predict_time
         if self._since_last_predict >= PREDICT_EVERY_N_EVENTS and elapsed >= PREDICT_MIN_INTERVAL_SEC:
             self._predict_and_write()
             self._since_last_predict = 0
             self._last_predict_time = time.time()
-
-        self.store.commit()
 
         # --- Signal detection (additive, does not affect predictions) ---
         if self.signal_engine is not None:
@@ -125,6 +126,13 @@ class EventPoller:
                 self.signal_engine.process_events(self._buffer, task_context)
             except Exception:
                 logger.debug("poller: signal engine error (non-fatal)", exc_info=True)
+
+        # One commit per cycle: predictions, signal rows and the cursor land
+        # together, so nothing waits for a later cycle with events and a failure
+        # before this point leaves the cursor where it was. The cursor is written
+        # last so SQLite's write lock is held as briefly as possible.
+        self.store.update_cursor(max_id)
+        self.store.commit()
 
     # Fallback predictions for untrained models.
     _FALLBACK_STUCK = {"probability": 0.5, "confidence": "weak"}

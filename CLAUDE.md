@@ -49,6 +49,14 @@ Architecture beyond this file — feature layer, model lifecycle, registry, base
 4. Local runtime dependencies are `scikit-learn`, `numpy`, `fastapi`, `uvicorn`, `joblib`, **and `feast`** — nothing else without an explicit, recorded decision
 5. **Never import `sqlite3` or `psycopg2` directly.** All data access goes through the `DataStore` protocol in `kenaz_ml.datastore` (`src/kenaz_ml/datastore/`), so both deployments stay behaviourally identical
 
+### The harness activity store (local)
+
+When `KENAZ_ML_ACTIVITY_DB` (or `serve --activity-db`, which wins) is set, `SqliteStore` opens that absolute path instead of the daemon's `data.db`. It is the harness's local activity store: the same `events`/`tasks`/`ml_predictions`/`ml_events` with Fleet's tenant columns (`user_id`, `node_id`, `producer`). Every SQLite query must work on both shapes (`tests/test_activity_store.py` runs each against both). The path is never derived, and setting it with cloud mode or an S3 model store refuses to start.
+
+- SQLite writes run in `BEGIN IMMEDIATE` transactions (another process writes the same file).
+- The active task is `completed_at IS NULL AND last_active >= now - window` (`KENAZ_ACTIVE_TASK_WINDOW_MIN`, default 30); `phase` is a feature only.
+- `KENAZ_ML_ACTIVITY_RETENTION_DAYS` prunes `ml_predictions`/`ml_events` only: 1..3650 prunes, `hold` skips, anything else skips with a warning. No clamping, no default.
+
 ### Storage packages — data vs. model artifacts
 
 Two unrelated things used to share the word "store". They are now separate packages, and the split is the rule for where new code goes:

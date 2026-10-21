@@ -1,7 +1,22 @@
 """DataStore implementation backed by a local SQLite file.
 
-Preserves all existing SQLite behavior including WAL mode and busy_timeout.
 Every connection enforces: PRAGMA journal_mode=WAL, PRAGMA busy_timeout=5000.
+
+Two database shapes are read through the same queries:
+
+- sigild's ``data.db`` (``events``/``tasks`` without tenancy columns), and
+- the harness's local activity store (``KENAZ_ML_ACTIVITY_DB``), whose
+  ``events``/``tasks``/``ml_predictions``/``ml_events`` carry Fleet's tenant
+  columns (``user_id``, ``node_id``, ``producer``) with local rows set to ''.
+
+Every query here names only the columns both shapes share, so neither needs
+its own branch. The engine creates ``ml_cursor`` and ``ml_signals`` in both.
+
+Writes run in ``BEGIN IMMEDIATE`` transactions: another process (the harness)
+writes the same file, and a deferred transaction that reads and then writes
+must upgrade its lock, which fails with SQLITE_BUSY without consulting
+``busy_timeout``. Taking the write lock at ``BEGIN`` makes the wait a plain
+busy wait that the timeout covers.
 """
 
 from __future__ import annotations
@@ -14,7 +29,20 @@ from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
+from kenaz_ml.datastore.advice_events import (
+    FEATURES_KIND,
+    LABEL_KIND,
+    SIZING_KINDS,
+    feature_snapshots,
+    label_rows,
+    sizing_events,
+)
+
 logger = logging.getLogger(__name__)
+
+
+def _is_no_such_table(exc: sqlite3.OperationalError) -> bool:
+    return str(exc).lower().startswith("no such table")
 
 
 class SqliteStore:
@@ -22,17 +50,32 @@ class SqliteStore:
 
     Args:
         db_path: Path to the SQLite database file.
+        active_task_window_ms: How recently an uncompleted task must have been
+            active to count as the active task. Defaults to the configured
+            window (``KENAZ_ACTIVE_TASK_WINDOW_MIN``, 30 minutes).
     """
 
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_path: Path, *, active_task_window_ms: int | None = None) -> None:
+        from kenaz_ml import config
+
         self.db_path = db_path
         self._conn: sqlite3.Connection | None = None
+        # Per table: whether it has the activity-DB ``producer`` column.
+        self._has_producer: dict[str, bool] = {}
+        self.active_task_window_ms = (
+            active_task_window_ms if active_task_window_ms is not None else config.active_task_window_ms()
+        )
 
     # --- Connection lifecycle ---
 
     def _connect(self) -> sqlite3.Connection:
-        """Create a new connection with WAL mode and busy_timeout."""
-        conn = sqlite3.connect(str(self.db_path), timeout=5.0)
+        """Create a new connection with WAL mode and busy_timeout.
+
+        ``isolation_level="IMMEDIATE"`` makes the implicit transaction the
+        driver opens before the first INSERT/UPDATE/DELETE a ``BEGIN
+        IMMEDIATE``; reads outside a write transaction stay in autocommit.
+        """
+        conn = sqlite3.connect(str(self.db_path), timeout=5.0, isolation_level="IMMEDIATE")
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
         return conn
@@ -42,6 +85,23 @@ class SqliteStore:
         if self._conn is None:
             self._conn = self._connect()
         return self._conn
+
+    def _harness_scope(self, table: str) -> str:
+        """``" AND producer = 'harness'"`` on the activity-DB shape, ``""`` on sigild's.
+
+        The activity DB's ``producer`` column admits ``'sigild'`` as well (the
+        shape is Fleet's), and its task key is ``(user_id, node_id, producer,
+        id)``, so a task id alone is not unique there. The engine reads the
+        harness's rows only. Decided once the table exists; a missing table
+        is not cached, so a later creation is seen.
+        """
+        has = self._has_producer.get(table)
+        if has is None:
+            cols = {r[1] for r in self._get_conn().execute(f"PRAGMA table_info({table})").fetchall()}
+            if not cols:
+                return ""
+            has = self._has_producer[table] = "producer" in cols
+        return " AND producer = 'harness'" if has else ""
 
     def commit(self) -> None:
         """Commit the current transaction."""
@@ -59,7 +119,18 @@ class SqliteStore:
     def ensure_tables(self) -> None:
         """Create Python-owned tables if they don't exist (ml_cursor, ml_signals)."""
         conn = self._get_conn()
+        try:
+            self._ensure_tables_script(conn)
+        except BaseException:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+        logger.info("schema: ml_cursor and ml_signals tables ensured")
+
+    @staticmethod
+    def _ensure_tables_script(conn: sqlite3.Connection) -> None:
         conn.executescript("""
+            BEGIN IMMEDIATE;
             CREATE TABLE IF NOT EXISTS ml_cursor (
                 id            INTEGER PRIMARY KEY CHECK (id = 1),
                 last_event_id INTEGER NOT NULL DEFAULT 0,
@@ -81,9 +152,8 @@ class SqliteStore:
             );
             CREATE INDEX IF NOT EXISTS idx_ml_signals_created_at ON ml_signals(created_at);
             CREATE INDEX IF NOT EXISTS idx_ml_signals_rendered ON ml_signals(rendered);
+            COMMIT;
         """)
-        conn.commit()
-        logger.info("schema: ml_cursor and ml_signals tables ensured")
 
     # --- Cursor operations ---
 
@@ -152,11 +222,18 @@ class SqliteStore:
 
     # --- Task queries ---
 
-    def get_active_task(self) -> str | None:
-        """Return the ID of the active (non-idle, not completed) task, or None."""
+    def get_active_task(self, *, now_ms: int | None = None) -> str | None:
+        """Return the most recently active uncompleted task inside the window, or None.
+
+        Active means ``completed_at IS NULL`` and ``last_active`` within
+        :attr:`active_task_window_ms` of ``now_ms`` (default: wall clock).
+        ``phase`` is not consulted: it is a feature, not a liveness signal.
+        """
+        now = now_ms if now_ms is not None else int(time.time() * 1000)
         conn = self._get_conn()
         row = conn.execute(
-            "SELECT id FROM tasks WHERE phase != 'idle' AND completed_at IS NULL ORDER BY last_active DESC LIMIT 1"
+            "SELECT id FROM tasks WHERE completed_at IS NULL AND last_active >= ? ORDER BY last_active DESC LIMIT 1",
+            (now - self.active_task_window_ms,),
         ).fetchone()
         return row[0] if row else None
 
@@ -165,7 +242,7 @@ class SqliteStore:
         conn = self._get_conn()
         conn.row_factory = sqlite3.Row
         try:
-            cur = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+            cur = conn.execute(f"SELECT * FROM tasks WHERE id = ?{self._harness_scope('tasks')}", (task_id,))
             row = cur.fetchone()
             if row is None:
                 return None
@@ -304,6 +381,97 @@ class SqliteStore:
             # signal_id column may not exist yet (Go Feature 021)
             logger.debug("get_signal_feedback: suggestions.signal_id not available yet")
             return []
+
+    # --- Hosted-advice event readers ---
+
+    def _select_events_of_kinds(self, kinds: tuple[str, ...], since_ms: int | None) -> list[dict[str, Any]]:
+        """``events`` rows of the given kinds (``id, kind, payload, ts``), ``[]`` when there is no table."""
+        params: list[Any] = list(kinds)
+        since = ""
+        if since_ms is not None:
+            since = " AND ts >= ?"
+            params.append(since_ms)
+        try:
+            rows = (
+                self._get_conn()
+                .execute(
+                    f"SELECT id, kind, payload, ts FROM events WHERE kind IN ({', '.join('?' * len(kinds))}){since}"
+                    f"{self._harness_scope('events')} "
+                    "ORDER BY id ASC",
+                    params,
+                )
+                .fetchall()
+            )
+        except sqlite3.OperationalError as exc:
+            # Only a missing table means "nothing yet"; a locked database or
+            # any other failure must reach the caller, which retries.
+            if not _is_no_such_table(exc):
+                raise
+            logger.debug("advice readers: no events table yet")
+            return []
+        return [{"id": r[0], "kind": r[1], "payload": r[2], "ts": r[3]} for r in rows]
+
+    def get_feature_snapshots(
+        self,
+        *,
+        kind: str | None = None,
+        task: str | None = None,
+        since_ms: int | None = None,
+        latest_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        """``advice.features`` snapshots; see :func:`kenaz_ml.datastore.advice_events.feature_snapshots`."""
+        rows = self._select_events_of_kinds((FEATURES_KIND,), since_ms)
+        return feature_snapshots(rows, kind=kind, task=task, latest_only=latest_only)
+
+    def get_label_events(self, *, kind: str | None = None, since_ms: int | None = None) -> list[dict[str, Any]]:
+        """``advice.label`` rows, one per (kind, features_hash, ts), highest revision winning."""
+        return label_rows(self._select_events_of_kinds((LABEL_KIND,), since_ms), kind=kind)
+
+    def get_sizing_events(self, *, task: str | None = None, since_ms: int | None = None) -> list[dict[str, Any]]:
+        """``agent.turn_profile`` and ``model.switch`` events for the sizing labeler."""
+        return sizing_events(self._select_events_of_kinds(SIZING_KINDS, since_ms), task=task)
+
+    # --- Local retention ---
+
+    #: The only tables retention prunes, with their time column. ``events`` and
+    #: ``tasks`` belong to the producer and are never pruned here.
+    PRUNED_TABLES: tuple[tuple[str, str], ...] = (("ml_predictions", "created_at"), ("ml_events", "ts"))
+
+    def prune_ml_rows(self, retention_days: int, *, now_ms: int | None = None) -> dict[str, int]:
+        """Delete ``ml_predictions`` / ``ml_events`` rows older than ``retention_days``.
+
+        Runs on its own short-lived connection (so it is safe to call from a
+        worker thread while the poller holds the shared one) in a single
+        ``BEGIN IMMEDIATE`` transaction. A table that does not exist yet is
+        skipped. Returns the number of rows deleted per table.
+        """
+        if not isinstance(retention_days, int) or isinstance(retention_days, bool) or retention_days < 1:
+            raise ValueError(f"retention_days must be a positive int, got {retention_days!r}")
+        now = now_ms if now_ms is not None else int(time.time() * 1000)
+        cutoff = now - retention_days * 86_400_000
+        deleted: dict[str, int] = {}
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            present = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?)",
+                    tuple(t for t, _ in self.PRUNED_TABLES),
+                ).fetchall()
+            }
+            for table, column in self.PRUNED_TABLES:
+                if table not in present:
+                    continue
+                cur = conn.execute(f"DELETE FROM {table} WHERE {column} < ?", (cutoff,))
+                deleted[table] = cur.rowcount
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return deleted
 
     # --- Cloud training methods (not supported in local SQLite mode) ---
 
