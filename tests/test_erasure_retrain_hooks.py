@@ -377,3 +377,86 @@ def test_a_stream_worker_exposes_readiness_and_forced_retrain(tmp_path: Path) ->
         assert not worker.training_in_progress
     finally:
         worker.store.close()
+
+
+# --- review regressions ----------------------------------------------------------
+
+
+class _FlakyGet(ClockedBucket):
+    """get_object fails once with a non-404 error (throttling, a timeout)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail_next_get = False
+
+    def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+        if self.fail_next_get:
+            self.fail_next_get = False
+            err = Exception("SlowDown")
+            err.response = {"Error": {"Code": "SlowDown"}}  # type: ignore[attr-defined]
+            raise err
+        return super().get_object(Bucket=Bucket, Key=Key)
+
+
+def test_a_transient_read_error_is_raised_not_mistaken_for_a_missing_model() -> None:
+    bucket = _FlakyGet()
+    store = S3ModelStore("b", tenant_id=TENANT, client=bucket)
+    _save(store, bucket, "stuck", b"old")
+    cutoff = bucket.tick()
+    new = _save(store, bucket, "stuck", b"new")
+    before = list(bucket.versions)
+
+    bucket.fail_next_get = True
+    with pytest.raises(Exception, match="SlowDown") as info:
+        store.purge_versions_before("stuck", cutoff)
+    assert not isinstance(info.value, LookupError), "a failed read is not 'no current version'"
+    assert bucket.versions == before, "nothing deleted"
+
+    bucket.fail_next_get = True
+    with pytest.raises(Exception, match="SlowDown"):
+        store.current_version("stuck")
+    assert store.current_version("stuck") == new
+
+
+def test_only_a_404_means_no_current_version(store: S3ModelStore, bucket: ClockedBucket) -> None:
+    assert store.current_version("absent") is None  # NoSuchKey
+
+    class ClientError(Exception):
+        response = {"Error": {"Code": "404"}}
+
+    def raise_404(**_: Any) -> dict[str, Any]:
+        raise ClientError()
+
+    bucket.get_object = raise_404  # type: ignore[method-assign]
+    assert store.current_version("stuck") is None
+    with pytest.raises(LookupError):
+        store.purge_versions_before("stuck", T0)
+
+
+def test_a_noncurrent_version_s3_stamps_after_the_cutoff_is_kept(store: S3ModelStore, bucket: ClockedBucket) -> None:
+    """Clock skew only moves the boundary for noncurrent versions; the live one is kept by key."""
+    _save(store, bucket, "stuck", b"before")
+    cutoff = bucket.tick()
+    _save(store, bucket, "stuck", b"stamped-after-cutoff")  # e.g. S3's clock ahead of the host's
+    live = _save(store, bucket, "stuck", b"live")
+    store.purge_versions_before("stuck", cutoff)
+    bodies = [b for k, b in bucket.bodies(f"{MODELS}stuck/") if k.endswith("model.joblib")]
+    assert bodies == [b"stamped-after-cutoff", b"live"]
+    assert store.current_version("stuck") == live
+
+
+def test_a_queued_forced_retrain_counts_as_busy(recording: type[_RecordingTrainer]) -> None:
+    recording.gate = threading.Event()
+    sched = TrainingScheduler(_Store(), retained_dir=Path("/nonexistent-dir-for-test"))  # type: ignore[arg-type]
+    sched._lock.acquire()  # another run holds the stream
+    t = threading.Thread(target=sched.force_retrain)
+    t.start()
+    deadline = time.time() + 5
+    while sched._waiting == 0 and time.time() < deadline:
+        time.sleep(0.01)
+    assert sched._waiting == 1 and sched.busy
+    sched._lock.release()  # the first run ends; the queued one has not yet taken the lock
+    assert sched.busy, "never idle between the two runs"
+    recording.gate.set()
+    t.join(5)
+    assert not sched.busy and recording.seen == [0]

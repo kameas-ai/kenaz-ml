@@ -63,15 +63,23 @@ class TrainingScheduler:
         # One training run (or retention sweep) at a time per stream: the
         # scheduled check and a forced retrain share the retained directory.
         self._lock = threading.Lock()
+        # Forced retrains called but still waiting for the lock: they count as
+        # busy, so a run queued behind another is never invisible between the
+        # first releasing the lock and the second taking it.
+        self._waiting = 0
+        self._waiting_lock = threading.Lock()
 
     @property
     def busy(self) -> bool:
-        """True while a training run or retention sweep is in progress.
+        """True while a training run or retention sweep is in progress, or a
+        forced retrain is queued for one.
 
         A host that stops a stream uses this to know when the stream's last
         write has landed: a run executes in a thread that cannot be cancelled.
         """
-        return self._lock.locked()
+        with self._waiting_lock:
+            waiting = self._waiting
+        return waiting > 0 or self._lock.locked()
 
     def completed_task_count(self) -> int:
         """Completed tasks this scheduler's store can see (0 when unreadable)."""
@@ -103,7 +111,14 @@ class TrainingScheduler:
         whose ``"synthetic"`` list names the models fitted on synthetic data
         because this stream had too little of its own.
         """
-        with self._lock:
+        with self._waiting_lock:
+            self._waiting += 1
+        try:
+            self._lock.acquire()
+        finally:
+            with self._waiting_lock:
+                self._waiting -= 1
+        try:
             current = self._count_completed()
             result = self._with_retained(
                 lambda: Trainer(self.store, model_store=self._model_store, retained_dir=self._retained_dir).train_all()
@@ -118,6 +133,8 @@ class TrainingScheduler:
                     logger.warning("scheduler: reload after forced retrain failed", exc_info=True)
             logger.info("scheduler: forced retrain complete — %s", result)
             return result
+        finally:
+            self._lock.release()
 
     def _check_and_retrain_locked(self) -> None:
         elapsed = time.time() - self._last_retrain

@@ -222,13 +222,30 @@ class S3ModelStore:
                     names.add(parts[0])
         return sorted(names)
 
+    def _is_not_found(self, exc: BaseException) -> bool:
+        """True only for S3's "no such key" (``NoSuchKey`` or a 404 ``ClientError``)."""
+        no_such_key = getattr(getattr(self._s3, "exceptions", None), "NoSuchKey", None)
+        if isinstance(no_such_key, type) and isinstance(exc, no_such_key):
+            return True
+        response = getattr(exc, "response", None)
+        code = str((response or {}).get("Error", {}).get("Code", "")) if isinstance(response, dict) else ""
+        return code in ("NoSuchKey", "404", "NotFound")
+
     def current_version(self, model_name: str) -> str | None:
-        """The version the ``latest`` pointer names, or ``None`` when there is none."""
+        """The version the ``latest`` pointer names, or ``None`` when there is none.
+
+        ``None`` means S3 positively answered that the pointer does not exist.
+        Any other failure (throttling, a timeout, a refused credential) is
+        raised: a caller deciding whether a model is gone must not mistake a
+        failed read for an absent model.
+        """
         self._model_prefix(model_name)
         try:
             resp = self._s3.get_object(Bucket=self._bucket, Key=self._latest_key(model_name))
-        except Exception:
-            return None
+        except Exception as e:
+            if self._is_not_found(e):
+                return None
+            raise
         return resp["Body"].read().decode("utf-8").strip() or None
 
     def delete_model(self, model_name: str) -> int:
@@ -250,9 +267,17 @@ class S3ModelStore:
         version is never deleted, whatever its timestamp: the live ``latest``
         pointer and the live object of the version it names are always kept.
 
-        Raises ``LookupError`` when the model has no current version (call
-        :meth:`delete_model` to remove a model outright). Idempotent. Returns
-        the number of versions removed.
+        Raises ``LookupError`` only when S3 positively reports no current
+        version (call :meth:`delete_model` to remove a model outright); any
+        other read failure propagates and nothing is deleted. Idempotent.
+        Returns the number of versions removed.
+
+        Clock skew: ``before`` is the caller's clock, ``LastModified`` is S3's.
+        Skew can only shift which *noncurrent* versions near the cutoff are
+        removed; the live pointer and artifact are kept by key, not by time.
+        A caller that needs every pre-cutoff version gone should pass a cutoff
+        taken after its own last pre-cutoff write (the erasure-retrain host
+        passes the retrain's start, which follows the erased stream's stop).
         """
         from kenaz_ml.modelstore.s3_retained import _delete_versions, _versions
 
