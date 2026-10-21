@@ -436,9 +436,12 @@ def create_app(
             lifecycle_task = asyncio.create_task(lifecycle_loop(state))
             state_tasks.append(lifecycle_task)
 
-            # Local retention of the engine's own rows, read once at startup.
+            # Local retention of the engine's own rows, read once at startup. Only
+            # the harness activity DB is pruned: sigild's data.db ml_* tables are
+            # Go-owned and Python only inserts there, so with no activity DB
+            # retention is off whatever the variable says.
             retention = config.activity_retention()
-            if retention.days is not None and isinstance(store, SqliteStore):
+            if retention.days is not None and isinstance(store, SqliteStore) and config.activity_db_path() is not None:
                 state_tasks.append(asyncio.create_task(activity_retention_loop(store, retention.days)))
 
             logger.info("kenaz-ml: local mode -- models loaded, poller started, scheduler active")

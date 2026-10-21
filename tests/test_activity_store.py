@@ -513,3 +513,68 @@ def test_the_poller_never_sees_the_advice_kinds(db: Db, store: SqliteStore) -> N
     db.event("advice.label", _label("h1", 1, 1), NOW)
     keep = db.event("file", {"path": "a.py"}, NOW)
     assert [r["id"] for r in store.get_events_since(0, exclude_kinds=POLLER_EXCLUDED_KINDS)] == [keep]
+
+
+# ---------------------------------------------------------------------------
+# Error handling and producer scoping
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("message", ["database is locked", "disk I/O error"])
+def test_reader_failures_other_than_a_missing_table_propagate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, message: str
+) -> None:
+    s = SqliteStore(tmp_path / "x.db")
+
+    class Failing:
+        def execute(self, *a: Any, **k: Any) -> Any:
+            raise sqlite3.OperationalError(message)
+
+    monkeypatch.setattr(s, "_get_conn", lambda: Failing())
+    monkeypatch.setattr(s, "_harness_scope", lambda table: "")
+    for read in (s.get_feature_snapshots, s.get_label_events, s.get_sizing_events):
+        with pytest.raises(sqlite3.OperationalError, match=message):
+            read()
+
+
+def _sigild_producer_rows(db: Db) -> None:
+    conn = sqlite3.connect(str(db.path))
+    conn.execute(
+        "INSERT INTO events (kind, source, payload, ts, user_id, node_id, device_event_id, producer) "
+        "VALUES ('advice.features', 's', ?, ?, '', '', 999, 'sigild')",
+        (json.dumps(_snapshot(TASK_A, "branch_now", "from-sigild")), NOW),
+    )
+    conn.execute(
+        "INSERT INTO tasks (user_id, node_id, producer, id, repo_root, phase, started_at, last_active) "
+        "VALUES ('', '', 'sigild', 'shared-id', '/sigild', 'testing', 1, 1)"
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_the_activity_db_shape_reads_harness_rows_only(tmp_path: Path) -> None:
+    db = Db(tmp_path / "h.db", "harness")
+    db.task("shared-id")
+    db.event("advice.features", _snapshot(TASK_A, "branch_now", "from-harness"), NOW - MIN)
+    _sigild_producer_rows(db)
+    s = SqliteStore(db.path)
+    assert [x["features_hash"] for x in s.get_feature_snapshots()] == ["from-harness"]
+    task = s.get_task_by_id("shared-id")
+    assert task is not None and task["producer"] == "harness" and task["repo_root"] == "/tmp/repo"
+
+
+def test_the_sigild_shape_is_not_scoped(tmp_path: Path) -> None:
+    db = Db(tmp_path / "s.db", "sigild")
+    db.task("t1")
+    db.event("advice.features", _snapshot(TASK_A, "branch_now", "h"), NOW)
+    s = SqliteStore(db.path)
+    assert s._harness_scope("events") == "" and s._harness_scope("tasks") == ""
+    assert len(s.get_feature_snapshots()) == 1 and s.get_task_by_id("t1") is not None
+
+
+def test_scope_detection_waits_for_the_table(tmp_path: Path) -> None:
+    path = tmp_path / "late.db"
+    s = SqliteStore(path)
+    assert s._harness_scope("tasks") == ""  # no table yet: not cached
+    Db(path, "harness")
+    assert s._harness_scope("tasks") == " AND producer = 'harness'"

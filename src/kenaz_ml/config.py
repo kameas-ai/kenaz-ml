@@ -262,11 +262,11 @@ class RetentionSetting:
     """
 
     days: int | None
-    reason: str  # valid | hold | missing | empty | invalid
+    reason: str  # valid | hold | missing | empty | invalid | no_activity_db
 
     @property
     def warn(self) -> bool:
-        return self.reason not in ("valid", "hold")
+        return self.reason not in ("valid", "hold", "no_activity_db")
 
 
 def parse_activity_retention(raw: str | None) -> RetentionSetting:
@@ -293,15 +293,16 @@ def parse_activity_retention(raw: str | None) -> RetentionSetting:
 def activity_retention() -> RetentionSetting:
     """Read and parse the retention variable once, logging one warning when it cannot be used.
 
-    An unset variable on an install with no activity DB (sigild only) is the
-    normal case there, so it skips silently (debug log). A set-but-unusable
-    value always warns, and so does an unset one when an activity DB is configured.
+    Retention applies only to the harness activity DB. With none configured
+    (sigild only, whose ml_* tables are Go-owned) it is off whatever the
+    variable says: reason ``"no_activity_db"``, a debug log, never a warning.
+    Otherwise a missing or unusable value warns once.
     """
     raw = os.environ.get(ACTIVITY_RETENTION_ENV)
+    if not _activity_db_configured():
+        _log.debug("kenaz-ml: no activity DB configured; %s ignored, nothing is pruned", ACTIVITY_RETENTION_ENV)
+        return RetentionSetting(None, "no_activity_db")
     setting = parse_activity_retention(raw)
-    if setting.reason == "missing" and not _activity_db_configured():
-        _log.debug("kenaz-ml: %s unset and no activity DB configured; not pruning", ACTIVITY_RETENTION_ENV)
-        return setting
     if setting.warn:
         _log.warning(
             "kenaz-ml: %s is %s (%s); local ml_predictions / ml_events are not pruned this run. "

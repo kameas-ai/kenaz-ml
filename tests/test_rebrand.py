@@ -372,8 +372,10 @@ def test_the_sigild_surface_did_not_shrink() -> None:
 # stale Homebrew tap (`kameas-ai/sigil`, `homebrew-sigil`) left README.md and
 # release.yml — the binary bundles replaced the source formula; 161 since the
 # activity-store readers, whose code and tests name the daemon's data.db shape
-# (and its legacy ``SIGIL_`` env spellings) to test against it, unrenamed.
-LEDGER_STABLE_SURFACE = 161
+# (and its legacy ``SIGIL_`` env spellings) to test against it, unrenamed; 174
+# since producer scoping, whose code and tests use the activity DB's literal
+# ``producer = 'sigild'`` value and name the daemon's Go-owned ml_* tables.
+LEDGER_STABLE_SURFACE = 174
 _SHIM_AND_SELF = (
     ":!tests/test_rebrand.py",
     ":!src/kenaz_ml/config.py",

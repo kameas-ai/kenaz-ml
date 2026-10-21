@@ -221,6 +221,12 @@ def main() -> None:
     elif args.command == "worker":
         _handle_worker(args)
     elif args.command == "train":
+        if args.db and args.activity_db:
+            print(
+                "kenaz-ml: --db and --activity-db name two different databases; pass one of them, not both.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
         _apply_activity_db(args.activity_db, serving_mode=args.mode)
         if args.mode == "cloud":
             _handle_cloud_training(args)

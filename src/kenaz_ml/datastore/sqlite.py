@@ -41,6 +41,10 @@ from kenaz_ml.datastore.advice_events import (
 logger = logging.getLogger(__name__)
 
 
+def _is_no_such_table(exc: sqlite3.OperationalError) -> bool:
+    return str(exc).lower().startswith("no such table")
+
+
 class SqliteStore:
     """DataStore implementation backed by a local SQLite file.
 
@@ -56,6 +60,8 @@ class SqliteStore:
 
         self.db_path = db_path
         self._conn: sqlite3.Connection | None = None
+        # Per table: whether it has the activity-DB ``producer`` column.
+        self._has_producer: dict[str, bool] = {}
         self.active_task_window_ms = (
             active_task_window_ms if active_task_window_ms is not None else config.active_task_window_ms()
         )
@@ -79,6 +85,23 @@ class SqliteStore:
         if self._conn is None:
             self._conn = self._connect()
         return self._conn
+
+    def _harness_scope(self, table: str) -> str:
+        """``" AND producer = 'harness'"`` on the activity-DB shape, ``""`` on sigild's.
+
+        The activity DB's ``producer`` column admits ``'sigild'`` as well (the
+        shape is Fleet's), and its task key is ``(user_id, node_id, producer,
+        id)``, so a task id alone is not unique there. The engine reads the
+        harness's rows only. Decided once the table exists; a missing table
+        is not cached, so a later creation is seen.
+        """
+        has = self._has_producer.get(table)
+        if has is None:
+            cols = {r[1] for r in self._get_conn().execute(f"PRAGMA table_info({table})").fetchall()}
+            if not cols:
+                return ""
+            has = self._has_producer[table] = "producer" in cols
+        return " AND producer = 'harness'" if has else ""
 
     def commit(self) -> None:
         """Commit the current transaction."""
@@ -219,7 +242,7 @@ class SqliteStore:
         conn = self._get_conn()
         conn.row_factory = sqlite3.Row
         try:
-            cur = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+            cur = conn.execute(f"SELECT * FROM tasks WHERE id = ?{self._harness_scope('tasks')}", (task_id,))
             row = cur.fetchone()
             if row is None:
                 return None
@@ -372,13 +395,18 @@ class SqliteStore:
             rows = (
                 self._get_conn()
                 .execute(
-                    f"SELECT id, kind, payload, ts FROM events WHERE kind IN ({', '.join('?' * len(kinds))}){since} "
+                    f"SELECT id, kind, payload, ts FROM events WHERE kind IN ({', '.join('?' * len(kinds))}){since}"
+                    f"{self._harness_scope('events')} "
                     "ORDER BY id ASC",
                     params,
                 )
                 .fetchall()
             )
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as exc:
+            # Only a missing table means "nothing yet"; a locked database or
+            # any other failure must reach the caller, which retries.
+            if not _is_no_such_table(exc):
+                raise
             logger.debug("advice readers: no events table yet")
             return []
         return [{"id": r[0], "kind": r[1], "payload": r[2], "ts": r[3]} for r in rows]

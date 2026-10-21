@@ -238,13 +238,14 @@ def test_retention_contract(raw: str | None, days: int | None, reason: str) -> N
 @pytest.mark.parametrize(
     ("raw", "warns_with_db", "warns_without_db"),
     [
+        # With no activity DB retention is off whatever the value: never a warning.
         ("30", False, False),
         ("hold", False, False),
-        (None, True, False),  # unset: silent when no activity DB is configured
-        ("", True, True),
-        ("0", True, True),
-        ("3651", True, True),
-        ("abc", True, True),
+        (None, True, False),
+        ("", True, False),
+        ("0", True, False),
+        ("3651", True, False),
+        ("abc", True, False),
     ],
 )
 def test_retention_warns_once_exactly_when_unusable(
@@ -267,10 +268,11 @@ def test_retention_warns_once_exactly_when_unusable(
         r for r in caplog.records if r.levelno >= logging.WARNING and config.ACTIVITY_RETENTION_ENV in r.getMessage()
     ]
     assert len(warnings) == (1 if warns else 0)
-    if raw is None:
+    if not activity_db:
+        assert (setting.days, setting.reason) == (None, "no_activity_db"), "no activity DB: never prunes"
+        assert any(r.levelno == logging.DEBUG for r in caplog.records), "the silent skip still logs at debug"
+    elif raw is None:
         assert setting.days is None, "unset never prunes"
-        if not activity_db:
-            assert any(r.levelno == logging.DEBUG for r in caplog.records), "the silent skip still logs at debug"
 
 
 def _activity_db(path: Path, now_ms: int) -> None:
@@ -388,3 +390,65 @@ def test_the_app_schedules_pruning_only_for_a_valid_value(
     with TestClient(app_mod.create_app(ServingMode.LOCAL)):
         pass
     assert calls == ([] if expected_days is None else [expected_days])
+
+
+def test_a_valid_value_without_an_activity_db_prunes_nothing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """sigild's data.db ml_* tables are Go-owned: Python only inserts, never prunes them."""
+    from fastapi.testclient import TestClient
+
+    from kenaz_ml import app as app_mod
+    from kenaz_ml.config import ServingMode
+
+    _local_lifespan_env(monkeypatch, tmp_path)
+    monkeypatch.setenv(config.ACTIVITY_RETENTION_ENV, "1")
+    data_db = tmp_path / "xdg" / "sigild" / "data.db"
+    data_db.parent.mkdir(parents=True)
+    old = int(time.time() * 1000) - 400 * DAY
+    conn = sqlite3.connect(str(data_db))
+    conn.executescript(
+        "CREATE TABLE ml_predictions (id INTEGER PRIMARY KEY AUTOINCREMENT, model TEXT NOT NULL, result TEXT NOT NULL,"
+        " confidence REAL NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER);"
+        "CREATE TABLE ml_events (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, endpoint TEXT NOT NULL,"
+        " routing TEXT NOT NULL, latency_ms INTEGER NOT NULL, ts INTEGER NOT NULL);"
+    )
+    conn.execute(
+        "INSERT INTO ml_predictions (model, result, confidence, created_at) VALUES ('stuck', '{}', 0.5, ?)", (old,)
+    )
+    conn.execute("INSERT INTO ml_events (kind, endpoint, routing, latency_ms, ts) VALUES ('p', 'x', 'l', 1, ?)", (old,))
+    conn.commit()
+    conn.close()
+
+    calls: list[int] = []
+
+    async def spy_loop(store: SqliteStore, days: int) -> None:
+        calls.append(days)
+
+    monkeypatch.setattr(app_mod, "activity_retention_loop", spy_loop)
+    pruned: list[int] = []
+    monkeypatch.setattr(SqliteStore, "prune_ml_rows", lambda self, days, **k: pruned.append(days) or {})
+    with TestClient(app_mod.create_app(ServingMode.LOCAL)):
+        pass
+    assert calls == [] and pruned == []
+    conn = sqlite3.connect(str(data_db))
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM ml_predictions").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM ml_events").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def test_train_refuses_db_and_activity_db_together(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from kenaz_ml import cli
+
+    monkeypatch.setattr(cli, "setup_logging", lambda: None)
+    monkeypatch.setattr(cli, "Trainer", lambda *a, **k: pytest.fail("must not train"))
+    monkeypatch.setattr(
+        sys, "argv", ["kenaz-ml", "train", "--db", str(tmp_path / "d.db"), "--activity-db", str(tmp_path / "a.db")]
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "--db" in err and "--activity-db" in err

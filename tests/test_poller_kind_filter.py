@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from kenaz_ml.datastore.postgres import PostgresStore
 from kenaz_ml.datastore.sqlite import SqliteStore
 from kenaz_ml.poller import POLLER_EXCLUDED_KINDS
@@ -147,4 +149,43 @@ def test_the_poller_commits_after_the_signal_writes_in_any_store() -> None:
     poller = EventPoller(store, models, signal_engine=_OneSignal(store))  # type: ignore[arg-type]
     poller._last_predict_time = time.time()
     poller._poll_once()
-    assert calls[-2:] == ["insert_signal", "commit"], calls
+    assert calls[-3:] == ["insert_signal", "update_cursor", "commit"], calls
+    assert calls.count("commit") == 1, "cursor, predictions and signals share one commit"
+
+
+def test_a_failure_before_the_commit_leaves_the_cursor_unchanged(tmp_path: Path) -> None:
+    from kenaz_ml.poller import EventPoller
+
+    path = tmp_path / "f.db"
+    store = _db(path)
+    store.ensure_tables()
+    seen: list[int] = []
+
+    class Counting(_Classifier):
+        def classify(self, e: dict) -> dict:
+            seen.append(e["id"])
+            return super().classify(e)
+
+    models = {"stuck": None, "activity": Counting(), "workflow": None, "duration": None, "quality": None}
+    poller = EventPoller(store, models)
+    poller._since_last_predict = 10  # force a prediction cycle ...
+    poller._last_predict_time = 0.0
+
+    def boom() -> None:
+        raise RuntimeError("model failed")
+
+    poller._predict_and_write = boom  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError):
+        poller._poll_once()
+    assert store.get_cursor() == 0
+    other = sqlite3.connect(str(path))
+    try:
+        assert other.execute("SELECT last_event_id FROM ml_cursor").fetchone()[0] == 0
+    finally:
+        other.close()
+
+    # The retry re-reads the rows but buffers each event once, and then commits.
+    poller._predict_and_write = lambda: None  # type: ignore[method-assign]
+    poller._poll_once()
+    assert store.get_cursor() == 8
+    assert len(poller._buffer) == 3 and len({e["id"] for e in poller._buffer}) == 3
