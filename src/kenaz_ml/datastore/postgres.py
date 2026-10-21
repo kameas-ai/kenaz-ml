@@ -500,6 +500,38 @@ class PostgresStore:
             row = cur.fetchone()
             return row[0] if row else 0
 
+    def count_completed_tasks_before(self, ts_ms: int) -> int:
+        """Return the count of tasks completed at or before ``ts_ms``."""
+        conn = self._get_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT COUNT(*) FROM tasks WHERE completed_at IS NOT NULL AND completed_at <= %s{self._sc}",
+                (ts_ms, *self._sp),
+            )
+            row = cur.fetchone()
+            return row[0] if row else 0
+
+    def last_ml_event_ts(self, kind: str, endpoint: str) -> int | None:
+        """Return the newest ``ml_events.ts`` with this kind and endpoint, or None."""
+        conn = self._get_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT MAX(ts) FROM ml_events WHERE kind = %s AND endpoint = %s{self._sc}",
+                (kind, endpoint, *self._sp),
+            )
+            row = cur.fetchone()
+        return int(row[0]) if row and row[0] is not None else None
+
+    def count_predictions_since(self, since_ms: int) -> dict[str, int]:
+        """Return ``ml_predictions`` counts per model created at or after ``since_ms``, expired or not."""
+        conn = self._get_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT model, COUNT(*) FROM ml_predictions WHERE created_at >= %s{self._sc} GROUP BY model",
+                (since_ms, *self._sp),
+            )
+            return {str(r[0]): int(r[1]) for r in cur.fetchall()}
+
     # --- Hosted-advice event readers (stream-scoped like every events read) ---
 
     def _select_events_of_kinds(self, kinds: tuple[str, ...], since_ms: int | None) -> list[dict[str, Any]]:

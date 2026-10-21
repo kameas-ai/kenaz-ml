@@ -18,6 +18,14 @@ logger = logging.getLogger(__name__)
 
 MIN_NEW_TASKS = 10  # retrain after 10 new completed tasks
 MIN_INTERVAL_SEC = 3600  # no more than once per hour
+CHECK_INTERVAL_SEC = 600  # how often the serving loop calls check_and_retrain
+# Models train_all fits (from local or synthetic data) whose missing weights
+# make the very first check train at once instead of waiting for new tasks.
+FIRST_RUN_MODELS = ("stuck", "duration")
+# The ml_events row every successful retrain writes; its ts persists the
+# baseline across restarts (the completed-task count at that moment).
+RETRAIN_EVENT_KIND = "retrain"
+RETRAIN_EVENT_ENDPOINT = "scheduler"
 RETENTION_SWEEP_SEC = 86_400  # expire aged retained examples at least daily
 _DAY_MS = 86_400_000
 
@@ -48,6 +56,7 @@ class TrainingScheduler:
         retained_dir: Path | None = None,
         retained_mirror: RetainedMirror | None = None,
         retention_days: Callable[[], int | None] | None = None,
+        check_interval_sec: float = CHECK_INTERVAL_SEC,
     ) -> None:
         if retained_mirror is not None and retained_dir is None:
             raise ValueError("a retained mirror needs a retained_dir to work in")
@@ -58,8 +67,15 @@ class TrainingScheduler:
         self._retention_days = retention_days
         self._last_sweep: float = 0.0
         self._reload = reload_callback
+        self.check_interval_sec = check_interval_sec
         self._last_retrain: float = 0.0
-        self._baseline_tasks: int = self._count_completed()
+        # Set once every first-run model has weights; stops re-probing the
+        # model store (an S3 round trip in the cloud) on every check.
+        self._weights_present = False
+        self._last_check_at: float | None = None
+        # "ok" | "failed" | None (no retrain known to this store yet).
+        self._last_result: str | None = None
+        self._baseline_tasks: int = self._restore_baseline()
         # One training run (or retention sweep) at a time per stream: the
         # scheduled check and a forced retrain share the retained directory.
         self._lock = threading.Lock()
@@ -84,6 +100,80 @@ class TrainingScheduler:
     def completed_task_count(self) -> int:
         """Completed tasks this scheduler's store can see (0 when unreadable)."""
         return self._count_completed()
+
+    def progress(self) -> dict:
+        """What the next retrain is waiting for, for ``/introspect``.
+
+        ``completed_tasks - baseline`` new completed tasks out of
+        ``threshold`` trigger a retrain at the next check. Times are unix
+        seconds; ``next_check_at`` is None until the first check has run.
+        """
+        next_check = None if self._last_check_at is None else self._last_check_at + self.check_interval_sec
+        return {
+            "completed_tasks": self._count_completed(),
+            "baseline": self._baseline_tasks,
+            "threshold": MIN_NEW_TASKS,
+            "last_result": self._last_result,
+            "last_retrain_at": self._last_retrain or None,
+            "next_check_at": next_check,
+            "in_progress": self.busy,
+        }
+
+    def _restore_baseline(self) -> int:
+        """Rebuild the new-task baseline from the last logged retrain.
+
+        The baseline is the completed-task count when the models were last
+        trained. Every successful retrain writes an ``ml_events`` row, so the
+        baseline survives a restart as "tasks completed at or before that
+        row's ts" -- read through the DataStore, on either SQLite shape or
+        Postgres. With no such row (never retrained, or the row was pruned by
+        activity retention) the current count is the baseline, as before; a
+        store with no weights at all trains on the first check regardless.
+        """
+        try:
+            last_ts = self.store.last_ml_event_ts(RETRAIN_EVENT_KIND, RETRAIN_EVENT_ENDPOINT)
+        except Exception:
+            logger.warning("scheduler: could not read the last retrain event; baseline is the current count")
+            last_ts = None
+        if last_ts is None:
+            return self._count_completed()
+        try:
+            baseline = int(self.store.count_completed_tasks_before(last_ts))
+        except Exception:
+            logger.warning("scheduler: could not count tasks before the last retrain; baseline is the current count")
+            return self._count_completed()
+        self._last_retrain = last_ts / 1000.0
+        self._last_result = "ok"
+        return baseline
+
+    def _missing_weights(self) -> list[str]:
+        """Models in :data:`FIRST_RUN_MODELS` with weights in neither the local nor the base slot."""
+        from kenaz_ml.modelstore import LocalModelStore
+        from kenaz_ml.modelstore.registry.slots import base_slot_dir, slot_is_empty
+
+        if self._weights_present:
+            return []
+        ms = self._model_store if self._model_store is not None else LocalModelStore()
+        missing = []
+        unknown = False
+        for name in FIRST_RUN_MODELS:
+            try:
+                if ms.exists(name):
+                    continue
+            except Exception:
+                # Unreadable is not "missing": never train on a store we
+                # cannot see into, but probe again next check.
+                logger.warning("scheduler: could not check stored weights for %s", name)
+                unknown = True
+                continue
+            try:
+                if not slot_is_empty(base_slot_dir(), name):
+                    continue
+            except Exception:
+                pass
+            missing.append(name)
+        self._weights_present = not missing and not unknown
+        return missing
 
     def check_and_retrain(self) -> None:
         """Call from a background thread — blocks while training runs.
@@ -125,6 +215,7 @@ class TrainingScheduler:
             )
             self._last_retrain = time.time()
             self._baseline_tasks = current
+            self._last_result = "ok"
             self._log_retrain(result)
             if self._reload is not None:
                 try:
@@ -133,35 +224,51 @@ class TrainingScheduler:
                     logger.warning("scheduler: reload after forced retrain failed", exc_info=True)
             logger.info("scheduler: forced retrain complete — %s", result)
             return result
+        except Exception:
+            self._last_result = "failed"
+            raise
         finally:
             self._lock.release()
 
     def _check_and_retrain_locked(self) -> None:
+        self._last_check_at = time.time()
+        missing = self._missing_weights()
+        # Missing weights skip the hourly interval: until a first run lands
+        # (e.g. the data store's tables do not exist yet) it is retried at
+        # every check, as a failed retrain always has been.
         elapsed = time.time() - self._last_retrain
-        if elapsed < MIN_INTERVAL_SEC and self._last_retrain > 0:
+        if not missing and elapsed < MIN_INTERVAL_SEC and self._last_retrain > 0:
             return
 
         current = self._count_completed()
-        if (current - self._baseline_tasks) < MIN_NEW_TASKS:
+        if missing:
+            # First run: nothing to serve but heuristic defaults. train_all
+            # fits these from local data, or bootstraps them from synthetic
+            # data when there is too little, so train now rather than after
+            # MIN_NEW_TASKS more tasks.
+            logger.info("scheduler: no weights for %s; training on first run", ", ".join(missing))
+        elif (current - self._baseline_tasks) < MIN_NEW_TASKS:
             if time.time() - self._last_sweep >= RETENTION_SWEEP_SEC:
                 self._sweep_retention_locked()
             return
-
-        logger.info(
-            "scheduler: triggering retrain (%d new tasks)",
-            current - self._baseline_tasks,
-        )
+        else:
+            logger.info(
+                "scheduler: triggering retrain (%d new tasks)",
+                current - self._baseline_tasks,
+            )
         try:
             result = self._with_retained(
                 lambda: Trainer(self.store, model_store=self._model_store, retained_dir=self._retained_dir).train_all()
             )
             self._last_retrain = time.time()
             self._baseline_tasks = current
+            self._last_result = "ok"
             self._log_retrain(result)
             if self._reload is not None:
                 self._reload()
             logger.info("scheduler: retrain complete — %s", result)
         except Exception:
+            self._last_result = "failed"
             logger.exception("scheduler: retrain failed")
 
     def _expire(self) -> int:
@@ -230,7 +337,7 @@ class TrainingScheduler:
     def _log_retrain(self, result: dict) -> None:
         try:
             latency_ms = int(result.get("duration_sec", 0) * 1000)
-            self.store.insert_ml_event("retrain", "scheduler", "local", latency_ms)
+            self.store.insert_ml_event(RETRAIN_EVENT_KIND, RETRAIN_EVENT_ENDPOINT, "local", latency_ms)
             self.store.commit()
         except Exception:
             logger.warning("scheduler: failed to log retrain event")

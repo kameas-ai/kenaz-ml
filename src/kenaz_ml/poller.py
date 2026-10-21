@@ -30,6 +30,7 @@ PREDICT_MIN_INTERVAL_SEC = 60  # minimum seconds between prediction cycles
 QUALITY_WINDOW_SEC = 1800  # 30-minute rolling window for quality features
 PREDICTION_TTL_SEC = 90  # 90-second expiry for stuck/activity/workflow
 QUALITY_TTL_SEC = 120  # 2-minute expiry for quality
+POLL_ERROR_WARN_EVERY_SEC = 300  # repeat the WARN at most every 5 min while failing
 
 #: Event kinds the poller's models are not meant to see. These are the kinds
 #: gated behind ML notice revision 2: they record advice shown, the feature
@@ -63,6 +64,10 @@ class EventPoller:
         self._since_last_predict = 0
         self._last_predict_time = 0.0
         self._running = False
+        # Failure bookkeeping for run(): when the current failure streak
+        # started warning, and how many polls it has failed.
+        self._last_error_warn = 0.0
+        self._failures = 0
 
     async def run(self) -> None:
         """Main loop — call as an asyncio task."""
@@ -72,12 +77,35 @@ class EventPoller:
             try:
                 await asyncio.get_event_loop().run_in_executor(None, self._poll_once)
             except Exception as e:
-                # Database may not exist yet or be locked — retry silently.
-                logger.debug("poller: store error (will retry): %s", e)
+                self._note_failure(e)
+            else:
+                if self._failures:
+                    logger.info("poller: recovered after %d failed poll(s)", self._failures)
+                    self._failures = 0
+                    self._last_error_warn = 0.0
             await asyncio.sleep(self.poll_interval_sec)
 
     def stop(self) -> None:
         self._running = False
+
+    def _note_failure(self, exc: BaseException) -> None:
+        """Log a failed poll: WARN at the start of a streak, then every few minutes.
+
+        The database may not exist yet or be locked, so the poller retries,
+        but a poller that never succeeds means no predictions at all, which
+        must be visible at the default level. The WARN names the exception
+        type only; its message (which could quote data) stays at DEBUG.
+        """
+        self._failures += 1
+        now = time.monotonic()
+        if self._last_error_warn == 0.0 or now - self._last_error_warn >= POLL_ERROR_WARN_EVERY_SEC:
+            self._last_error_warn = now
+            logger.warning(
+                "poller: poll failed (%s); %d consecutive failure(s), will retry",
+                type(exc).__name__,
+                self._failures,
+            )
+        logger.debug("poller: store error (will retry): %s", exc)
 
     def _poll_once(self) -> None:
         since = self.store.get_cursor()

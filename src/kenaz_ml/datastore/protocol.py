@@ -122,6 +122,26 @@ class DataStore(Protocol):
         """Return the count of completed tasks."""
         ...
 
+    def count_completed_tasks_before(self, ts_ms: int) -> int:
+        """Return the count of tasks completed at or before ``ts_ms`` (unix ms).
+
+        Counts the same rows as :meth:`count_completed_tasks`, so the training
+        scheduler can rebuild its new-task baseline from a past retrain's time.
+        """
+        ...
+
+    def last_ml_event_ts(self, kind: str, endpoint: str) -> int | None:
+        """Return the newest ``ml_events.ts`` (unix ms) with this kind and endpoint, or None."""
+        ...
+
+    def count_predictions_since(self, since_ms: int) -> dict[str, int]:
+        """Return ``ml_predictions`` row counts per model with ``created_at >= since_ms``.
+
+        Counts every row in the window, expired or not: this is activity, not
+        the set of predictions still being served.
+        """
+        ...
+
     def get_status_data(self) -> dict[str, Any]:
         """Return cursor info and latest non-expired predictions for the /status endpoint."""
         ...

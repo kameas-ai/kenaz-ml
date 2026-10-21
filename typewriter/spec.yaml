@@ -370,11 +370,16 @@ schemas:
         type: int
         nullable: true
         default: null
-        comment: Training sample count is not tracked per-model today — always null.
+        comment: >-
+          Training samples recorded in the serving manifest (training.n_samples,
+          written by the trainer), or null when no manifest served or it does
+          not record a count.
       recent_predictions:
         type: int
         default: 0
-        comment: Count of this model's non-expired ml_predictions rows from the last 24h.
+        comment: >-
+          Count of this model's ml_predictions rows created in the last 24h,
+          expired or not.
       enabled:
         type: bool
         comment: >-
@@ -411,6 +416,42 @@ schemas:
           Registry refusal text collected while resolving ("<model> [<slot>]
           <check>/<reason>: <detail>"; empty-slot misses omitted), or null when
           nothing was refused.
+  TrainingProgress:
+    description: |
+      What the local training scheduler is waiting for (/introspect).
+
+      A retrain runs at the next check once ``completed_tasks - baseline``
+      reaches ``threshold``, or at once when a model has no weights at all.
+      Times are ISO-8601 UTC.
+    fields:
+      completed_tasks:
+        type: int
+        description: Completed tasks the engine can see now.
+      baseline:
+        type: int
+        description: Completed tasks at the last retrain (persists across restarts).
+      threshold:
+        type: int
+        description: New completed tasks that trigger a retrain.
+      last_result:
+        type: string
+        nullable: true
+        default: null
+        description: '"ok" | "failed" for the last retrain, or null when none is known.'
+      last_retrain_at:
+        type: string
+        nullable: true
+        default: null
+        description: When the last successful retrain finished, or null.
+      next_check_at:
+        type: string
+        nullable: true
+        default: null
+        description: When the scheduler next checks, or null before its first check.
+      in_progress:
+        type: bool
+        default: false
+        description: True while a retrain is running or queued.
   IntrospectResponse:
     fields:
       service: string
@@ -418,6 +459,13 @@ schemas:
       mode: string
       uptime_sec: float
       models: "list<ModelIntrospection>"
+      training:
+        type: TrainingProgress
+        nullable: true
+        default: null
+        description: >-
+          Local training progress; null in cloud mode or when no scheduler is
+          running.
       capabilities:
         type: "map<bool>"
         comment: >-

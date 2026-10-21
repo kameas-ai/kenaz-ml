@@ -124,6 +124,9 @@ class AppState:
         self.engine_sha256: str | None = None
         # Per-kind advice retrain trigger (harness-recommendation-models WP01).
         self.advice_scheduler: AdviceTrainingScheduler | None = None
+        # The local workbench-model scheduler: /introspect reports its
+        # progress and POST /train runs through it (local mode only).
+        self.training_scheduler: TrainingScheduler | None = None
 
     def load_models(self, model_store: ModelStore | None = None) -> None:
         """Load or reload all model instances."""
@@ -414,11 +417,12 @@ def create_app(
             asyncio.create_task(state.poller.run())
 
             scheduler = TrainingScheduler(store, model_store=ms, reload_callback=state.reload_models_into_poller)
+            state.training_scheduler = scheduler
 
             async def _schedule_loop():
                 while True:
                     await asyncio.get_event_loop().run_in_executor(None, scheduler.check_and_retrain)
-                    await asyncio.sleep(600)
+                    await asyncio.sleep(scheduler.check_interval_sec)
 
             asyncio.create_task(_schedule_loop())
 

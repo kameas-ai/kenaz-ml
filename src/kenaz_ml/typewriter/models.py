@@ -189,9 +189,10 @@ class ModelIntrospection(BaseModel):
     # ISO-8601 UTC timestamp of the last persisted weights write (file mtime via LocalModelStore), or
     # null when untracked/never trained.
     last_trained: str | None = None
-    # Training sample count is not tracked per-model today — always null.
+    # Training samples recorded in the serving manifest (training.n_samples, written by the trainer),
+    # or null when no manifest served or it does not record a count.
     sample_count: int | None = None
-    # Count of this model's non-expired ml_predictions rows from the last 24h.
+    # Count of this model's ml_predictions rows created in the last 24h, expired or not.
     recent_predictions: int = 0
     # No per-predictor toggle exists today (capabilities.toggle=false); reflects whether the model is
     # loaded and will serve predictions.
@@ -210,12 +211,36 @@ class ModelIntrospection(BaseModel):
     refusal: str | None = None
 
 
+class TrainingProgress(BaseModel):
+    """What the local training scheduler is waiting for (/introspect).
+
+    A retrain runs at the next check once ``completed_tasks - baseline``
+    reaches ``threshold``, or at once when a model has no weights at all.
+    Times are ISO-8601 UTC.
+    """
+
+    completed_tasks: int = Field(..., description="Completed tasks the engine can see now.")
+    baseline: int = Field(..., description="Completed tasks at the last retrain (persists across restarts).")
+    threshold: int = Field(..., description="New completed tasks that trigger a retrain.")
+    last_result: str | None = Field(
+        None, description='"ok" | "failed" for the last retrain, or null when none is known.'
+    )
+    last_retrain_at: str | None = Field(None, description="When the last successful retrain finished, or null.")
+    next_check_at: str | None = Field(
+        None, description="When the scheduler next checks, or null before its first check."
+    )
+    in_progress: bool = Field(False, description="True while a retrain is running or queued.")
+
+
 class IntrospectResponse(BaseModel):
     service: str
     version: str
     mode: str
     uptime_sec: float
     models: list[ModelIntrospection]
+    training: TrainingProgress | None = Field(
+        None, description="Local training progress; null in cloud mode or when no scheduler is running."
+    )
     # Capability discovery for kenaz (spec 060 FR-008): controls are hidden in the UI when the
     # capability is absent, rather than erroring.
     capabilities: dict[str, bool]
@@ -560,6 +585,7 @@ SCHEMAS: dict[str, type[BaseModel]] = {
     "LeaseResponse": LeaseResponse,
     "ShutdownResponse": ShutdownResponse,
     "ModelIntrospection": ModelIntrospection,
+    "TrainingProgress": TrainingProgress,
     "IntrospectResponse": IntrospectResponse,
     "RecommendRequest": RecommendRequest,
     "RecommendResponse": RecommendResponse,
