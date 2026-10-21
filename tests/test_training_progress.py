@@ -74,7 +74,16 @@ class Db:
     def completed_tasks(self, n: int, *, prefix: str, completed_at: int) -> None:
         cols = "id, repo_root, branch, phase, files, started_at, last_active, completed_at"
         for i in range(n):
-            values = (f"{prefix}{i}", "/tmp/repo", "main", "coding", "{}", completed_at - 30 * MIN, completed_at, completed_at)
+            values = (
+                f"{prefix}{i}",
+                "/tmp/repo",
+                "main",
+                "coding",
+                "{}",
+                completed_at - 30 * MIN,
+                completed_at,
+                completed_at,
+            )
             if self.shape == "harness":
                 self._exec(
                     f"INSERT INTO tasks (user_id, node_id, producer, {cols}) VALUES ('', '', 'harness', ?, ?, ?, ?, ?, ?, ?, ?)",
