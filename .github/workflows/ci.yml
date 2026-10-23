@@ -205,6 +205,102 @@ jobs:
       - name: Test the Go module against the shared fixtures
         run: make typewriter-test
 
+  # Security baseline 2026-10-22 (WS1/WS4): govulncheck gate, an inline copy of
+  # workspace docs/ci-templates/vuln-gate.yml (the reusable workflow is not in the
+  # org .github repo yet). Blocks only on findings that are reachable ("called")
+  # AND have a fixed version; imported-only and unfixed findings are listed in the
+  # job summary. Stdlib findings count: their fix is the go.mod toolchain line.
+  # Only Go module here is typewriter/ (generated wire types). ubuntu-latest
+  # like the rest of this workflow.
+  govulncheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOVULNCHECK_VERSION: v1.9.0
+      GO_MODULES: "typewriter"
+      # Space-separated GO-YYYY-NNNN IDs accepted as risk; each needs a dated
+      # justification in this repo.
+      GOVULNCHECK_ALLOW: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # govulncheck reports stdlib vulns for the Go it runs with, so this must be
+      # the toolchain the release builds with.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: typewriter/go.mod
+          # Self-hosted runners persist GOPATH; cache restore fails there.
+          cache: false
+      - name: Install govulncheck
+        run: |
+          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Run govulncheck per module
+        run: |
+          set -euo pipefail
+          mkdir -p .vuln-gate
+          echo "Go $(go env GOVERSION); govulncheck ${GOVULNCHECK_VERSION}"
+          status=0
+          for m in $GO_MODULES; do
+            out=".vuln-gate/govulncheck-$(echo "$m" | sed 's#^\./##; s#/#__#g; s#^\.$#root#').json"
+            echo "::group::govulncheck $m"
+            # -format json exits 0 on findings; non-zero means the scan failed.
+            if ! govulncheck -C "$m" -format json ./... > "$out"; then
+              echo "::error::govulncheck failed to scan $m"; status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $status
+      - name: Evaluate findings
+        run: |
+          set -euo pipefail
+          allow_json=$(printf '%s\n' $GOVULNCHECK_ALLOW | jq -R . | jq -sc 'map(select(length>0))')
+          blocking=0
+          {
+            echo "## govulncheck"
+            echo
+            echo "| Module | ID | Level | Fixed in | Package | Status |"
+            echo "|---|---|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for f in .vuln-gate/govulncheck-*.json; do
+            mod=$(basename "$f" .json | sed 's/^govulncheck-//')
+            rows=$(jq -sc --argjson allow "$allow_json" '
+              [ .[] | select(.finding) | .finding
+                | { id: .osv,
+                    fixed: (.fixed_version // ""),
+                    pkg: (.trace[0].package // .trace[0].module // ""),
+                    level: (if (.trace[0].function // "") != "" then "called"
+                            elif (.trace[0].package // "") != "" then "imported"
+                            else "required" end) } ]
+              | group_by(.id)
+              | map( (map(select(.level=="called")) | first) // first )
+              | map(. + { allowed: (.id as $i | $allow | index($i) != null) })
+              | map(. + { blocks: (.level=="called" and .fixed != "" and (.allowed|not)) })
+            ' "$f")
+            echo "$rows" | jq -r --arg m "$mod" '.[] |
+              "| \($m) | \(.id) | \(.level) | \(if .fixed=="" then "no fix" else .fixed end) | \(.pkg) | \(if .blocks then "**BLOCKING**" elif .allowed then "accepted risk" else "report" end) |"' \
+              >> "$GITHUB_STEP_SUMMARY"
+            n=$(echo "$rows" | jq '[.[] | select(.blocks)] | length')
+            if [ "$n" -gt 0 ]; then
+              echo "$rows" | jq -r --arg m "$mod" '.[] | select(.blocks) |
+                "::error title=govulncheck \(.id)::\($m): reachable vulnerability \(.id) in \(.pkg); fixed in \(.fixed)"'
+              blocking=$((blocking + n))
+            fi
+          done
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "Blocking findings: $blocking" >> "$GITHUB_STEP_SUMMARY"
+          [ "$blocking" -eq 0 ]
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: govulncheck-results
+          path: .vuln-gate/
+          # .vuln-gate is a dot-dir; upload-artifact >= v4.4 skips hidden files by default.
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 30
+
   build:
     runs-on: ubuntu-latest
     steps:
