@@ -87,6 +87,15 @@
     }
   ],
   "service": "kenaz-ml",
+  "training": {
+    "baseline": 0,
+    "completed_tasks": 3,
+    "in_progress": false,
+    "last_result": "ok",
+    "last_retrain_at": "2026-10-21T14:02:11.402137+00:00",
+    "next_check_at": "2026-10-21T14:12:09.118802+00:00",
+    "threshold": 10
+  },
   "uptime_sec": 1.5,
   "version": "0.1.0"
 }

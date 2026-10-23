@@ -1193,6 +1193,17 @@
             "type": "array",
             "title": "Models"
           },
+          "training": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingProgress"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Local training progress; null in cloud mode or when no scheduler is running."
+          },
           "capabilities": {
             "additionalProperties": {
               "type": "boolean"
@@ -2305,6 +2316,75 @@
           "message"
         ],
         "title": "TrainResponse"
+      },
+      "TrainingProgress": {
+        "properties": {
+          "completed_tasks": {
+            "type": "integer",
+            "title": "Completed Tasks",
+            "description": "Completed tasks the engine can see now."
+          },
+          "baseline": {
+            "type": "integer",
+            "title": "Baseline",
+            "description": "Completed tasks at the last retrain (persists across restarts)."
+          },
+          "threshold": {
+            "type": "integer",
+            "title": "Threshold",
+            "description": "New completed tasks that trigger a retrain."
+          },
+          "last_result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Result",
+            "description": "\"ok\" | \"failed\" for the last retrain, or null when none is known."
+          },
+          "last_retrain_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Retrain At",
+            "description": "When the last successful retrain finished, or null."
+          },
+          "next_check_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Check At",
+            "description": "When the scheduler next checks, or null before its first check."
+          },
+          "in_progress": {
+            "type": "boolean",
+            "title": "In Progress",
+            "description": "True while a retrain is running or queued.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "completed_tasks",
+          "baseline",
+          "threshold"
+        ],
+        "title": "TrainingProgress",
+        "description": "What the local training scheduler is waiting for (/introspect).\n\nA retrain runs at the next check once ``completed_tasks - baseline``\nreaches ``threshold``, or at once when a model has no weights at all.\nTimes are ISO-8601 UTC."
       },
       "ValidationError": {
         "properties": {

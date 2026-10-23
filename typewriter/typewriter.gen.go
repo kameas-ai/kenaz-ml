@@ -737,10 +737,13 @@ type ModelIntrospection struct {
 	// LocalModelStore), or null when untracked/never trained.
 	LastTrained *string `json:"last_trained,omitempty"`
 
-	// Training sample count is not tracked per-model today — always null.
+	// Training samples recorded in the serving manifest (training.n_samples,
+	// written by the trainer), or null when no manifest served or it does not
+	// record a count.
 	SampleCount *int64 `json:"sample_count,omitempty"`
 
-	// Count of this model's non-expired ml_predictions rows from the last 24h.
+	// Count of this model's ml_predictions rows created in the last 24h, expired
+	// or not.
 	RecentPredictions int64 `json:"recent_predictions"`
 
 	// No per-predictor toggle exists today (capabilities.toggle=false); reflects
@@ -766,6 +769,35 @@ type ModelIntrospection struct {
 	Refusal *string `json:"refusal,omitempty"`
 }
 
+// TrainingProgress: What the local training scheduler is waiting for
+// (/introspect).
+//
+// A retrain runs at the next check once `completed_tasks - baseline` reaches
+// `threshold`, or at once when a model has no weights at all. Times are
+// ISO-8601 UTC.
+type TrainingProgress struct {
+	// Completed tasks the engine can see now.
+	CompletedTasks int64 `json:"completed_tasks"`
+
+	// Completed tasks at the last retrain (persists across restarts).
+	Baseline int64 `json:"baseline"`
+
+	// New completed tasks that trigger a retrain.
+	Threshold int64 `json:"threshold"`
+
+	// "ok" | "failed" for the last retrain, or null when none is known.
+	LastResult *string `json:"last_result,omitempty"`
+
+	// When the last successful retrain finished, or null.
+	LastRetrainAt *string `json:"last_retrain_at,omitempty"`
+
+	// When the scheduler next checks, or null before its first check.
+	NextCheckAt *string `json:"next_check_at,omitempty"`
+
+	// True while a retrain is running or queued.
+	InProgress bool `json:"in_progress"`
+}
+
 // IntrospectResponse is a wire schema of the engine.
 type IntrospectResponse struct {
 	Service   string               `json:"service"`
@@ -773,6 +805,10 @@ type IntrospectResponse struct {
 	Mode      string               `json:"mode"`
 	UptimeSec float64              `json:"uptime_sec"`
 	Models    []ModelIntrospection `json:"models"`
+
+	// Local training progress; null in cloud mode or when no scheduler is
+	// running.
+	Training *TrainingProgress `json:"training,omitempty"`
 
 	// Capability discovery for kenaz (spec 060 FR-008): controls are hidden in
 	// the UI when the capability is absent, rather than erroring.
@@ -1064,6 +1100,7 @@ var Schemas = map[string]func() any{
 	"LeaseResponse":          func() any { return new(LeaseResponse) },
 	"ShutdownResponse":       func() any { return new(ShutdownResponse) },
 	"ModelIntrospection":     func() any { return new(ModelIntrospection) },
+	"TrainingProgress":       func() any { return new(TrainingProgress) },
 	"IntrospectResponse":     func() any { return new(IntrospectResponse) },
 	"RecommendRequest":       func() any { return new(RecommendRequest) },
 	"RecommendResponse":      func() any { return new(RecommendResponse) },

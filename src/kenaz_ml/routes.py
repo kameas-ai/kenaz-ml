@@ -54,6 +54,7 @@ from kenaz_ml.typewriter.models import (
     ShutdownResponse,
     StuckRequest,
     StuckResponse,
+    TrainingProgress,
     TrainRequest,
     TrainResponse,
     WorkflowStateRequest,
@@ -322,18 +323,14 @@ def register_routes(fastapi_app: FastAPI, state: AppState, tenant_resolver: Tena
                 capabilities={"retrain": False, "toggle": False},
             )
 
-        # Recent prediction counts per ml_predictions.model key (last 24h,
-        # non-expired rows only — get_status_data already filters expiry).
+        # Prediction counts per ml_predictions.model key over the last 24h,
+        # by created_at. Expired rows count: a prediction's short TTL (the
+        # poller's 90 s) ends its serving life, not the fact that it was made.
         recent_counts: dict[str, int] = {}
         if state.store is not None:
             try:
                 cutoff_ms = int((time.time() - _RECENT_PREDICTIONS_WINDOW_SEC) * 1000)
-                for row in state.store.get_status_data()["latest_predictions"]:
-                    created_at = row.get("created_at")
-                    if isinstance(created_at, (int, float)) and created_at >= cutoff_ms:
-                        model_key = row.get("model")
-                        if isinstance(model_key, str):
-                            recent_counts[model_key] = recent_counts.get(model_key, 0) + 1
+                recent_counts = state.store.count_predictions_since(cutoff_ms)
             except Exception:
                 # WAL locked / sigild not started yet: degrade to zeros
                 # rather than failing the whole introspection.
@@ -369,7 +366,8 @@ def register_routes(fastapi_app: FastAPI, state: AppState, tenant_resolver: Tena
 
                     last_trained = datetime.fromtimestamp(mtime, tz=UTC).isoformat()
 
-            provenance = _resolution_provenance(getattr(state, "resolutions", {}).get(attr))
+            resolution = getattr(state, "resolutions", {}).get(attr)
+            provenance = _resolution_provenance(resolution)
 
             models.append(
                 ModelIntrospection(
@@ -380,7 +378,7 @@ def register_routes(fastapi_app: FastAPI, state: AppState, tenant_resolver: Tena
                     status=status_str,
                     trained=trained,
                     last_trained=last_trained,
-                    sample_count=None,  # not tracked per-model today
+                    sample_count=_manifest_sample_count(resolution),
                     recent_predictions=recent_counts.get(prediction_model, 0) if prediction_model else 0,
                     enabled=obj is not None,
                     **provenance,
@@ -393,6 +391,7 @@ def register_routes(fastapi_app: FastAPI, state: AppState, tenant_resolver: Tena
             mode="local",
             uptime_sec=round(time.time() - _start_time, 1),
             models=models,
+            training=_training_progress(getattr(state, "training_scheduler", None)),
             capabilities={"retrain": True, "toggle": False},
         )
 
@@ -827,10 +826,63 @@ def _resolution_provenance(resolution: object | None) -> dict[str, str | None]:
     return out
 
 
+def _manifest_sample_count(resolution: object | None) -> int | None:
+    """The serving manifest's ``training.n_samples``, or None when absent.
+
+    Only a served resolution's manifest describes the model in use; a cold
+    start or a model outside the registry (quality) has no count.
+    """
+    if resolution is None or not getattr(resolution, "served", False):
+        return None
+    manifest = getattr(resolution, "manifest", None)
+    training = getattr(manifest, "training", None)
+    n = getattr(training, "n_samples", None)
+    return n if isinstance(n, int) and not isinstance(n, bool) else None
+
+
+def _iso(epoch_sec: float | None) -> str | None:
+    if not epoch_sec:
+        return None
+    from datetime import datetime
+
+    return datetime.fromtimestamp(epoch_sec, tz=UTC).isoformat()
+
+
+def _training_progress(scheduler: object | None) -> TrainingProgress | None:
+    """Render the scheduler's progress for /introspect; None without one or on failure."""
+    progress = getattr(scheduler, "progress", None)
+    if not callable(progress):
+        return None
+    try:
+        p = progress()
+        return TrainingProgress(
+            completed_tasks=int(p["completed_tasks"]),
+            baseline=int(p["baseline"]),
+            threshold=int(p["threshold"]),
+            last_result=p.get("last_result"),
+            last_retrain_at=_iso(p.get("last_retrain_at")),
+            next_check_at=_iso(p.get("next_check_at")),
+            in_progress=bool(p.get("in_progress", False)),
+        )
+    except Exception:
+        logger.warning("introspect: training progress unavailable", exc_info=True)
+        return None
+
+
 def _run_training(state: AppState) -> None:
-    """Run training in a background thread."""
+    """Run training in a background thread.
+
+    Runs through the training scheduler when one is wired (local serving), so
+    a manual retrain logs the retrain event, resets the new-task baseline
+    /introspect reports, and reloads the models into the poller.
+    """
     try:
         state.training_in_progress = True
+        scheduler = getattr(state, "training_scheduler", None)
+        if scheduler is not None:
+            result = scheduler.force_retrain()
+            logger.info("Training complete: %s", result)
+            return
         if state.store is None:
             raise RuntimeError("the data store is not initialised")
         trainer = Trainer(state.store, model_store=state.model_store)

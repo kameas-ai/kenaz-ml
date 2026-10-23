@@ -295,6 +295,43 @@ class SqliteStore:
         except sqlite3.OperationalError:
             return 0
 
+    def count_completed_tasks_before(self, ts_ms: int) -> int:
+        """Return the count of tasks completed at or before ``ts_ms``."""
+        try:
+            conn = self._get_conn()
+            row = conn.execute(
+                "SELECT COUNT(*) FROM tasks WHERE completed_at IS NOT NULL AND completed_at <= ?", (ts_ms,)
+            ).fetchone()
+            return row[0] if row else 0
+        except sqlite3.OperationalError:
+            return 0
+
+    def last_ml_event_ts(self, kind: str, endpoint: str) -> int | None:
+        """Return the newest ``ml_events.ts`` with this kind and endpoint, or None."""
+        try:
+            conn = self._get_conn()
+            row = conn.execute(
+                "SELECT MAX(ts) FROM ml_events WHERE kind = ? AND endpoint = ?", (kind, endpoint)
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            if _is_no_such_table(exc):
+                return None
+            raise
+        return int(row[0]) if row and row[0] is not None else None
+
+    def count_predictions_since(self, since_ms: int) -> dict[str, int]:
+        """Return ``ml_predictions`` counts per model created at or after ``since_ms``, expired or not."""
+        try:
+            conn = self._get_conn()
+            rows = conn.execute(
+                "SELECT model, COUNT(*) FROM ml_predictions WHERE created_at >= ? GROUP BY model", (since_ms,)
+            ).fetchall()
+        except sqlite3.OperationalError as exc:
+            if _is_no_such_table(exc):
+                return {}
+            raise
+        return {str(r[0]): int(r[1]) for r in rows}
+
     # --- Status data ---
 
     def get_status_data(self) -> dict[str, Any]:
