@@ -296,6 +296,8 @@ jobs:
         with:
           name: govulncheck-results
           path: .vuln-gate/
+          # .vuln-gate is a dot-dir; upload-artifact >= v4.4 skips hidden files by default.
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 30
 
