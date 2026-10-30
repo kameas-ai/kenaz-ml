@@ -8,6 +8,10 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
+    # CI spend: skip drafts. `ready_for_review` runs the full suite when a
+    # draft is marked ready; every PR-reachable job below carries the
+    # matching draft `if:`.
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       plant_violation:
@@ -19,8 +23,18 @@ on:
         required: false
         default: none
 
+# CI spend: cancel superseded PR runs only. PR runs never reach the
+# notarize/release/publish jobs. Every non-PR run (main push, `v*` tag,
+# dispatch) gets its own group (keyed on run_id rather than SHA, so a tag run
+# and a main/dispatch run of the same commit can never queue behind or
+# displace each other) and is never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft  # CI spend: skip drafts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +58,7 @@ jobs:
         run: ruff format --check src/ tests/
 
   type-check:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft  # CI spend: skip drafts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -66,6 +81,7 @@ jobs:
         run: make typecheck
 
   test:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft  # CI spend: skip drafts
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -156,6 +172,7 @@ jobs:
           kenaz-ml health-check 2>&1 && exit 1 || echo "Expected failure — server not running"
 
   openapi:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft  # CI spend: skip drafts
     name: OpenAPI Spec
     runs-on: ubuntu-latest
     steps:
@@ -177,6 +194,7 @@ jobs:
         run: make openapi-check
 
   typewriter:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft  # CI spend: skip drafts
     name: Typewriter Contract
     runs-on: ubuntu-latest
     steps:
@@ -213,6 +231,7 @@ jobs:
   # Only Go module here is typewriter/ (generated wire types). ubuntu-latest
   # like the rest of this workflow.
   govulncheck:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft  # CI spend: skip drafts
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -302,6 +321,7 @@ jobs:
           retention-days: 30
 
   build:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft  # CI spend: skip drafts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -374,7 +394,7 @@ jobs:
     # Push-to-main bundle builds (and the notarize/dev-publish chain that
     # needs them) are opt-in via the repository variable AUTO_RELEASE=true;
     # PRs, tags and dispatches always build.
-    if: (github.event_name != 'push' || github.ref_type == 'tag' || vars.AUTO_RELEASE == 'true')
+    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft) && (github.event_name != 'push' || github.ref_type == 'tag' || vars.AUTO_RELEASE == 'true')  # CI spend: skip drafts
     name: Frozen bundle (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
