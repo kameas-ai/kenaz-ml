@@ -1,19 +1,28 @@
 name: CI
+# kameas-ci: check
 
+# Manual only (owner decision 2026-10-30): no PR or push-to-main runs.
+#   * PR checks: `gh workflow run ci.yml --ref <branch>`. Runs lint, type-check,
+#     test, OpenAPI, Typewriter, govulncheck, build and the frozen bundles —
+#     the required checks, attached to the branch head SHA. A branch dispatch
+#     never notarizes or publishes (unless plant_violation is set, which runs
+#     the notarization gate only).
+#   * Release: a `v*` tag (pushed by hand, or tag-on-merge dispatching this at
+#     the tag) runs the full freeze → notarize → release-assets → publish chain.
+#   * Rolling dev build (the old AUTO_RELEASE push-to-main path):
+#     `gh workflow run ci.yml --ref main -f dev_release=true`.
 on:
   push:
-    branches: [main]
     # two-client-engine-01MSK2EN WP08: a `v*` tag is a RELEASE build. The
     # notarization gate below cannot be skipped on one (Amendment A3.1).
     tags: ['v*']
-  pull_request:
-    branches: [main]
-    # CI spend: skip drafts. `ready_for_review` runs the full suite when a
-    # draft is marked ready; every PR-reachable job below carries the
-    # matching draft `if:`.
-    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
+      dev_release:
+        description: "Also notarize + publish this commit to the dev channel (main only; the old push-to-main path)"
+        type: boolean
+        required: false
+        default: false
       plant_violation:
         # Evidence that the release gate can fail (WP08 T034 step 3). Run the
         # workflow manually with `unsigned_dylib` and the "Verify every nested
@@ -23,18 +32,16 @@ on:
         required: false
         default: none
 
-# CI spend: cancel superseded PR runs only. PR runs never reach the
-# notarize/release/publish jobs. Every non-PR run (main push, `v*` tag,
-# dispatch) gets its own group (keyed on run_id rather than SHA, so a tag run
-# and a main/dispatch run of the same commit can never queue behind or
-# displace each other) and is never cancelled.
+# Cancel superseded check runs: a new dispatch on the same branch cancels the
+# in-flight one. Tag runs and dev_release runs (which notarize/publish) get
+# their own group (run_id) and are never cancelled or displaced; main runs
+# queue instead of cancelling.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ (startsWith(github.ref, 'refs/tags/') || inputs.dev_release) && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') && !inputs.dev_release }}
 
 jobs:
   lint:
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft  # CI spend: skip drafts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,7 +65,6 @@ jobs:
         run: ruff format --check src/ tests/
 
   type-check:
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft  # CI spend: skip drafts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -81,7 +87,6 @@ jobs:
         run: make typecheck
 
   test:
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft  # CI spend: skip drafts
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -172,7 +177,6 @@ jobs:
           kenaz-ml health-check 2>&1 && exit 1 || echo "Expected failure — server not running"
 
   openapi:
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft  # CI spend: skip drafts
     name: OpenAPI Spec
     runs-on: ubuntu-latest
     steps:
@@ -194,7 +198,6 @@ jobs:
         run: make openapi-check
 
   typewriter:
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft  # CI spend: skip drafts
     name: Typewriter Contract
     runs-on: ubuntu-latest
     steps:
@@ -231,7 +234,6 @@ jobs:
   # Only Go module here is typewriter/ (generated wire types). ubuntu-latest
   # like the rest of this workflow.
   govulncheck:
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft  # CI spend: skip drafts
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -321,7 +323,6 @@ jobs:
           retention-days: 30
 
   build:
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft  # CI spend: skip drafts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -391,10 +392,7 @@ jobs:
   #   * "the bundle is a reasonable size". The delta is printed on every build
   #     and gated, so drift is visible long before it breaches.
   freeze:
-    # Push-to-main bundle builds (and the notarize/dev-publish chain that
-    # needs them) are opt-in via the repository variable AUTO_RELEASE=true;
-    # PRs, tags and dispatches always build.
-    if: (github.event_name != 'pull_request' || !github.event.pull_request.draft) && (github.event_name != 'push' || github.ref_type == 'tag' || vars.AUTO_RELEASE == 'true')  # CI spend: skip drafts
+    # Every run builds the bundles (tags and dispatches alike).
     name: Frozen bundle (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -672,11 +670,15 @@ jobs:
   # gate, because the release gate is this job on the tag's run. The freeze spec
   # is not involved: it keeps codesign_identity=None; CI signs, the freeze does
   # not.
+  #
+  # Runs on a `v*` tag, on a main dispatch with dev_release, or on a dispatch
+  # with a planted violation (the gate's evidence run). A plain branch
+  # dispatch (the PR check) skips it, as the PR run did before.
   notarize:
     name: Notarization gate (${{ matrix.target }})
     needs: freeze
     runs-on: ${{ matrix.os }}
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || (inputs.dev_release && github.ref == 'refs/heads/main') || (inputs.plant_violation != '' && inputs.plant_violation != 'none')
     # notarytool waits up to 45 min for Apple; the rest of the gate is ~10.
     timeout-minutes: 75
     strategy:
@@ -1155,11 +1157,12 @@ jobs:
   #
   # <label> is the bare version for tags (1.2.3; the harness pin derives the
   # file names from it and rejects a leading v) and <version>-dev.<sha7> for
-  # main pushes, so dev builds never collide with each other or a release.
+  # main dev_release dispatches, so dev builds never collide with each other or
+  # a release. Only a `v*` tag or a dev_release dispatch on main publishes.
   resolve-env:
     name: Resolve release environment
     runs-on: ubuntu-latest
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.event_name != 'push' || github.ref_type == 'tag' || vars.AUTO_RELEASE == 'true')
+    if: startsWith(github.ref, 'refs/tags/v') || (inputs.dev_release && github.ref == 'refs/heads/main')
     outputs:
       target_env: ${{ steps.pick.outputs.target_env }}
       bucket: ${{ steps.pick.outputs.bucket }}
@@ -1188,8 +1191,8 @@ jobs:
           # creates release tags with GITHUB_TOKEN, which never fires
           # `on: push: tags`, so it dispatches this workflow at the tag and
           # the run arrives as workflow_dispatch with REF=refs/tags/vX.Y.Z.
-          # A dispatch on a branch (the planted-violation evidence run) is a
-          # dev build like any other push to main.
+          # Otherwise this is a dev_release dispatch on main (the job's `if:`
+          # admits nothing else): the old push-to-main dev build.
           if [[ "$REF" == refs/tags/v*-rc* ]]; then
             TARGET="stage"
           elif [[ "$REF" == refs/tags/v* ]]; then

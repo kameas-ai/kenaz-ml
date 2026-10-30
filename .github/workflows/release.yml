@@ -1,4 +1,5 @@
 name: Release
+# kameas-ci: deploy
 
 on:
   # tag-on-merge.yml dispatches this at the tag it just created (a
@@ -11,6 +12,11 @@ on:
 
 permissions:
   contents: write
+
+# Never cancel a release; runs for the same tag queue.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 # The frozen, pip-free engine bundles (macOS .dmg, Linux and Windows zips,
 # SHA256SUMS) are attached to the release by ci.yml's `release-assets` job on

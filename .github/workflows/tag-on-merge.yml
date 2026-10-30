@@ -1,4 +1,5 @@
 name: tag-on-merge
+# kameas-ci: deploy
 
 # Cuts a SemVer tag + GitHub Release from the conventional commits merged
 # since the last release. Inline copy of the
@@ -22,21 +23,14 @@ name: tag-on-merge
 # tag. GITHUB_TOKEN-created tags do not fire `on: push: tags`, so the
 # explicit workflow_dispatch is required.
 #
-# RELEASE ON MERGE IS OPT-IN (2026-10). Two ways to run:
-#
-#   1. Manual (default): Actions → tag-on-merge → "Run workflow" on main, or
-#        gh workflow run tag-on-merge.yml -R kameas-ai/kenaz-ml --ref main \
-#          [-f bump=auto|patch|minor|major]
-#      pyproject.toml must already carry the resulting version.
-#   2. Automatic: set the repository variable AUTO_RELEASE=true
-#      (Settings → Secrets and variables → Actions → Variables). Every push
-#      to main then tags + releases (and ci.yml builds, notarizes and
-#      publishes main to the dev channel), as before. Unset/anything else →
-#      pushes to main run lint/tests only.
+# MANUAL ONLY (owner decision 2026-10-30; the AUTO_RELEASE push-to-main path
+# is gone): Actions → tag-on-merge → "Run workflow" on main, or
+#   gh workflow run tag-on-merge.yml -R kameas-ai/kenaz-ml --ref main \
+#     [-f bump=auto|patch|minor|major]
+# pyproject.toml must already carry the resulting version. A rolling dev
+# build of main is `gh workflow run ci.yml --ref main -f dev_release=true`.
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       bump:
@@ -55,9 +49,7 @@ concurrency:
 jobs:
   bump-and-release:
     name: Bump version + cut release
-    # Push-to-main runs only when AUTO_RELEASE=true. Manual runs must be on
-    # main; the classify step fails loudly otherwise.
-    if: github.event_name == 'workflow_dispatch' || vars.AUTO_RELEASE == 'true'
+    # Manual runs must be on main; the classify step fails loudly otherwise.
     runs-on: ubuntu-latest
     permissions:
       contents: write     # tag + release
