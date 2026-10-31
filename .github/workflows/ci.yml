@@ -1475,3 +1475,32 @@ jobs:
             cat release/SHA256SUMS
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # Manual CI: required status checks ignore check runs from workflow_dispatch,
+  # so mirror every job's result as a commit status with the job's name.
+  report-statuses:
+    name: report statuses
+    needs: [dev-release-guard, lint, type-check, test, openapi, typewriter, govulncheck, build, freeze, notarize, release-assets, resolve-env, publish]
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      statuses: write
+    steps:
+      # Public repo: inlined from kameas-ai/.github/actions/report-statuses.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # filter=latest: after "re-run failed jobs", report each job's newest attempt.
+          jobs="$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" \
+            -q '.jobs[] | select(.status == "completed") | [.name, .conclusion, .html_url] | @tsv')"
+          [ -n "$jobs" ] || { echo "::error::no completed jobs in run $GITHUB_RUN_ID"; exit 1; }
+          while IFS=$'\t' read -r name conclusion url; do
+            case "$conclusion" in success|skipped|neutral) state=success ;; *) state=failure ;; esac
+            gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+              -f state="$state" -f context="$name" -f target_url="$url" \
+              -f description="$conclusion (${GITHUB_WORKFLOW:0:80})" >/dev/null
+            printf '%-50s %s\n' "$name" "$state"
+          done <<< "$jobs"
