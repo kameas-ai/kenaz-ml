@@ -34,7 +34,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          title=$(gh pr list -R "$GITHUB_REPOSITORY" --head "$GITHUB_REF_NAME" --state open --json title -q '.[0].title')
+          # Only PRs whose head is this repo's branch: a fork PR with the
+          # same branch name must not be picked up.
+          owner="${GITHUB_REPOSITORY%%/*}"
+          title=$(gh api -X GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f head="$owner:$GITHUB_REF_NAME" --jq '.[0].title // ""')
           [ -n "$title" ] || { echo "::error::no open PR for $GITHUB_REF_NAME"; exit 1; }
           echo "PR title: $title"
           # Same type list and subject rule as the harness's pr-title.yml:

@@ -41,6 +41,17 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') && !inputs.dev_release }}
 
 jobs:
+  # dev_release only publishes from main; elsewhere it would silently do
+  # nothing, so fail loudly instead.
+  dev-release-guard:
+    name: dev_release guard
+    if: inputs.dev_release && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "::error::dev_release=true only publishes from main (this run is on $GITHUB_REF). Re-run with --ref main."
+          exit 1
+
   lint:
     runs-on: ubuntu-latest
     steps:

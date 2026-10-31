@@ -75,9 +75,26 @@ test: short description
 docs: short description
 ```
 
+## CI (manual since 2026-10-30)
+
+No workflow runs on PRs, pushes or schedules. `cla.yml` is the exception: it
+still reacts to PRs and comments. Pushing a `v*` tag also still fires
+`ci.yml` and `release.yml`. Run the PR checks with `ci run <pr#>`
+(kameas-ai/.github `scripts/ci`), or dispatch `ci.yml` and `pr-title.yml`
+yourself with `gh workflow run <file> --ref <branch>`. The check runs attach
+to the branch head SHA and satisfy the required checks.
+
+- Dispatched checks test the branch HEAD, not the PR merge ref. Run
+  `gh pr update-branch <n>` before `ci run`, so a branch that is behind
+  `main` is tested against it.
+- Fork PRs can't get the required checks, because a dispatch only runs on
+  branches in this repo. A maintainer must push the fork's branch to `origin`
+  and run the checks there.
+
 ## Cutting a Release
 
-Releases are cut automatically. Nothing is tagged, built or uploaded by hand.
+Releases are cut by hand with one command, `gh workflow run tag-on-merge.yml
+--ref main`. Nothing is built or uploaded by hand.
 
 1. **PR titles are conventional commits**, enforced by the "Conventional
    Commits" check. Merges are squash-only and the PR title becomes the
@@ -95,7 +112,7 @@ Releases are cut automatically. Nothing is tagged, built or uploaded by hand.
    it into the bundle and `/health` reports it). `tag-on-merge` computes the
    next tag from the latest `vX.Y.Z` tag and fails, without tagging, if
    `pyproject.toml` disagrees.
-3. On merge, `tag-on-merge.yml` tags `vX.Y.Z`, creates the GitHub Release
+3. When dispatched on `main`, `tag-on-merge.yml` tags `vX.Y.Z`, creates the GitHub Release
    with auto-generated notes, and dispatches the release builds at the tag:
    `ci.yml` freezes the engine for macOS arm64 and x86_64, Linux x86_64 and
    arm64, and Windows x86_64, runs the frozen smoke tests on each, signs,
@@ -109,8 +126,8 @@ Releases are cut automatically. Nothing is tagged, built or uploaded by hand.
    (the harness verifies the manifest signature against its baked copy of
    the release public key).
 
-Pushes to `main` that do not cut a release still build and publish a
-`<version>-dev.<sha>` label to the dev bucket. A `vX.Y.Z-rc.N` tag pushed by
+A `<version>-dev.<sha>` build of `main` goes to the dev bucket only on
+request: `gh workflow run ci.yml --ref main -f dev_release=true`. A `vX.Y.Z-rc.N` tag pushed by
 hand publishes to stage.
 
 ## License
